@@ -17,6 +17,7 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
 import { useUserStore } from '../../store/useUserStore';
 import {
@@ -74,7 +75,23 @@ export default function CreateProfileScreen({ navigation }) {
       });
       if (!result.canceled && result.assets && result.assets[0]) {
         const asset = result.assets[0];
-        const photoData = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+        let photoData = asset.uri;
+
+        try {
+          const manipulated = await manipulateAsync(
+            asset.uri,
+            [{ resize: { width: 200, height: 200 } }],
+            { compress: 0.5, format: SaveFormat.JPEG, base64: true }
+          );
+          if (manipulated.base64) {
+            photoData = `data:image/jpeg;base64,${manipulated.base64}`;
+          }
+        } catch (_) {
+          if (asset.base64) {
+            photoData = `data:image/jpeg;base64,${asset.base64}`;
+          }
+        }
+
         setProfilePhoto(photoData);
       }
     } catch (e) {

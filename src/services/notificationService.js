@@ -156,7 +156,7 @@ export const checkInitialNotification = async () => {
 };
 
 /**
- * Notify incoming chat message
+ * Notify incoming chat message (Sound only, NO popup, Parcel-safe)
  */
 export const notifyIncomingMessage = async ({
   senderNickname,
@@ -171,19 +171,41 @@ export const notifyIncomingMessage = async ({
   }
 
   try {
-    const title = senderNickname || (senderHandle ? `@${senderHandle}` : 'New Message');
-    const body = text || 'Sent a photo 📷';
+    const cleanNick = String(senderNickname || '').substring(0, 40);
+    const cleanHandle = String(senderHandle || '').replace('@', '').substring(0, 30);
+    const title = cleanNick || (cleanHandle ? `@${cleanHandle}` : 'New Message');
+
+    // Strictly ensure text is safe and never a huge raw base64 string
+    let body = 'New Message';
+    if (typeof text === 'string') {
+      if (text.startsWith('data:') || text.length > 120) {
+        body = 'Sent a photo 📷';
+      } else {
+        body = text.trim();
+      }
+    }
+
+    // NEVER pass raw base64 data URIs into Android Notification Intent extras!
+    // Android Binder transaction limit is strictly 512KB-1MB. Passing base64 causes TransactionTooLargeException.
+    const safeAvatarId =
+      contactAvatarId &&
+      typeof contactAvatarId === 'string' &&
+      !contactAvatarId.startsWith('data:') &&
+      !contactAvatarId.startsWith('file:') &&
+      contactAvatarId.length < 50
+        ? contactAvatarId
+        : 'avatar_rose';
 
     await Notifications.scheduleNotificationAsync({
       content: {
-        title,
-        body,
+        title: String(title).substring(0, 40),
+        body: String(body).substring(0, 100),
         data: {
           type: 'chat',
-          conversationId,
-          contactHandle: senderHandle,
-          contactNickname: senderNickname,
-          contactAvatarId: contactAvatarId || 'avatar_rose',
+          conversationId: String(conversationId || ''),
+          contactHandle: cleanHandle,
+          contactNickname: cleanNick,
+          contactAvatarId: safeAvatarId,
         },
         sound: 'default',
         channelId: NOTIFICATION_CHANNELS.MESSAGES,
@@ -197,12 +219,13 @@ export const notifyIncomingMessage = async ({
 };
 
 /**
- * Notify incoming connection request (Sound only, NO popup)
+ * Notify incoming connection request (Sound only, NO popup, Parcel-safe)
  */
 export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId }) => {
   try {
-    const cleanHandle = fromHandle ? fromHandle.replace('@', '') : 'someone';
-    const displayName = fromNickname ? `${fromNickname} (@${cleanHandle})` : `@${cleanHandle}`;
+    const cleanHandle = fromHandle ? fromHandle.replace('@', '').substring(0, 30) : 'someone';
+    const cleanNick = fromNickname ? String(fromNickname).substring(0, 40) : null;
+    const displayName = cleanNick ? `${cleanNick} (@${cleanHandle})` : `@${cleanHandle}`;
 
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -211,8 +234,8 @@ export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId 
         data: {
           type: 'request',
           fromHandle: cleanHandle,
-          fromNickname,
-          reqId,
+          fromNickname: cleanNick || cleanHandle,
+          reqId: String(reqId || ''),
         },
         sound: 'default',
         channelId: NOTIFICATION_CHANNELS.REQUESTS,
@@ -226,12 +249,22 @@ export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId 
 };
 
 /**
- * Notify connection request accepted (Sound only, NO popup)
+ * Notify connection request accepted (Sound only, NO popup, Parcel-safe)
  */
 export const notifyRequestAccepted = async ({ byHandle, byNickname, byAvatar }) => {
   try {
-    const cleanHandle = byHandle ? byHandle.replace('@', '') : 'User';
-    const displayName = byNickname ? `${byNickname} (@${cleanHandle})` : `@${cleanHandle}`;
+    const cleanHandle = byHandle ? byHandle.replace('@', '').substring(0, 30) : 'User';
+    const cleanNick = byNickname ? String(byNickname).substring(0, 40) : null;
+    const displayName = cleanNick ? `${cleanNick} (@${cleanHandle})` : `@${cleanHandle}`;
+
+    const safeAvatar =
+      byAvatar &&
+      typeof byAvatar === 'string' &&
+      !byAvatar.startsWith('data:') &&
+      !byAvatar.startsWith('file:') &&
+      byAvatar.length < 50
+        ? byAvatar
+        : 'avatar_rose';
 
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -240,8 +273,8 @@ export const notifyRequestAccepted = async ({ byHandle, byNickname, byAvatar }) 
         data: {
           type: 'chat',
           contactHandle: cleanHandle,
-          contactNickname: byNickname || cleanHandle,
-          contactAvatarId: byAvatar || 'avatar_rose',
+          contactNickname: cleanNick || cleanHandle,
+          contactAvatarId: safeAvatar,
         },
         sound: 'default',
         channelId: NOTIFICATION_CHANNELS.REQUESTS,
