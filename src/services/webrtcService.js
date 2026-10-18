@@ -20,33 +20,23 @@ try {
 
 import { callService } from './callService';
 
-const RTC_CONFIG = {
-  iceServers: [
-    // World-class public STUN servers
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:openrelay.metered.ca:80' },
+let dynamicIceServers = null;
 
-    // Free Open Relay TURN servers (Ports 80 & 443 — bypasses mobile carrier symmetric NAT & firewalls)
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-  ],
-  iceCandidatePoolSize: 10,
+const DEFAULT_ICE_SERVERS = [
+  // Fast, reliable public STUN servers (UDP port 19302 & 3478)
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
+
+export const setCustomIceServers = (servers) => {
+  if (Array.isArray(servers) && servers.length > 0) {
+    dynamicIceServers = servers;
+    console.log('WebRTC: Updated custom ICE servers:', servers.length);
+  }
 };
 
 class WebRTCManager {
@@ -138,7 +128,8 @@ class WebRTCManager {
       console.log('WebRTC: Local mediaStream acquired successfully.');
 
       // 2. Initialize Peer Connection
-      this.peerConnection = new RTCPeerConnection(RTC_CONFIG);
+      const iceServers = dynamicIceServers || DEFAULT_ICE_SERVERS;
+      this.peerConnection = new RTCPeerConnection({ iceServers, iceCandidatePoolSize: 10 });
 
       // Add local audio and video tracks
       this.localStream.getTracks().forEach((track) => {
@@ -152,7 +143,9 @@ class WebRTCManager {
           const candidateStr = cand.candidate || '';
           const parts = candidateStr.split(' ');
           const candType = parts.length > 7 ? parts[7] : 'unknown';
-          console.log(`WebRTC: Gathered ICE candidate [type=${candType}]`);
+          const candIp = parts.length > 4 ? parts[4] : '';
+          const candPort = parts.length > 5 ? parts[5] : '';
+          console.log(`WebRTC: Gathered ICE [type=${candType}] ${candIp}:${candPort}`);
           callService.sendSignal(
             this.currentCallId,
             this.partnerHandle,
@@ -326,6 +319,13 @@ class WebRTCManager {
           }
         }
       } else if (signalData.type === 'candidate' && signalData.candidate) {
+        const cStr = signalData.candidate?.candidate || '';
+        const parts = cStr.split(' ');
+        const cType = parts.length > 7 ? parts[7] : 'unknown';
+        const cIp = parts.length > 4 ? parts[4] : '';
+        const cPort = parts.length > 5 ? parts[5] : '';
+        console.log(`WebRTC: Received remote ICE [type=${cType}] ${cIp}:${cPort}`);
+
         if (this.peerConnection.remoteDescription && this.peerConnection.remoteDescription.type) {
           try {
             const candidateObj = typeof signalData.candidate === 'string'
