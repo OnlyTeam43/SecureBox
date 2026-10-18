@@ -19,7 +19,6 @@ import {
   initNotifications,
   handleNotificationClick,
   checkInitialNotification,
-  notifyIncomingCall,
 } from '../services/notificationService';
 import { parseInviteUrl, handleIncomingInvite } from '../services/inviteService';
 
@@ -169,17 +168,6 @@ export default function AppNavigator() {
   const handleIncomingCall = (callPayload) => {
     incomingCallDataRef.current = callPayload;
     setIncomingCallData(callPayload);
-
-    // Trigger high-priority heads-up notification for incoming calls
-    if (callPayload) {
-      notifyIncomingCall({
-        callerNickname: callPayload.callerNickname,
-        callerHandle: callPayload.callerHandle,
-        callType: callPayload.callType,
-        callId: callPayload.callId,
-        callerAvatarId: callPayload.callerAvatarId,
-      });
-    }
   };
 
   // Initialize notifications & setup click listeners

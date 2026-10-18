@@ -5,18 +5,18 @@ import { Platform, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { navigate } from '../navigation/navigationRef';
 
-// Configure foreground notification behavior
+// Configure foreground notification behavior: Sound only, NO popup alert or banner
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
+    shouldShowAlert: false, // NO popup alert
+    shouldPlaySound: true,  // Sound only
     shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowBanner: false, // NO banner popup
+    shouldShowList: true,   // List in notification tray
   }),
 });
 
-// Currently open conversation tracker (prevents notification banners for active chat)
+// Currently open conversation tracker (prevents notification for active chat)
 let activeConversationId = null;
 
 export const setActiveConversation = (id) => {
@@ -26,10 +26,10 @@ export const setActiveConversation = (id) => {
 export const getActiveConversation = () => activeConversationId;
 
 export const NOTIFICATION_CHANNELS = {
-  MESSAGES: 'messages',
-  REQUESTS: 'requests',
-  CALLS: 'calls',
-  SECURITY: 'security',
+  MESSAGES: 'messages_sound_v1',
+  REQUESTS: 'requests_sound_v1',
+  CALLS: 'calls_sound_v1',
+  SECURITY: 'security_sound_v1',
 };
 
 /**
@@ -44,9 +44,9 @@ export const initNotifications = async () => {
     if (existingStatus !== 'granted') {
       const { status } = await Notifications.requestPermissionsAsync({
         ios: {
-          allowAlert: true,
+          allowAlert: false, // No popup alert
           allowBadge: true,
-          allowSound: true,
+          allowSound: true,  // Sound only
         },
       });
       finalStatus = status;
@@ -57,11 +57,17 @@ export const initNotifications = async () => {
       return false;
     }
 
-    // 2. Set up Android Notification Channels
+    // 2. Set up Android Notification Channels (importance: DEFAULT = Sound only, NO heads-up popup banner)
     if (Platform.OS === 'android') {
+      // Clean up legacy channels that had HIGH importance
+      await Notifications.deleteNotificationChannelAsync('messages').catch(() => {});
+      await Notifications.deleteNotificationChannelAsync('requests').catch(() => {});
+      await Notifications.deleteNotificationChannelAsync('calls').catch(() => {});
+      await Notifications.deleteNotificationChannelAsync('security').catch(() => {});
+
       await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.MESSAGES, {
         name: 'Chat Messages',
-        importance: Notifications.AndroidImportance.HIGH,
+        importance: Notifications.AndroidImportance.DEFAULT, // Sound, NO popup
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#E02888',
         sound: 'default',
@@ -71,18 +77,8 @@ export const initNotifications = async () => {
 
       await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.REQUESTS, {
         name: 'Connection Requests',
-        importance: Notifications.AndroidImportance.HIGH,
+        importance: Notifications.AndroidImportance.DEFAULT, // Sound, NO popup
         vibrationPattern: [0, 200, 100, 200],
-        lightColor: '#E02888',
-        sound: 'default',
-        enableVibrate: true,
-        showBadge: true,
-      });
-
-      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.CALLS, {
-        name: 'Incoming Calls',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 500, 500, 500],
         lightColor: '#E02888',
         sound: 'default',
         enableVibrate: true,
@@ -91,7 +87,7 @@ export const initNotifications = async () => {
 
       await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.SECURITY, {
         name: 'Security & Privacy Alerts',
-        importance: Notifications.AndroidImportance.HIGH,
+        importance: Notifications.AndroidImportance.DEFAULT, // Sound, NO popup
         vibrationPattern: [0, 150, 150, 150],
         lightColor: '#FF3B30',
         sound: 'default',
@@ -191,7 +187,7 @@ export const notifyIncomingMessage = async ({
         },
         sound: 'default',
         channelId: NOTIFICATION_CHANNELS.MESSAGES,
-        priority: Notifications.AndroidNotificationPriority.HIGH,
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
       },
       trigger: null,
     });
@@ -201,7 +197,7 @@ export const notifyIncomingMessage = async ({
 };
 
 /**
- * Notify incoming connection request
+ * Notify incoming connection request (Sound only, NO popup)
  */
 export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId }) => {
   try {
@@ -220,7 +216,7 @@ export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId 
         },
         sound: 'default',
         channelId: NOTIFICATION_CHANNELS.REQUESTS,
-        priority: Notifications.AndroidNotificationPriority.HIGH,
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
       },
       trigger: null,
     });
@@ -230,7 +226,7 @@ export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId 
 };
 
 /**
- * Notify connection request accepted
+ * Notify connection request accepted (Sound only, NO popup)
  */
 export const notifyRequestAccepted = async ({ byHandle, byNickname, byAvatar }) => {
   try {
@@ -249,7 +245,7 @@ export const notifyRequestAccepted = async ({ byHandle, byNickname, byAvatar }) 
         },
         sound: 'default',
         channelId: NOTIFICATION_CHANNELS.REQUESTS,
-        priority: Notifications.AndroidNotificationPriority.HIGH,
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
       },
       trigger: null,
     });
@@ -259,39 +255,11 @@ export const notifyRequestAccepted = async ({ byHandle, byNickname, byAvatar }) 
 };
 
 /**
- * Notify incoming call
+ * Notify incoming call — suppressed per user request (sound and in-app modal only, NO notification popup)
  */
-export const notifyIncomingCall = async ({ callerNickname, callerHandle, callType, callId, callerAvatarId }) => {
-  try {
-    const cleanHandle = callerHandle ? callerHandle.replace('@', '') : 'User';
-    const displayName = callerNickname || `@${cleanHandle}`;
-    const typeLabel = callType === 'video' ? 'Video' : 'Voice';
-    const safeAvatarId =
-      callerAvatarId && callerAvatarId.length < 100 && !callerAvatarId.startsWith('data:')
-        ? callerAvatarId
-        : 'avatar_rose';
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `Incoming ${typeLabel} Call 📞`,
-        body: `${displayName} is calling you...`,
-        data: {
-          type: 'call',
-          callId,
-          callerHandle: cleanHandle,
-          callerNickname: displayName,
-          callerAvatarId: safeAvatarId,
-          callType: callType || 'voice',
-        },
-        sound: 'default',
-        channelId: NOTIFICATION_CHANNELS.CALLS,
-        priority: Notifications.AndroidNotificationPriority.MAX,
-      },
-      trigger: null,
-    });
-  } catch (err) {
-    console.warn('notifyIncomingCall error:', err.message);
-  }
+export const notifyIncomingCall = async () => {
+  // Suppressed: Incoming calls play ringtone directly via callAudioService & open in-app IncomingCallModal.
+  // No system notification or popup is sent.
 };
 
 /**
@@ -311,7 +279,7 @@ export const notifySecurityAlert = async ({ actorHandle, message }) => {
         },
         sound: 'default',
         channelId: NOTIFICATION_CHANNELS.SECURITY,
-        priority: Notifications.AndroidNotificationPriority.HIGH,
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
       },
       trigger: null,
     });
@@ -339,7 +307,7 @@ export const notifyScreenshotRequest = async ({ requesterNickname, requesterHand
         },
         sound: 'default',
         channelId: NOTIFICATION_CHANNELS.SECURITY,
-        priority: Notifications.AndroidNotificationPriority.HIGH,
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
       },
       trigger: null,
     });
