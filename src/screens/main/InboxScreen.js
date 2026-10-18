@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  StatusBar, RefreshControl, Alert, ActivityIndicator, Image,
+  StatusBar, RefreshControl, Alert, ActivityIndicator, Image, AppState,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -25,6 +25,10 @@ import {
   subscribeToGlobalPresence,
   deleteConversationsBatchFromSupabase,
   markMessagesDeliveredInSupabase,
+  sendConnectionRequest,
+  fetchAndClearPendingMessages,
+  fetchAndProcessPendingAcceptances,
+  checkConnectionStatus,
 } from '../../services/supabase';
 import { saveIncomingBase64ToVault } from '../../services/mediaVault';
 import { useUserStore } from '../../store/useUserStore';
@@ -33,6 +37,11 @@ import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as ScreenCapture from 'expo-screen-capture';
 import { TrashIcon, UserAvatarIcon, CheckIcon, DoubleCheckIcon } from '../../components/Icons';
+import {
+  notifyIncomingMessage,
+  notifyConnectionRequest,
+  notifyRequestAccepted,
+} from '../../services/notificationService';
 
 export default function InboxScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -49,6 +58,8 @@ export default function InboxScreen({ navigation }) {
   const [partnerOnlineMap, setPartnerOnlineMap] = useState({}); // { [handle]: { isOnline, lastSeen } }
 
   const myHandle = useUserStore((s) => s.handle);
+  const myNickname = useUserStore((s) => s.nickname);
+  const myAvatarId = useUserStore((s) => s.avatarId);
   const inSelectionMode = selectedConvIds.length > 0;
 
   const loadConversations = async () => {
@@ -60,11 +71,133 @@ export default function InboxScreen({ navigation }) {
     }
   };
 
+  const syncPendingMessages = useCallback(async () => {
+    if (!myHandle) return;
+    try {
+      // 1. Process any pending connection acceptances
+      const acceptedList = await fetchAndProcessPendingAcceptances(myHandle);
+      if (acceptedList && acceptedList.length > 0) {
+        for (const acc of acceptedList) {
+          const partnerHandle = acc.byHandle.toLowerCase();
+          const partnerNick = acc.byNickname || partnerHandle;
+          const partnerAvatar = acc.byAvatar || 'avatar_rose';
+
+          const participants = [myHandle.toLowerCase(), partnerHandle].sort();
+          const convId = `chat_${participants[0]}_${participants[1]}`;
+          const contactId = await Crypto.digestStringAsync(
+            Crypto.CryptoDigestAlgorithm.SHA256,
+            partnerHandle
+          );
+
+          await insertContact({
+            id: contactId,
+            handle: partnerHandle,
+            nickname: partnerNick,
+            avatarId: partnerAvatar,
+          });
+
+          await upsertConversation({
+            id: convId,
+            contactId,
+            lastMsg: 'Connected! Say hi 💕',
+            lastTime: Date.now(),
+            unread: 0,
+          });
+
+          notifyRequestAccepted({
+            byHandle: partnerHandle,
+            byNickname: partnerNick,
+            byAvatar: partnerAvatar,
+          });
+        }
+        await loadConversations();
+      }
+
+      // 2. Fetch pending messages
+      const queued = await fetchAndClearPendingMessages(myHandle);
+      if (!queued || queued.length === 0) return;
+
+      for (const msg of queued) {
+        if (!msg.sender || msg.sender.toLowerCase() === myHandle.toLowerCase()) continue;
+        const senderHandle = msg.sender.toLowerCase();
+        const participants = [myHandle.toLowerCase(), senderHandle].sort();
+        const convId = msg.conversation_id || `chat_${participants[0]}_${participants[1]}`;
+
+        const contactId = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          senderHandle
+        );
+
+        let contactAvatar = 'avatar_rose';
+        let contactNick = senderHandle;
+        try {
+          const remoteUser = await findUserByHandle(senderHandle);
+          if (remoteUser?.avatar_id) contactAvatar = remoteUser.avatar_id;
+          if (remoteUser?.nickname) contactNick = remoteUser.nickname;
+        } catch (_) {}
+
+        await insertContact({
+          id: contactId,
+          handle: senderHandle,
+          nickname: contactNick,
+          avatarId: contactAvatar,
+        });
+
+        let localMedia = null;
+        if (msg.media_uri) {
+          localMedia = await saveIncomingBase64ToVault(msg.id, msg.media_uri);
+        }
+
+        await insertMessage({
+          id: msg.id,
+          conversationId: convId,
+          sender: msg.sender,
+          type: msg.media_uri ? 'image' : 'text',
+          body: msg.body,
+          mediaUri: localMedia,
+          sentAt: msg.sent_at,
+          expiresAt: msg.expires_at,
+        });
+
+        await incrementConversationUnread(
+          convId,
+          msg.body || 'Photo',
+          msg.sent_at,
+          msg.sender
+        );
+
+        markMessagesDeliveredInSupabase(convId, myHandle, msg.sender);
+
+        notifyIncomingMessage({
+          senderNickname: contactNick,
+          senderHandle,
+          text: msg.body || 'Sent a photo 📷',
+          conversationId: convId,
+          contactAvatarId: contactAvatar,
+        });
+      }
+      await loadConversations();
+    } catch (err) {
+      console.log('syncPendingMessages error:', err);
+    }
+  }, [myHandle]);
+
   useFocusEffect(
     useCallback(() => {
+      syncPendingMessages();
       loadConversations();
-    }, [])
+    }, [syncPendingMessages])
   );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        syncPendingMessages();
+      }
+    });
+    syncPendingMessages();
+    return () => sub.remove();
+  }, [syncPendingMessages]);
 
   // App-level realtime listener for incoming messages to update unread badge
   useEffect(() => {
@@ -121,6 +254,14 @@ export default function InboxScreen({ navigation }) {
 
         markMessagesDeliveredInSupabase(convId, myHandle, incoming.sender);
         loadConversations();
+
+        notifyIncomingMessage({
+          senderNickname: contactNick,
+          senderHandle,
+          text: incoming.body || 'Sent a photo 📷',
+          conversationId: convId,
+          contactAvatarId: contactAvatar,
+        });
       }
     },
     async (statusEvent) => {
@@ -135,13 +276,63 @@ export default function InboxScreen({ navigation }) {
           await markSentMessagesDelivered(statusEvent.conversationId, myHandle);
           loadConversations();
         }
+      } else if (statusEvent.event === 'connection_request_accepted') {
+        const partnerHandle = statusEvent.byHandle.toLowerCase();
+        const partnerNick = statusEvent.byNickname || partnerHandle;
+        const partnerAvatar = statusEvent.byAvatar || 'avatar_rose';
+
+        const participants = [myHandle.toLowerCase(), partnerHandle].sort();
+        const convId = `chat_${participants[0]}_${participants[1]}`;
+        const contactId = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          partnerHandle
+        );
+
+        await insertContact({
+          id: contactId,
+          handle: partnerHandle,
+          nickname: partnerNick,
+          avatarId: partnerAvatar,
+        });
+
+        await upsertConversation({
+          id: convId,
+          contactId,
+          lastMsg: 'Connected! Say hi 💕',
+          lastTime: Date.now(),
+          unread: 0,
+        });
+
+        loadConversations();
+
+        notifyRequestAccepted({
+          byHandle: partnerHandle,
+          byNickname: partnerNick,
+          byAvatar: partnerAvatar,
+        });
+
+        Alert.alert(
+          'Request Accepted! 🎉',
+          `@${partnerHandle} accepted your chat request! You can now start chatting.`
+        );
+      } else if (statusEvent.event === 'incoming_connection_request') {
+        notifyConnectionRequest({
+          fromHandle: statusEvent.fromHandle,
+          fromNickname: statusEvent.fromNickname,
+          reqId: statusEvent.reqId,
+        });
+
+        Alert.alert(
+          'New Chat Request 💌',
+          `@${statusEvent.fromHandle} sent you a connection request! Check the Requests tab to accept.`
+        );
       }
     });
 
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [myHandle]);
+  }, [myHandle, myNickname, myAvatarId]);
 
   // Global Presence: broadcast when user opens the app & listen to all contacts' presence
   useEffect(() => {
@@ -160,6 +351,7 @@ export default function InboxScreen({ navigation }) {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    await syncPendingMessages();
     await loadConversations();
     setRefreshing(false);
   };
@@ -170,57 +362,102 @@ export default function InboxScreen({ navigation }) {
       return Alert.alert('Invalid ID', 'Please enter a valid unique @handle (min 3 chars).');
     }
     if (clean === myHandle?.toLowerCase()) {
-      return Alert.alert('Self Chat', "That's your own ID! Enter your lover's unique ID.");
+      return Alert.alert('Self Chat', "That's your own ID! Enter your partner's unique ID.");
     }
 
     setSearching(true);
     try {
-      const remoteUser = await findUserByHandle(clean);
-      if (!remoteUser) {
+      // 1. Check comprehensive connection status (local contacts + pending sent + pending received)
+      const connStatus = await checkConnectionStatus(myHandle, clean);
+
+      if (connStatus.status === 'connected') {
+        const contact = connStatus.contact;
+        const participants = [myHandle.toLowerCase(), clean].sort();
+        const convId = `chat_${participants[0]}_${participants[1]}`;
+        setSearchHandle('');
+        setSearching(false);
+        return navigation.navigate('Chat', {
+          conversationId: convId,
+          contactHandle: contact.handle,
+          contactNickname: contact.nickname,
+          contactAvatarId: contact.avatar_id,
+        });
+      }
+
+      if (connStatus.status === 'pending_sent') {
+        setSearching(false);
         return Alert.alert(
-          'User Not Found',
-          `No user found with @${clean}. Please check the ID and try again.`
+          'Request Pending ⏳',
+          `You already sent a chat request to @${clean}. Waiting for them to accept!`,
+          [
+            { text: 'View Requests', onPress: () => navigation.navigate('Requests') },
+            { text: 'OK', style: 'cancel' },
+          ]
         );
       }
 
-      const participants = [myHandle.toLowerCase(), clean].sort();
-      const convId = `chat_${participants[0]}_${participants[1]}`;
+      if (connStatus.status === 'pending_received') {
+        setSearching(false);
+        return Alert.alert(
+          'Request Waiting! 💌',
+          `@${clean} has already sent you a connection request! Go to your Requests tab to accept.`,
+          [
+            { text: 'Go to Requests', onPress: () => navigation.navigate('Requests') },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      }
 
-      const contactId = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        clean
+      // 2. Search in Supabase for user identity
+      const remoteUser = await findUserByHandle(clean);
+      if (!remoteUser) {
+        setSearching(false);
+        return Alert.alert(
+          'User Not Found',
+          `No user found with @${clean}. Please check the handle and try again.`
+        );
+      }
+
+      setSearching(false);
+      // 3. Prompt to send connection request
+      Alert.alert(
+        'Connect with @' + clean,
+        `Would you like to send a chat request to ${remoteUser.nickname || clean} (@${clean})? Once they accept in their Requests tab, your private chat will begin!`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Send Request 💕',
+            onPress: async () => {
+              try {
+                await sendConnectionRequest({
+                  fromHandle: myHandle,
+                  toHandle: clean,
+                  fromNickname: myNickname,
+                  fromAvatar: myAvatarId,
+                });
+                setSearchHandle('');
+                Alert.alert(
+                  'Request Sent! 💌',
+                  `Connection request sent to @${clean}! Once they accept, they will appear here in your Messages.`,
+                  [
+                    {
+                      text: 'View Requests',
+                      onPress: () => navigation.navigate('Requests'),
+                    },
+                    { text: 'OK', style: 'cancel' },
+                  ]
+                );
+              } catch (reqErr) {
+                Alert.alert('Error', reqErr.message || 'Could not send request');
+              }
+            },
+          },
+        ]
       );
-
-      const contactNick = remoteUser.nickname || clean;
-      const contactAvatar = remoteUser.avatar_id || 'avatar_rose';
-
-      await insertContact({
-        id: contactId,
-        handle: clean,
-        nickname: contactNick,
-        avatarId: contactAvatar,
-      });
-
-      await upsertConversation({
-        id: convId,
-        contactId,
-        lastMsg: 'Started connection',
-        lastTime: Date.now(),
-        unread: 0,
-      });
-
-      setSearchHandle('');
-      await loadConversations();
-
-      navigation.navigate('Chat', {
-        conversationId: convId,
-        contactHandle: clean,
-        contactNickname: contactNick,
-        contactAvatarId: contactAvatar,
-      });
     } catch (err) {
-      console.error('Search and connect error:', err);
-      Alert.alert('User Not Found', `No user found with @${clean}. Please double check the ID.`);
+      console.error('Search error:', err);
+      setSearching(false);
+      Alert.alert('Search Error', err.message || 'Could not reach server.');
     } finally {
       setSearching(false);
     }
@@ -284,7 +521,7 @@ export default function InboxScreen({ navigation }) {
         statusText = 'seen';
         statusColor = '#e0527a';
         statusType = 'seen';
-      } else if (item.latest_delivered === 1 || item.last_status === 'delivered' || isPartnerOnline) {
+      } else if (item.latest_delivered === 1 || item.last_status === 'delivered') {
         statusText = 'delivered';
         statusColor = '#8a8187';
         statusType = 'delivered';

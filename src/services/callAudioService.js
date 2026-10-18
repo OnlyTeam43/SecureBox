@@ -120,6 +120,12 @@ export const callAudioService = {
         { shouldPlay: true, isLooping: false, volume: 0.8 }
       );
       currentSound = sound;
+      setTimeout(async () => {
+        try {
+          await sound.unloadAsync();
+          if (currentSound === sound) currentSound = null;
+        } catch (_) {}
+      }, 600);
     } catch (err) {
       console.warn('Play connected chime error:', err.message);
     }

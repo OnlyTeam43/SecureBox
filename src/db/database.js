@@ -100,6 +100,15 @@ export const getAllContacts = async () => {
   return await db.getAllAsync(`SELECT * FROM contacts ORDER BY nickname ASC`);
 };
 
+export const getContactByHandle = async (handle) => {
+  const db = await getDB();
+  const cleanHandle = handle.replace('@', '').trim().toLowerCase();
+  return await db.getFirstAsync(
+    `SELECT * FROM contacts WHERE LOWER(handle) = ?`,
+    [cleanHandle]
+  );
+};
+
 // ─── Conversations ────────────────────────────────────────────────────────────
 
 export const upsertConversation = async (conv) => {

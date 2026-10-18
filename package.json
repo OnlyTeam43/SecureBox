@@ -9,7 +9,9 @@
     "web": "expo start --web",
     "lint": "eslint .",
     "build:apk": "eas build -p android --profile apk",
-    "build:apk:local": "eas build -p android --profile apk --local"
+    "build:apk:local": "eas build -p android --profile apk --local",
+    "build:dev": "eas build -p android --profile development",
+    "whatsapp-service": "node scripts/whatsapp_service.js --serve"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^10.0.0",
@@ -25,12 +27,14 @@
     "expo-blur": "~14.0.3",
     "expo-camera": "~16.0.18",
     "expo-crypto": "~14.0.2",
+    "expo-dev-client": "~5.0.20",
     "expo-file-system": "~18.0.12",
     "expo-haptics": "~14.0.1",
     "expo-image-manipulator": "~13.0.6",
     "expo-image-picker": "~16.0.6",
     "expo-local-authentication": "~15.0.2",
     "expo-media-library": "~17.0.6",
+    "expo-notifications": "~0.29.14",
     "expo-screen-capture": "~7.0.1",
     "expo-secure-store": "~14.0.1",
     "expo-sqlite": "~15.1.4",

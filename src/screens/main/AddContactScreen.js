@@ -8,13 +8,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
-import { AVATARS, getAvatar } from '../../constants/avatars';
-import { insertContact, upsertConversation } from '../../db/database';
-import { findUserByHandle } from '../../services/supabase';
-import * as Crypto from 'expo-crypto';
+import { AVATARS } from '../../constants/avatars';
+import { findUserByHandle, sendConnectionRequest, checkConnectionStatus } from '../../services/supabase';
+import { useUserStore } from '../../store/useUserStore';
 
 export default function AddContactScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const myHandle = useUserStore((s) => s.handle);
+  const myNickname = useUserStore((s) => s.nickname);
+  const myAvatarId = useUserStore((s) => s.avatarId);
+
   const [handle, setHandle] = useState('');
   const [nickname, setNickname] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState(AVATARS[0].id);
@@ -24,59 +27,97 @@ export default function AddContactScreen({ navigation }) {
     const cleanHandle = handle.replace('@', '').trim().toLowerCase();
     if (!cleanHandle || cleanHandle.length < 3)
       return Alert.alert('Invalid handle', 'Enter a valid @handle (min 3 chars).');
-    if (!nickname.trim())
-      return Alert.alert('Add a nickname', 'How do you want to call them?');
+
+    if (cleanHandle === myHandle?.toLowerCase()) {
+      return Alert.alert('Self Connection', 'You cannot send a connection request to yourself.');
+    }
 
     setLoading(true);
     try {
-      // 1. Verify if handle exists in Supabase
-      let contactAvatar = selectedAvatar;
-      let contactNick = nickname.trim();
+      // 1. Check existing connection or pending status
+      const connStatus = await checkConnectionStatus(myHandle, cleanHandle);
 
-      try {
-        const remoteUser = await findUserByHandle(cleanHandle);
-        if (remoteUser) {
-          if (remoteUser.avatar_id) contactAvatar = remoteUser.avatar_id;
-          if (!contactNick && remoteUser.nickname) contactNick = remoteUser.nickname;
-        }
-      } catch (lookupErr) {
-        console.log('Supabase lookup note:', lookupErr.message);
+      if (connStatus.status === 'connected') {
+        setLoading(false);
+        const contact = connStatus.contact;
+        const participants = [myHandle.toLowerCase(), cleanHandle].sort();
+        const convId = `chat_${participants[0]}_${participants[1]}`;
+        return Alert.alert(
+          'Already Connected 💕',
+          `You and @${cleanHandle} are already connected!`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Chat Now',
+              onPress: () => {
+                navigation.navigate('Chat', {
+                  conversationId: convId,
+                  contactHandle: contact.handle,
+                  contactNickname: contact.nickname,
+                  contactAvatarId: contact.avatar_id,
+                });
+              },
+            },
+          ]
+        );
       }
 
-      // 2. Generate stable contact ID from handle
-      const contactId = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        cleanHandle
+      if (connStatus.status === 'pending_sent') {
+        setLoading(false);
+        return Alert.alert(
+          'Request Pending ⏳',
+          `You already sent a connection request to @${cleanHandle}. Waiting for them to accept!`,
+          [
+            { text: 'View Requests', onPress: () => navigation.navigate('Requests') },
+            { text: 'OK', style: 'cancel' },
+          ]
+        );
+      }
+
+      if (connStatus.status === 'pending_received') {
+        setLoading(false);
+        return Alert.alert(
+          'Request Waiting! 💌',
+          `@${cleanHandle} has already sent you a connection request! Go to your Requests tab to accept.`,
+          [
+            { text: 'Go to Requests', onPress: () => navigation.navigate('Requests') },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      }
+
+      // 2. Verify if handle exists in Supabase
+      const remoteUser = await findUserByHandle(cleanHandle);
+      if (!remoteUser) {
+        setLoading(false);
+        return Alert.alert('User Not Found', `No user found with @${cleanHandle}`);
+      }
+
+      // 3. Send connection request
+      await sendConnectionRequest({
+        fromHandle: myHandle,
+        toHandle: cleanHandle,
+        fromNickname: myNickname || nickname.trim(),
+        fromAvatar: myAvatarId,
+      });
+
+      Alert.alert(
+        'Request Sent! 💌',
+        `Chat request sent to @${cleanHandle}! Once they accept your request in the Requests tab, your private chat will begin.`,
+        [
+          {
+            text: 'Go to Requests',
+            onPress: () => navigation.navigate('Requests'),
+          },
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack(),
+          },
+        ]
       );
-      const convId = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        `conv-${cleanHandle}`
-      );
-
-      await insertContact({
-        id: contactId,
-        handle: cleanHandle,
-        nickname: contactNick,
-        avatarId: contactAvatar,
-      });
-
-      await upsertConversation({
-        id: convId,
-        contactId,
-        lastMsg: null,
-        lastTime: Date.now(),
-        unread: 0,
-      });
-
-      navigation.replace('Chat', {
-        conversationId: convId,
-        contactHandle: cleanHandle,
-        contactNickname: contactNick,
-        contactAvatarId: contactAvatar,
-      });
     } catch (e) {
       console.error('Error adding contact:', e);
-      Alert.alert('Error', `Could not add contact: ${e?.message || e}`);
+      Alert.alert('Error', `Could not send request: ${e?.message || e}`);
     } finally {
       setLoading(false);
     }

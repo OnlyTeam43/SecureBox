@@ -8,6 +8,9 @@ import {
   StatusBar,
   Animated,
   Image,
+  Platform,
+  PermissionsAndroid,
+  AppState,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
@@ -126,7 +129,23 @@ export default function CallScreen({ route, navigation }) {
     let activeCallId = initialCallId;
     const isVideo = callType === 'video';
 
+    const requestCallPermissions = async (isVideoCall) => {
+      if (Platform.OS === 'android') {
+        try {
+          const perms = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
+          if (isVideoCall) {
+            perms.push(PermissionsAndroid.PERMISSIONS.CAMERA);
+          }
+          await PermissionsAndroid.requestMultiple(perms);
+        } catch (err) {
+          console.warn('Call permissions request error:', err);
+        }
+      }
+    };
+
     const setupCall = async () => {
+      await requestCallPermissions(isVideo);
+
       if (isIncoming) {
         // Already accepted in modal, start duration timer & start WebRTC receiver
         setIsConnected(true);
@@ -198,9 +217,26 @@ export default function CallScreen({ route, navigation }) {
       webrtcService.cleanup();
 
       if (!isEndingRef.current && activeCallId) {
-        callService.endCall(activeCallId, contactHandle);
+        callService.endCall(activeCallId);
       }
     };
+  }, []);
+
+  // Bug Fix #3: When the app is minimized mid-call and brought back, the Supabase
+  // call room channel may have been dropped. Re-join it so signals still flow.
+  useEffect(() => {
+    const handleAppStateChange = async (nextState) => {
+      if (nextState === 'active' && !isEndingRef.current) {
+        const active = callService.getActiveCall();
+        if (active && active.callId) {
+          console.log('CallScreen: App foregrounded during call — re-joining call room');
+          await callService.joinCallRoom(active.callId);
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
   }, []);
 
   const startDurationTimer = () => {
@@ -234,7 +270,7 @@ export default function CallScreen({ route, navigation }) {
     setCallStatus('Ending Call...');
     webrtcService.cleanup();
     if (callId) {
-      await callService.endCall(callId, contactHandle);
+      await callService.endCall(callId);
     }
     await callAudioService.playEndedChime();
 
@@ -272,8 +308,10 @@ export default function CallScreen({ route, navigation }) {
       contactAvatarId.startsWith('http'));
 
   const isVideo = callType === 'video';
-  const showRemoteVideo = isVideo && isConnected && remoteStream && RTCView;
-  const showLocalPip = isVideo && localStream && !isVideoOff && RTCView;
+  const remoteStreamUrl = remoteStream && typeof remoteStream.toURL === 'function' ? remoteStream.toURL() : null;
+  const localStreamUrl = localStream && typeof localStream.toURL === 'function' ? localStream.toURL() : null;
+  const showRemoteVideo = isVideo && isConnected && !!remoteStreamUrl && RTCView;
+  const showLocalPip = isVideo && !!localStreamUrl && !isVideoOff && RTCView;
 
   return (
     <View style={styles.container}>
@@ -282,7 +320,7 @@ export default function CallScreen({ route, navigation }) {
       {/* Full-Screen Remote Video Feed (Partner) */}
       {showRemoteVideo ? (
         <RTCView
-          streamURL={remoteStream.toURL()}
+          streamURL={remoteStreamUrl}
           objectFit="cover"
           style={StyleSheet.absoluteFill}
           zOrder={0}
@@ -297,7 +335,7 @@ export default function CallScreen({ route, navigation }) {
           onPress={flipCamera}
         >
           <RTCView
-            streamURL={localStream.toURL()}
+            streamURL={localStreamUrl}
             objectFit="cover"
             style={styles.pipVideo}
             zOrder={1}

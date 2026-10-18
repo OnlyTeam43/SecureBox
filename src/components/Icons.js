@@ -163,4 +163,13 @@ export const CameraFlipIcon = ({ size = 22, color = '#222' }) => (
   </Svg>
 );
 
+export const UserCheckIcon = ({ size = 22, color = '#222' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <Circle cx="8.5" cy="7" r="4" />
+    <Polyline points="17 11 19 13 23 9" />
+  </Svg>
+);
+
+
 

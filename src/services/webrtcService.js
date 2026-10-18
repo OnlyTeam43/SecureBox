@@ -4,6 +4,7 @@
 let RTCPeerConnection = null;
 let RTCIceCandidate = null;
 let RTCSessionDescription = null;
+let MediaStream = null;
 let mediaDevices = null;
 
 try {
@@ -11,6 +12,7 @@ try {
   RTCPeerConnection = webrtc.RTCPeerConnection;
   RTCIceCandidate = webrtc.RTCIceCandidate;
   RTCSessionDescription = webrtc.RTCSessionDescription;
+  MediaStream = webrtc.MediaStream;
   mediaDevices = webrtc.mediaDevices;
 } catch (err) {
   console.warn('Native react-native-webrtc not linked yet:', err.message);
@@ -37,10 +39,12 @@ class WebRTCManager {
     this.partnerHandle = null;
     this.isInitiator = false;
     this.isVideoCall = false;
-    this.pendingCandidates = [];
+    this.pendingSignals = [];     // Signals received before peerConnection is ready
+    this.pendingCandidates = [];  // ICE candidates received before remoteDescription is set
     this.isMuted = false;
     this.isVideoEnabled = true;
     this.streamListeners = new Set();
+    this.isStarting = false;
   }
 
   isAvailable() {
@@ -52,7 +56,6 @@ class WebRTCManager {
    */
   onStreamUpdate(callback) {
     this.streamListeners.add(callback);
-    // Immediately emit current streams if available
     callback({ localStream: this.localStream, remoteStream: this.remoteStream });
     return () => {
       this.streamListeners.delete(callback);
@@ -78,16 +81,22 @@ class WebRTCManager {
       return false;
     }
 
-    this.cleanup();
+    if (this.isStarting) {
+      console.log('WebRTC startCall already in progress, skipping duplicate.');
+      return true;
+    }
+    this.isStarting = true;
+
     this.currentCallId = callId;
     this.partnerHandle = partnerHandle;
     this.isInitiator = isInitiator;
     this.isVideoCall = !!isVideo;
-    this.pendingCandidates = [];
     this.isVideoEnabled = true;
 
     try {
-      // 1. Get microphone & camera stream
+      console.log(`WebRTC: Starting call [callId=${callId}, isInitiator=${isInitiator}, isVideo=${isVideo}]`);
+
+      // 1. Acquire microphone & camera
       const constraints = {
         audio: {
           echoCancellation: true,
@@ -106,6 +115,7 @@ class WebRTCManager {
 
       this.localStream = await mediaDevices.getUserMedia(constraints);
       this.notifyStreamUpdate();
+      console.log('WebRTC: Local mediaStream acquired successfully.');
 
       // 2. Initialize Peer Connection
       this.peerConnection = new RTCPeerConnection(RTC_CONFIG);
@@ -118,90 +128,159 @@ class WebRTCManager {
       // 3. ICE Candidate gathering
       this.peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
+          const cand = event.candidate.toJSON ? event.candidate.toJSON() : event.candidate;
           callService.sendSignal(this.currentCallId, this.partnerHandle, {
             type: 'candidate',
-            candidate: event.candidate.toJSON ? event.candidate.toJSON() : event.candidate,
+            candidate: cand,
           });
         }
       };
 
       // 4. Remote track received (voice & video from partner)
       this.peerConnection.ontrack = (event) => {
+        console.log('WebRTC: Remote track received, kind:', event.track?.kind);
         if (event.streams && event.streams[0]) {
           this.remoteStream = event.streams[0];
-          this.notifyStreamUpdate();
-          console.log('WebRTC: Remote track received!');
+        } else if (event.track) {
+          if (!this.remoteStream && MediaStream) {
+            this.remoteStream = new MediaStream();
+          }
+          if (this.remoteStream) {
+            this.remoteStream.addTrack(event.track);
+          }
         }
+        this.notifyStreamUpdate();
       };
 
       this.peerConnection.onconnectionstatechange = () => {
         console.log('WebRTC Connection state:', this.peerConnection?.connectionState);
       };
 
-      // 5. If caller, create SDP offer
-      if (this.isInitiator) {
-        const offer = await this.peerConnection.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: this.isVideoCall,
-        });
-        await this.peerConnection.setLocalDescription(offer);
+      this.peerConnection.oniceconnectionstatechange = () => {
+        console.log('WebRTC ICE Connection state:', this.peerConnection?.iceConnectionState);
+      };
 
-        await callService.sendSignal(this.currentCallId, this.partnerHandle, {
-          type: 'offer',
-          sdp: offer.sdp,
+      // 5. Process any signals that arrived while we were acquiring media
+      console.log(`WebRTC: Flushing ${this.pendingSignals.length} buffered signals`);
+      while (this.pendingSignals.length > 0) {
+        const sig = this.pendingSignals.shift();
+        await this.processSignal(sig);
+      }
+
+      // 6. If caller, create SDP offer; if receiver, notify caller that we are ready
+      if (this.isInitiator) {
+        await this.createAndSendOffer();
+      } else {
+        // Notify caller that receiver peer is initialized and ready for offer
+        callService.sendSignal(this.currentCallId, this.partnerHandle, {
+          type: 'peer_ready',
         });
       }
 
+      this.isStarting = false;
       return true;
     } catch (err) {
       console.warn('WebRTC start error:', err);
+      this.isStarting = false;
       return false;
     }
   }
 
+  async createAndSendOffer() {
+    if (!this.peerConnection) return;
+    try {
+      const offer = await this.peerConnection.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: this.isVideoCall,
+      });
+      await this.peerConnection.setLocalDescription(offer);
+
+      console.log('WebRTC: Sending SDP offer to partner');
+      await callService.sendSignal(this.currentCallId, this.partnerHandle, {
+        type: 'offer',
+        sdp: offer.sdp,
+      });
+    } catch (err) {
+      console.warn('WebRTC createOffer error:', err);
+    }
+  }
+
   /**
-   * Handle incoming WebRTC signaling (offer, answer, candidate)
+   * Handle incoming WebRTC signaling (offer, answer, candidate, peer_ready)
    */
   async handleSignal(signalData) {
+    if (!signalData) return;
+
+    // If peer connection is not ready yet, buffer the signal in queue!
+    if (!this.peerConnection) {
+      console.log('WebRTC: PeerConnection not ready yet, buffering signal:', signalData.type);
+      this.pendingSignals.push(signalData);
+      return;
+    }
+
+    await this.processSignal(signalData);
+  }
+
+  async processSignal(signalData) {
     if (!this.peerConnection || !signalData) return;
 
     try {
-      if (signalData.type === 'offer') {
+      if (signalData.type === 'peer_ready') {
+        console.log('WebRTC: Received peer_ready from receiver, creating offer');
+        if (this.isInitiator) {
+          await this.createAndSendOffer();
+        }
+      } else if (signalData.type === 'offer') {
+        console.log('WebRTC: Processing received offer');
         const desc = new RTCSessionDescription({ type: 'offer', sdp: signalData.sdp });
         await this.peerConnection.setRemoteDescription(desc);
 
-        // Process any queued candidates
+        // Process any queued candidates that arrived before remoteDescription
         while (this.pendingCandidates.length > 0) {
           const cand = this.pendingCandidates.shift();
-          await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn('Error adding queued ICE candidate:', e);
+          }
         }
 
-        // Create answer
+        // Create and send answer
         const answer = await this.peerConnection.createAnswer();
         await this.peerConnection.setLocalDescription(answer);
 
+        console.log('WebRTC: Sending SDP answer');
         await callService.sendSignal(this.currentCallId, this.partnerHandle, {
           type: 'answer',
           sdp: answer.sdp,
         });
       } else if (signalData.type === 'answer') {
+        console.log('WebRTC: Processing received answer');
         const desc = new RTCSessionDescription({ type: 'answer', sdp: signalData.sdp });
         await this.peerConnection.setRemoteDescription(desc);
 
         // Process any queued candidates
         while (this.pendingCandidates.length > 0) {
           const cand = this.pendingCandidates.shift();
-          await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn('Error adding queued ICE candidate:', e);
+          }
         }
       } else if (signalData.type === 'candidate' && signalData.candidate) {
         if (this.peerConnection.remoteDescription && this.peerConnection.remoteDescription.type) {
-          await this.peerConnection.addIceCandidate(new RTCIceCandidate(signalData.candidate));
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(signalData.candidate));
+          } catch (e) {
+            console.warn('Error adding ICE candidate directly:', e);
+          }
         } else {
           this.pendingCandidates.push(signalData.candidate);
         }
       }
     } catch (err) {
-      console.warn('WebRTC handleSignal error:', err);
+      console.warn('WebRTC processSignal error:', err);
     }
   }
 
@@ -264,7 +343,9 @@ class WebRTCManager {
     this.remoteStream = null;
     this.currentCallId = null;
     this.partnerHandle = null;
+    this.pendingSignals = [];
     this.pendingCandidates = [];
+    this.isStarting = false;
     this.notifyStreamUpdate();
   }
 }

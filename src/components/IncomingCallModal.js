@@ -86,7 +86,7 @@ export default function IncomingCallModal({ callData, onDismiss }) {
   const handleAccept = async () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     await callAudioService.stopAll();
-    await callService.acceptCall(callData.callId, callData.callerHandle);
+    await callService.acceptCall(callData.callId);
     onDismiss();
 
     // Seamlessly navigate to active CallScreen
@@ -103,7 +103,7 @@ export default function IncomingCallModal({ callData, onDismiss }) {
   const handleDecline = async (reason = 'declined') => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     await callAudioService.stopAll();
-    await callService.rejectCall(callData.callId, callData.callerHandle, reason);
+    await callService.rejectCall(callData.callId, reason);
     onDismiss();
   };
 

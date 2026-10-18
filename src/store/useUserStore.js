@@ -13,7 +13,8 @@ export const useUserStore = create(
       nickname: null,      // Display name
       avatarId: null,      // Avatar key or base64 data URI
       avatarUri: null,     // Uploaded profile picture URI
-      mobileNumber: null,  // Mobile number for recovery
+      mobileNumber: null,  // Mobile number for recovery / APK updates
+      recoveryPin: null,   // 4-digit WhatsApp recovery PIN
       password: null,      // User password
       isSetup: false,      // Has onboarding been completed?
 
@@ -21,8 +22,10 @@ export const useUserStore = create(
       defaultExpiry: null, // null = never, or seconds (3600, 86400, etc.)
 
       // Actions
-      setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null) =>
-        set({ handle, nickname, avatarId, mobileNumber, avatarUri }),
+      setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null, recoveryPin = null) =>
+        set({ handle, nickname, avatarId, mobileNumber, avatarUri, recoveryPin }),
+
+      setRecoveryPin: (recoveryPin) => set({ recoveryPin }),
 
       setAvatarUri: (avatarUri) => set({ avatarUri, avatarId: avatarUri }),
 
@@ -39,6 +42,7 @@ export const useUserStore = create(
           avatarId: null,
           avatarUri: null,
           mobileNumber: null,
+          recoveryPin: null,
           password: null,
           isSetup: false,
           defaultExpiry: null,

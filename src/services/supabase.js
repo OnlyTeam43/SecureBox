@@ -2,6 +2,7 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getContactByHandle } from '../db/database';
 
 export const SUPABASE_URL = 'https://yuxivpghynubmuqwqrhr.supabase.co';
 export const SUPABASE_ANON_KEY =
@@ -17,23 +18,186 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 /**
- * Register or update user handle, phone & nickname in Supabase
+ * Check if a handle is available in Supabase (minimum 6 characters)
  */
-export const registerUserInSupabase = async ({ handle, nickname, avatarId, mobileNumber, password }) => {
+export const checkHandleAvailability = async (handle) => {
+  const clean = handle.replace('@', '').trim().toLowerCase();
+  if (clean.length < 6) {
+    return { available: false, reason: 'Handle must be at least 6 characters' };
+  }
+  if (!/^[a-z0-9_.]+$/.test(clean)) {
+    return { available: false, reason: 'Only lowercase letters, numbers, _, and . are allowed' };
+  }
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('handle', clean)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Handle check error:', error.message);
+      return { available: true };
+    }
+    return { available: !data, reason: data ? 'Handle is already taken' : 'Handle is available' };
+  } catch (_err) {
+    return { available: true };
+  }
+};
+
+/**
+ * Automatically generate a unique handle from a user name (min 6 chars, never already exists)
+ */
+export const generateUniqueHandle = async (name) => {
+  const baseRaw = (name || 'user').toLowerCase().replace(/[^a-z0-9]/g, '');
+  let base = baseRaw || 'user';
+  // Constraint: minimum character is 6 for handle
+  if (base.length < 6) {
+    const diff = 6 - base.length;
+    const minNum = Math.pow(10, diff - 1);
+    const maxNum = Math.pow(10, diff) - 1;
+    const padding = Math.floor(minNum + Math.random() * (maxNum - minNum + 1));
+    base = `${base}${padding}`;
+  }
+
+  // 1. Test base candidate
+  let candidate = base;
+  let check = await checkHandleAvailability(candidate);
+  if (check.available) {
+    return candidate;
+  }
+
+  // 2. Loop with random numerical suffixes
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const suffix = Math.floor(10 + Math.random() * 990);
+    candidate = `${base}_${suffix}`;
+    check = await checkHandleAvailability(candidate);
+    if (check.available) {
+      return candidate;
+    }
+  }
+
+  // 3. Fallback timestamp
+  return `${base}_${Date.now().toString().slice(-4)}`;
+};
+
+/**
+ * Register or update user handle, phone & nickname in Supabase
+ * mobile_number stores `${cleanPhone}#${recoveryPin}` for instant recovery
+ */
+export const registerUserInSupabase = async ({
+  handle,
+  nickname,
+  avatarId,
+  mobileNumber,
+  password,
+  recoveryPin,
+}) => {
   const cleanHandle = handle.replace('@', '').trim().toLowerCase();
+
+  let mobilePayload = null;
+  if (mobileNumber && mobileNumber.trim()) {
+    const cleanPhone = mobileNumber.replace(/[^0-9+]/g, '');
+    mobilePayload = recoveryPin ? `${cleanPhone}#${recoveryPin}` : cleanPhone;
+  }
+
   const { data, error } = await supabase
     .from('users')
     .upsert(
       {
         handle: cleanHandle,
         nickname: nickname.trim(),
-        avatar_id: avatarId,
-        mobile_number: mobileNumber?.trim() || null,
+        avatar_id: avatarId || 'avatar_rose',
+        mobile_number: mobilePayload,
         password: password,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'handle' }
     )
+    .select()
+    .single();
+
+  if (error) {
+    throw error;
+  }
+  return data;
+};
+
+/**
+ * Verify Recovery PIN for password reset via WhatsApp number or @handle
+ */
+export const verifyRecoveryPin = async (identifier, pin) => {
+  const cleanInput = (identifier || '').trim();
+  if (!cleanInput) {
+    throw new Error('Please enter your WhatsApp number or @handle');
+  }
+  const cleanPin = (pin || '').trim();
+  if (cleanPin.length !== 4) {
+    throw new Error('Please enter your 4-digit Recovery PIN');
+  }
+
+  let user = null;
+  const cleanHandle = cleanInput.replace('@', '').toLowerCase();
+
+  // Try handle lookup
+  const { data: byHandle } = await supabase
+    .from('users')
+    .select('*')
+    .eq('handle', cleanHandle)
+    .maybeSingle();
+
+  if (byHandle) {
+    user = byHandle;
+  } else {
+    // Try phone number lookup
+    const cleanPhone = cleanInput.replace(/[^0-9+]/g, '');
+    if (cleanPhone) {
+      const { data: byPhone } = await supabase
+        .from('users')
+        .select('*')
+        .ilike('mobile_number', `${cleanPhone}%`)
+        .maybeSingle();
+      if (byPhone) {
+        user = byPhone;
+      }
+    }
+  }
+
+  if (!user) {
+    return { success: false, error: 'No account found with that WhatsApp number or handle.' };
+  }
+
+  const storedPin =
+    user.mobile_number && user.mobile_number.includes('#')
+      ? user.mobile_number.split('#')[1]
+      : null;
+
+  if (!storedPin) {
+    return {
+      success: false,
+      error: 'No recovery PIN was set for this account. Please log in with your current password.',
+    };
+  }
+
+  if (storedPin !== cleanPin) {
+    return { success: false, error: 'Invalid 4-digit Recovery PIN. Please check and try again.' };
+  }
+
+  return { success: true, user };
+};
+
+/**
+ * Reset user password in Supabase
+ */
+export const resetUserPassword = async (handle, newPassword) => {
+  const cleanHandle = handle.replace('@', '').trim().toLowerCase();
+  const { data, error } = await supabase
+    .from('users')
+    .update({
+      password: newPassword,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('handle', cleanHandle)
     .select()
     .single();
 
@@ -114,11 +278,14 @@ export const sendMessageToSupabase = async ({
   expiresAt,
   replyTo,
 }) => {
+  const cleanSender = sender.replace('@', '').trim().toLowerCase();
+  const receiverClean = receiver ? receiver.replace('@', '').trim().toLowerCase() : '';
+
   const payload = {
     id,
     conversation_id: conversationId,
-    sender,
-    receiver,
+    sender: cleanSender,
+    receiver: receiverClean,
     body,
     media_uri: mediaUri || null,
     sent_at: sentAt,
@@ -126,9 +293,28 @@ export const sendMessageToSupabase = async ({
     reply_to: replyTo || null,
   };
 
-  const receiverClean = receiver ? receiver.replace('@', '').trim().toLowerCase() : '';
+  // 1. Durable Relay Queue on Supabase
+  // Ensures messages are NEVER lost when recipient app is minimized, in background, or offline.
+  // Messages are deleted automatically immediately upon retrieval by recipient.
+  try {
+    await supabase.from('messages').upsert(
+      {
+        id,
+        conversation_id: conversationId,
+        sender: cleanSender,
+        receiver: receiverClean,
+        body,
+        media_uri: mediaUri || null,
+        sent_at: sentAt,
+        expires_at: expiresAt || null,
+      },
+      { onConflict: 'id' }
+    );
+  } catch (qErr) {
+    console.log('Relay queue note:', qErr.message);
+  }
 
-  // 1. Direct instantaneous delivery to the active chat room via WebSocket broadcast
+  // 2. Direct instantaneous delivery to the active chat room via WebSocket broadcast
   try {
     let roomChannel = supabase.getChannels().find((c) => c.topic === `realtime:room_${conversationId}`);
     if (!roomChannel) {
@@ -152,7 +338,7 @@ export const sendMessageToSupabase = async ({
     console.warn('Room broadcast error:', err);
   }
 
-  // 2. Direct delivery to the partner's inbox channel via WebSocket broadcast
+  // 3. Direct delivery to the partner's inbox channel via WebSocket broadcast
   if (receiverClean) {
     try {
       const userChannelName = `user_${receiverClean}`;
@@ -179,9 +365,37 @@ export const sendMessageToSupabase = async ({
     }
   }
 
-  // NEVER STORE CHAT MESSAGES ON SUPABASE!
-  // All messages live exclusively in the user's local device storage.
   return payload;
+};
+
+/**
+ * Fetch and clear pending queued messages for this user (e.g. sent while app was minimized/offline)
+ * Once fetched, immediately removed from server relay queue for zero-storage privacy.
+ */
+export const fetchAndClearPendingMessages = async (myHandle) => {
+  if (!myHandle) return [];
+  const clean = myHandle.replace('@', '').trim().toLowerCase();
+
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('receiver', clean)
+      .not('conversation_id', 'like', 'contact_req_%')
+      .not('conversation_id', 'like', 'contact_accepted_%')
+      .order('sent_at', { ascending: true });
+
+    if (error || !data || data.length === 0) return [];
+
+    // Immediately remove retrieved messages from server relay queue
+    const ids = data.map((m) => m.id);
+    await supabase.from('messages').delete().in('id', ids);
+
+    return data;
+  } catch (err) {
+    console.log('fetchAndClearPendingMessages notice:', err.message);
+    return [];
+  }
 };
 
 /**
@@ -562,20 +776,61 @@ export const deleteConversationsBatchFromSupabase = async (conversationIds) => {
   }
 };
 
+// ─── Singleton User Message & Event Channel Manager ───────────────────────────
+let myMessagesChannel = null;
+let currentMyMessagesHandle = null;
+const incomingMessageListeners = new Set();
+const messageStatusListeners = new Set();
+
+const notifyIncomingMessageListeners = (msg) => {
+  for (const listener of incomingMessageListeners) {
+    try {
+      listener(msg);
+    } catch (e) {
+      console.warn('Incoming message listener error:', e);
+    }
+  }
+};
+
+const notifyMessageStatusListeners = (statusEvent) => {
+  for (const listener of messageStatusListeners) {
+    try {
+      listener(statusEvent);
+    } catch (e) {
+      console.warn('Message status listener error:', e);
+    }
+  }
+};
+
 /**
- * Realtime subscription for incoming messages sent to this user handle
+ * Realtime subscription for incoming messages sent to this user handle.
+ * Uses singleton channel management so multiple screens can subscribe without tearing down each other's channel.
  */
 export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStatusEvent = null) => {
   if (!myHandle) return () => {};
   const clean = myHandle.replace('@', '').trim().toLowerCase();
   const channelName = `user_${clean}`;
 
-  const existing = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
-  if (existing) {
-    try {
-      supabase.removeChannel(existing);
-    } catch (_) {}
+  if (onIncomingMessage) incomingMessageListeners.add(onIncomingMessage);
+  if (onMessageStatusEvent) messageStatusListeners.add(onMessageStatusEvent);
+
+  // If already tracking this exact handle, keep channel alive
+  if (myMessagesChannel && currentMyMessagesHandle === clean) {
+    return () => {
+      if (onIncomingMessage) incomingMessageListeners.delete(onIncomingMessage);
+      if (onMessageStatusEvent) messageStatusListeners.delete(onMessageStatusEvent);
+    };
   }
+
+  // If handle changed, remove old channel
+  if (myMessagesChannel) {
+    try {
+      supabase.removeChannel(myMessagesChannel);
+    } catch (_) {}
+    myMessagesChannel = null;
+  }
+
+  currentMyMessagesHandle = clean;
 
   const channel = supabase
     .channel(channelName)
@@ -589,7 +844,36 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
       (payload) => {
         try {
           if (payload?.new && payload.new.receiver?.toLowerCase() === clean) {
-            onIncomingMessage(payload.new);
+            // Check if this is a durable acceptance confirmation
+            if (payload.new.conversation_id === `contact_accepted_${clean}`) {
+              try {
+                const bodyObj = JSON.parse(payload.new.body);
+                notifyMessageStatusListeners({
+                  event: 'connection_request_accepted',
+                  ...bodyObj,
+                });
+                // Delete from relay queue immediately
+                supabase.from('messages').delete().eq('id', payload.new.id).then(() => {}).catch(() => {});
+              } catch (_) {}
+              return;
+            }
+
+            // Check if this is an incoming connection request
+            if (payload.new.conversation_id === `contact_req_${clean}`) {
+              try {
+                const bodyObj = JSON.parse(payload.new.body);
+                notifyMessageStatusListeners({
+                  event: 'incoming_connection_request',
+                  fromHandle: payload.new.sender,
+                  fromNickname: bodyObj.senderNickname || payload.new.sender,
+                  fromAvatar: bodyObj.senderAvatar || 'avatar_rose',
+                  reqId: payload.new.id,
+                });
+              } catch (_) {}
+              return;
+            }
+
+            notifyIncomingMessageListeners(payload.new);
           }
         } catch (_) {}
       }
@@ -597,27 +881,357 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
     .on('broadcast', { event: 'incoming_msg' }, ({ payload }) => {
       try {
         if (payload && payload.receiver?.toLowerCase() === clean) {
-          onIncomingMessage(payload);
+          notifyIncomingMessageListeners(payload);
         }
       } catch (_) {}
     })
     .on('broadcast', { event: 'messages_seen' }, ({ payload }) => {
       try {
-        if (onMessageStatusEvent) onMessageStatusEvent({ event: 'messages_seen', ...payload });
+        notifyMessageStatusListeners({ event: 'messages_seen', ...payload });
       } catch (_) {}
     })
     .on('broadcast', { event: 'messages_delivered' }, ({ payload }) => {
       try {
-        if (onMessageStatusEvent) onMessageStatusEvent({ event: 'messages_delivered', ...payload });
+        notifyMessageStatusListeners({ event: 'messages_delivered', ...payload });
+      } catch (_) {}
+    })
+    .on('broadcast', { event: 'incoming_connection_request' }, ({ payload }) => {
+      try {
+        notifyMessageStatusListeners({ event: 'incoming_connection_request', ...payload });
+      } catch (_) {}
+    })
+    .on('broadcast', { event: 'connection_request_accepted' }, ({ payload }) => {
+      try {
+        notifyMessageStatusListeners({ event: 'connection_request_accepted', ...payload });
       } catch (_) {}
     })
     .subscribe();
 
+  myMessagesChannel = channel;
+
   return () => {
-    try {
-      supabase.removeChannel(channel);
-    } catch (_) {}
+    if (onIncomingMessage) incomingMessageListeners.delete(onIncomingMessage);
+    if (onMessageStatusEvent) messageStatusListeners.delete(onMessageStatusEvent);
   };
+};
+
+/**
+ * Send a chat/connection request to a handle
+ */
+export const sendConnectionRequest = async ({ fromHandle, toHandle, fromNickname, fromAvatar }) => {
+  const cleanFrom = fromHandle.replace('@', '').trim().toLowerCase();
+  const cleanTo = toHandle.replace('@', '').trim().toLowerCase();
+
+  if (cleanFrom === cleanTo) {
+    throw new Error("You cannot send a connection request to yourself.");
+  }
+
+  const reqId = `req_${cleanFrom}_${cleanTo}`;
+  const payloadData = {
+    type: 'connection_request',
+    status: 'pending',
+    senderNickname: fromNickname || cleanFrom,
+    senderAvatar: fromAvatar || 'avatar_rose',
+    sentAt: Date.now(),
+  };
+
+  // 1. Persist request in Supabase
+  const { data, error } = await supabase
+    .from('messages')
+    .upsert(
+      {
+        id: reqId,
+        conversation_id: `contact_req_${cleanTo}`,
+        sender: cleanFrom,
+        receiver: cleanTo,
+        body: JSON.stringify(payloadData),
+        sent_at: Date.now(),
+      },
+      { onConflict: 'id' }
+    )
+    .select()
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  // 2. Broadcast realtime notice to recipient
+  try {
+    let userChannel = supabase.getChannels().find((c) => c.topic === `realtime:user_${cleanTo}`);
+    if (!userChannel) {
+      userChannel = supabase.channel(`user_${cleanTo}`);
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 1200);
+        userChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+      });
+    }
+    await userChannel.send({
+      type: 'broadcast',
+      event: 'incoming_connection_request',
+      payload: {
+        fromHandle: cleanFrom,
+        fromNickname,
+        fromAvatar,
+        reqId,
+      },
+    });
+  } catch (bErr) {
+    console.log('Request broadcast notice:', bErr.message);
+  }
+
+  return data;
+};
+
+/**
+ * Fetch all pending connection requests received by this handle
+ */
+export const fetchPendingConnectionRequests = async (myHandle) => {
+  if (!myHandle) return [];
+  const clean = myHandle.replace('@', '').trim().toLowerCase();
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('receiver', clean)
+    .eq('conversation_id', `contact_req_${clean}`)
+    .order('sent_at', { ascending: false });
+
+  if (error) {
+    console.warn('fetchPendingConnectionRequests error:', error.message);
+    return [];
+  }
+
+  return (data || [])
+    .map((row) => {
+      try {
+        const bodyObj = JSON.parse(row.body);
+        return {
+          id: row.id,
+          sender: row.sender,
+          receiver: row.receiver,
+          nickname: bodyObj.senderNickname || row.sender,
+          avatar: bodyObj.senderAvatar || 'avatar_rose',
+          sentAt: row.sent_at || row.created_at,
+          status: bodyObj.status || 'pending',
+        };
+      } catch (_) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+};
+
+/**
+ * Fetch all outgoing connection requests sent by this handle
+ */
+export const fetchSentConnectionRequests = async (myHandle) => {
+  if (!myHandle) return [];
+  const clean = myHandle.replace('@', '').trim().toLowerCase();
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('sender', clean)
+    .like('conversation_id', 'contact_req_%')
+    .order('sent_at', { ascending: false });
+
+  if (error) {
+    console.warn('fetchSentConnectionRequests error:', error.message);
+    return [];
+  }
+
+  return (data || [])
+    .map((row) => {
+      try {
+        const bodyObj = JSON.parse(row.body);
+        return {
+          id: row.id,
+          sender: row.sender,
+          receiver: row.receiver,
+          sentAt: row.sent_at || row.created_at,
+          status: bodyObj.status || 'pending',
+        };
+      } catch (_) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+};
+
+/**
+ * Fetch and process durable acceptance receipts sent to this handle
+ */
+export const fetchAndProcessPendingAcceptances = async (myHandle) => {
+  if (!myHandle) return [];
+  const clean = myHandle.replace('@', '').trim().toLowerCase();
+
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('receiver', clean)
+      .eq('conversation_id', `contact_accepted_${clean}`);
+
+    if (error || !data || data.length === 0) return [];
+
+    const processed = [];
+    for (const row of data) {
+      try {
+        const bodyObj = JSON.parse(row.body);
+        processed.push({
+          id: row.id,
+          byHandle: bodyObj.byHandle || row.sender,
+          byNickname: bodyObj.byNickname || row.sender,
+          byAvatar: bodyObj.byAvatar || 'avatar_rose',
+        });
+      } catch (_) {}
+    }
+
+    // Immediately remove from server relay queue (zero-storage)
+    const ids = data.map((r) => r.id);
+    await supabase.from('messages').delete().in('id', ids);
+
+    return processed;
+  } catch (err) {
+    console.log('fetchAndProcessPendingAcceptances notice:', err.message);
+    return [];
+  }
+};
+
+/**
+ * Accept a connection request
+ */
+export const acceptConnectionRequest = async ({ reqId, fromHandle, toHandle, myNickname, myAvatar }) => {
+  const cleanFrom = fromHandle.replace('@', '').trim().toLowerCase();
+  const cleanTo = toHandle.replace('@', '').trim().toLowerCase();
+
+  // 1. Store durable acceptance receipt in Supabase for the sender
+  const acceptId = `acc_${cleanTo}_${cleanFrom}_${Date.now()}`;
+  await supabase.from('messages').insert({
+    id: acceptId,
+    conversation_id: `contact_accepted_${cleanFrom}`,
+    sender: cleanTo,
+    receiver: cleanFrom,
+    body: JSON.stringify({
+      type: 'connection_request_accepted',
+      status: 'accepted',
+      byHandle: cleanTo,
+      byNickname: myNickname || cleanTo,
+      byAvatar: myAvatar || 'avatar_rose',
+      acceptedAt: Date.now(),
+    }),
+    sent_at: Date.now(),
+  });
+
+  // 2. Remove the pending request from Supabase
+  if (reqId) {
+    await supabase.from('messages').delete().eq('id', reqId);
+  }
+  await supabase
+    .from('messages')
+    .delete()
+    .eq('conversation_id', `contact_req_${cleanTo}`)
+    .eq('sender', cleanFrom);
+
+  // 3. Broadcast realtime acceptance to sender's user channel
+  try {
+    let userChannel = supabase.getChannels().find((c) => c.topic === `realtime:user_${cleanFrom}`);
+    if (!userChannel) {
+      userChannel = supabase.channel(`user_${cleanFrom}`);
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 1200);
+        userChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+      });
+    }
+    await userChannel.send({
+      type: 'broadcast',
+      event: 'connection_request_accepted',
+      payload: {
+        byHandle: cleanTo,
+        byNickname: myNickname || cleanTo,
+        byAvatar: myAvatar || 'avatar_rose',
+      },
+    });
+  } catch (bErr) {
+    console.log('Acceptance broadcast notice:', bErr.message);
+  }
+
+  return true;
+};
+
+/**
+ * Decline/cancel a connection request
+ */
+export const declineConnectionRequest = async (reqId) => {
+  if (!reqId) return;
+  const { error } = await supabase.from('messages').delete().eq('id', reqId);
+  if (error) {
+    console.warn('declineConnectionRequest error:', error.message);
+  }
+  return true;
+};
+
+/**
+ * Check connection relationship between two handles
+ * Returns: { status: 'self' | 'connected' | 'pending_sent' | 'pending_received' | 'none', contact?, reqId? }
+ */
+export const checkConnectionStatus = async (myHandle, targetHandle) => {
+  if (!myHandle || !targetHandle) return { status: 'none' };
+  const cleanMy = myHandle.replace('@', '').trim().toLowerCase();
+  const cleanTarget = targetHandle.replace('@', '').trim().toLowerCase();
+
+  if (cleanMy === cleanTarget) return { status: 'self' };
+
+  // 1. Check local SQLite contacts first
+  try {
+    const localContact = await getContactByHandle(cleanTarget);
+    if (localContact) {
+      return { status: 'connected', contact: localContact };
+    }
+  } catch (_) {}
+
+  // 2. Check if cleanTarget sent a pending request to cleanMy
+  try {
+    const { data: incoming } = await supabase
+      .from('messages')
+      .select('id, body, sender')
+      .eq('receiver', cleanMy)
+      .eq('conversation_id', `contact_req_${cleanMy}`)
+      .eq('sender', cleanTarget)
+      .maybeSingle();
+
+    if (incoming) {
+      return { status: 'pending_received', reqId: incoming.id };
+    }
+  } catch (_) {}
+
+  // 3. Check if cleanMy sent a pending request to cleanTarget
+  try {
+    const { data: outgoing } = await supabase
+      .from('messages')
+      .select('id, body')
+      .eq('sender', cleanMy)
+      .eq('receiver', cleanTarget)
+      .eq('conversation_id', `contact_req_${cleanTarget}`)
+      .maybeSingle();
+
+    if (outgoing) {
+      return { status: 'pending_sent', reqId: outgoing.id };
+    }
+  } catch (_) {}
+
+  return { status: 'none' };
 };
 
 /**

@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput,
   TouchableOpacity, KeyboardAvoidingView, Platform,
-  StatusBar, Alert, Animated, Image, PanResponder, Modal, Keyboard,
+  StatusBar, Alert, Animated, Image, PanResponder, Modal, Keyboard, AppState,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ScreenCapture from 'expo-screen-capture';
@@ -29,6 +29,7 @@ import {
 import {
   sendMessageToSupabase,
   fetchMessagesFromSupabase,
+  fetchAndClearPendingMessages,
   subscribeToConversation,
   subscribeToGlobalPresence,
   broadcastMessageDelete,
@@ -53,9 +54,13 @@ import {
   UserAvatarIcon,
   ClockIcon,
   ShieldLockIcon,
-  SettingsIcon,
   ChevronRightIcon,
 } from '../../components/Icons';
+import {
+  setActiveConversation,
+  notifySecurityAlert,
+  notifyScreenshotRequest,
+} from '../../services/notificationService';
 
 // Swipeable Message Row Component
 // - For sent messages (isMe): pull right-to-left (dx < 0) to reply
@@ -425,6 +430,7 @@ export default function ChatScreen({ route, navigation }) {
   }, [conversationId, myHandle, contactHandle]);
 
   useEffect(() => {
+    setActiveConversation(conversationId);
     loadMessages();
 
     // 1. Realtime listener for incoming messages, seen status, deletions & screenshot permissions
@@ -526,6 +532,11 @@ export default function ChatScreen({ route, navigation }) {
               requesterHandle: secEvent.requesterHandle,
               requesterNickname: secEvent.requesterNickname || secEvent.requesterHandle,
             });
+            notifyScreenshotRequest({
+              requesterNickname: secEvent.requesterNickname,
+              requesterHandle: secEvent.requesterHandle,
+              conversationId,
+            });
             try {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             } catch (_) {}
@@ -559,6 +570,10 @@ export default function ChatScreen({ route, navigation }) {
         // 3. Notification that a screenshot was taken
         if (secEvent.event === 'screenshot_taken') {
           if (secEvent.actorHandle?.toLowerCase() !== myHandle?.toLowerCase()) {
+            notifySecurityAlert({
+              actorHandle: secEvent.actorHandle,
+              message: `@${secEvent.actorHandle} took a screenshot in this chat.`,
+            });
             Alert.alert('Security Alert', `@${secEvent.actorHandle} took a screenshot in this chat.`);
           }
         }
@@ -576,10 +591,53 @@ export default function ChatScreen({ route, navigation }) {
     );
 
     return () => {
+      setActiveConversation(null);
       if (unsubscribeMessages) unsubscribeMessages();
       if (unsubscribePresence) unsubscribePresence();
     };
   }, [conversationId, contactHandle, loadMessages, myHandle]);
+
+  // Sync queued messages and broadcast seen/delivered status when chat is active or resumed
+  useEffect(() => {
+    const syncChat = async () => {
+      try {
+        const queued = await fetchAndClearPendingMessages(myHandle);
+        if (queued && queued.length > 0) {
+          for (const msg of queued) {
+            let localMedia = null;
+            if (msg.media_uri) {
+              localMedia = await saveIncomingBase64ToVault(msg.id, msg.media_uri);
+            }
+            await insertMessage({
+              id: msg.id,
+              conversationId: msg.conversation_id || conversationId,
+              sender: msg.sender,
+              type: msg.media_uri ? 'image' : 'text',
+              body: msg.body,
+              mediaUri: localMedia,
+              sentAt: msg.sent_at,
+              expiresAt: msg.expires_at,
+            });
+          }
+          await loadMessages();
+        }
+        markMessagesDeliveredInSupabase(conversationId, myHandle, contactHandle);
+        markMessagesSeenInSupabase(conversationId, myHandle, contactHandle);
+      } catch (err) {
+        console.log('ChatScreen sync error:', err);
+      }
+    };
+
+    syncChat();
+
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        syncChat();
+      }
+    });
+
+    return () => sub.remove();
+  }, [conversationId, myHandle, contactHandle, loadMessages]);
 
   const toggleSelectMessage = (id) => {
     try {
@@ -715,7 +773,7 @@ export default function ChatScreen({ route, navigation }) {
       replyTo: replyPayload ? JSON.stringify(replyPayload) : null,
       sentAt: now,
       expiresAt,
-      delivered: 1,
+      delivered: 0,
       read: 0,
     };
 
@@ -795,7 +853,7 @@ export default function ChatScreen({ route, navigation }) {
           mediaUri: vaultUri,
           sentAt: now,
           expiresAt,
-          delivered: 1,
+          delivered: 0,
           read: 0,
         };
 
@@ -924,7 +982,7 @@ export default function ChatScreen({ route, navigation }) {
               <View style={styles.tickRow}>
                 {item.read === 1 || item.read === true ? (
                   <DoubleCheckIcon size={14} color="#e0527a" />
-                ) : (item.delivered === 1 || isPartnerOnline) ? (
+                ) : item.delivered === 1 || item.delivered === true ? (
                   <DoubleCheckIcon size={14} color="#8a8187" />
                 ) : (
                   <CheckIcon size={14} color="#8a8187" />

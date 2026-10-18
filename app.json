@@ -2,6 +2,7 @@
   "expo": {
     "name": "SecureBox",
     "slug": "securebox",
+    "scheme": "securebox",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -40,14 +41,23 @@
         "android.permission.INTERNET",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WAKE_LOCK",
-        "android.permission.BLUETOOTH"
+        "android.permission.BLUETOOTH",
+        "POST_NOTIFICATIONS",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "plugins": [
       "expo-secure-store",
       "expo-camera",
       "expo-av",
-      "@config-plugins/react-native-webrtc"
+      "@config-plugins/react-native-webrtc",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#e02888"
+        }
+      ]
     ],
     "extra": {
       "eas": {

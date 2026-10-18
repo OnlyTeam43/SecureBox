@@ -3,75 +3,65 @@
 
 import { supabase } from './supabase';
 
-// Active call state in memory
-let activeCallInfo = null; // { callId, partnerHandle, partnerNickname, partnerAvatarId, callType, status, isCaller, startTime }
+let activeCallInfo = null;
 let incomingCallCallback = null;
 let activeCallListeners = new Map(); // callId -> Set of callback handlers
-let userSubscriptionChannel = null;
+let userCallInboxChannel = null;
 let currentSubscribedHandle = null;
+let activeCallRoomChannel = null;
 
 const clean = (h) => (h ? h.replace('@', '').trim().toLowerCase() : '');
 
 /**
- * Helper to get or create a Supabase broadcast channel for any target handle
- */
-const getTargetChannel = async (targetHandle) => {
-  const targetClean = clean(targetHandle);
-  if (!targetClean) return null;
-
-  const topicName = `realtime:user_${targetClean}`;
-  let channel = supabase.getChannels().find((c) => c.topic === topicName);
-
-  if (!channel) {
-    channel = supabase.channel(`user_${targetClean}`);
-    await new Promise((resolve) => {
-      const timer = setTimeout(resolve, 1200);
-      channel.subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          clearTimeout(timer);
-          resolve();
-        }
-      });
-    });
-  }
-  return channel;
-};
-
-/**
- * Initialize global call receiver for the logged-in user
+ * Initialize global incoming call receiver for the logged-in user.
+ * Subscribes to a dedicated channel 'call_user_<handle>' that cannot collide with chat messages.
+ * Safe to call multiple times — re-subscribes if the channel was dropped.
  */
 export const initCallReceiver = (myHandle, onIncomingCall) => {
   if (!myHandle) return;
   const myClean = clean(myHandle);
 
+  // Always update the callback so fresh closure is used
   incomingCallCallback = onIncomingCall;
 
-  if (userSubscriptionChannel && currentSubscribedHandle === myClean) {
+  // If already subscribed to this handle's channel, just refresh the callback and return
+  if (userCallInboxChannel && currentSubscribedHandle === myClean) {
     return;
   }
 
-  if (userSubscriptionChannel) {
+  // Tear down any stale subscription
+  if (userCallInboxChannel) {
     try {
-      supabase.removeChannel(userSubscriptionChannel);
+      supabase.removeChannel(userCallInboxChannel);
     } catch (_) {}
-    userSubscriptionChannel = null;
+    userCallInboxChannel = null;
   }
 
   currentSubscribedHandle = myClean;
-  const channelName = `user_${myClean}`;
+  const channelName = `call_user_${myClean}`;
 
-  const channel = supabase.channel(channelName);
+  const channel = supabase.channel(channelName, {
+    config: { broadcast: { ack: true } },
+  });
 
   channel
-    // 1. Incoming Call Invite
-    .on('broadcast', { event: 'call_invite' }, ({ payload }) => {
+    .on('broadcast', { event: 'call_invite' }, async ({ payload }) => {
+      console.log('CallService: Received call_invite:', payload);
       if (!payload || !payload.callId) return;
       const callerClean = clean(payload.callerHandle);
-      if (callerClean === myClean) return; // ignore self-broadcast
+      if (callerClean === myClean) return;
 
       // If user is already on another call, automatically respond busy
       if (activeCallInfo && activeCallInfo.status === 'connected') {
-        callService.rejectCall(payload.callId, payload.callerHandle, 'busy');
+        callService.rejectCall(payload.callId, 'busy');
+        return;
+      }
+
+      // Deduplicate: ignore if we already have this callId incoming
+      if (activeCallInfo && activeCallInfo.callId === payload.callId) {
+        console.log('CallService: Duplicate invite ignored for callId', payload.callId);
+        // Still send ringing so the retry loop on caller side sees confirmation
+        callService.sendRinging(payload.callId);
         return;
       }
 
@@ -86,56 +76,26 @@ export const initCallReceiver = (myHandle, onIncomingCall) => {
         startTime: null,
       };
 
+      // Automatically join the shared call room to receive ringing/cancel/end events
+      await callService.joinCallRoom(payload.callId);
+
       // Notify caller that phone is ringing
-      callService.sendRinging(payload.callId, payload.callerHandle);
+      callService.sendRinging(payload.callId);
 
       if (incomingCallCallback) {
         incomingCallCallback(payload);
       }
     })
-
-    // 2. Ringing confirmation from receiver
-    .on('broadcast', { event: 'call_ringing' }, ({ payload }) => {
-      if (!payload || !payload.callId) return;
-      notifyCallListeners(payload.callId, 'ringing', payload);
-    })
-
-    // 3. Call Accepted by receiver
-    .on('broadcast', { event: 'call_accepted' }, ({ payload }) => {
-      if (!payload || !payload.callId) return;
-      if (activeCallInfo && activeCallInfo.callId === payload.callId) {
-        activeCallInfo.status = 'connected';
-        activeCallInfo.startTime = Date.now();
+    .subscribe((status) => {
+      console.log(`CallService: Call inbox [${channelName}] status: ${status}`);
+      if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        // Mark channel as gone so next initCallReceiver call re-creates it
+        userCallInboxChannel = null;
+        currentSubscribedHandle = null;
       }
-      notifyCallListeners(payload.callId, 'accepted', payload);
-    })
+    });
 
-    // 4. Call Rejected / Busy / Timeout
-    .on('broadcast', { event: 'call_rejected' }, ({ payload }) => {
-      if (!payload || !payload.callId) return;
-      if (activeCallInfo && activeCallInfo.callId === payload.callId) {
-        activeCallInfo = null;
-      }
-      notifyCallListeners(payload.callId, 'rejected', payload);
-    })
-
-    // 5. Call Ended / Hung up
-    .on('broadcast', { event: 'call_ended' }, ({ payload }) => {
-      if (!payload || !payload.callId) return;
-      if (activeCallInfo && activeCallInfo.callId === payload.callId) {
-        activeCallInfo = null;
-      }
-      notifyCallListeners(payload.callId, 'ended', payload);
-    })
-
-    // 6. WebRTC / Audio stream signaling packet
-    .on('broadcast', { event: 'call_signal' }, ({ payload }) => {
-      if (!payload || !payload.callId) return;
-      notifyCallListeners(payload.callId, 'signal', payload);
-    })
-    .subscribe();
-
-  userSubscriptionChannel = channel;
+  userCallInboxChannel = channel;
 };
 
 const notifyCallListeners = (callId, eventType, data) => {
@@ -153,10 +113,76 @@ const notifyCallListeners = (callId, eventType, data) => {
 
 export const callService = {
   /**
-   * Initiate an outgoing call
+   * Joins the dedicated symmetric room for a specific call session.
+   * Both caller and receiver participate in this room.
+   */
+  async joinCallRoom(callId) {
+    if (activeCallRoomChannel) {
+      try {
+        supabase.removeChannel(activeCallRoomChannel);
+      } catch (_) {}
+      activeCallRoomChannel = null;
+    }
+
+    const roomName = `call_room_${callId}`;
+    const channel = supabase.channel(roomName, {
+      config: { broadcast: { ack: true } },
+    });
+
+    channel
+      .on('broadcast', { event: 'call_ringing' }, ({ payload }) => {
+        console.log('CallService: Received call_ringing');
+        notifyCallListeners(callId, 'ringing', payload);
+      })
+      .on('broadcast', { event: 'call_accepted' }, ({ payload }) => {
+        console.log('CallService: Received call_accepted');
+        if (activeCallInfo && activeCallInfo.callId === callId) {
+          activeCallInfo.status = 'connected';
+          activeCallInfo.startTime = Date.now();
+        }
+        notifyCallListeners(callId, 'accepted', payload);
+      })
+      .on('broadcast', { event: 'call_rejected' }, ({ payload }) => {
+        console.log('CallService: Received call_rejected');
+        if (activeCallInfo && activeCallInfo.callId === callId) {
+          activeCallInfo = null;
+        }
+        notifyCallListeners(callId, 'rejected', payload);
+      })
+      .on('broadcast', { event: 'call_ended' }, ({ payload }) => {
+        console.log('CallService: Received call_ended');
+        if (activeCallInfo && activeCallInfo.callId === callId) {
+          activeCallInfo = null;
+        }
+        notifyCallListeners(callId, 'ended', payload);
+      })
+      .on('broadcast', { event: 'call_signal' }, ({ payload }) => {
+        if (payload?.senderHandle && clean(payload.senderHandle) !== currentSubscribedHandle) {
+          notifyCallListeners(callId, 'signal', payload);
+        }
+      });
+
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 3000);
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+    });
+
+    activeCallRoomChannel = channel;
+    return channel;
+  },
+
+  /**
+   * Initiate an outgoing call.
+   * Sends invite with retry until 'call_ringing' is received (confirming receiver got it).
    */
   async startCall({ callerHandle, callerNickname, callerAvatarId, receiverHandle, callType = 'voice' }) {
     const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const receiverClean = clean(receiverHandle);
 
     activeCallInfo = {
       callId,
@@ -169,6 +195,28 @@ export const callService = {
       startTime: null,
     };
 
+    // 1. Join the shared call session room first (so we can detect 'ringing' confirmation)
+    await this.joinCallRoom(callId);
+
+    // 2. Connect to the receiver's personal call inbox channel
+    const targetChannelName = `call_user_${receiverClean}`;
+    let targetChannel = supabase.getChannels().find((c) => c.topic === `realtime:${targetChannelName}`);
+
+    if (!targetChannel) {
+      targetChannel = supabase.channel(targetChannelName, {
+        config: { broadcast: { ack: true } },
+      });
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 4000);
+        targetChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+      });
+    }
+
     const payload = {
       callId,
       callerHandle,
@@ -179,104 +227,132 @@ export const callService = {
       timestamp: Date.now(),
     };
 
-    try {
-      const channel = await getTargetChannel(receiverHandle);
-      if (channel) {
-        await channel.send({
+    // 3. Send invite with retry — wait up to 2s between attempts for 'ringing' confirmation
+    //    The call room listener in joinCallRoom will set status to 'ringing' via notifyCallListeners
+    let ringingConfirmed = false;
+
+    // Temporarily listen for ringing to confirm delivery
+    const ringingListener = (eventType) => {
+      if (eventType === 'ringing') ringingConfirmed = true;
+    };
+    if (!activeCallListeners.has(callId)) {
+      activeCallListeners.set(callId, new Set());
+    }
+    activeCallListeners.get(callId).add(ringingListener);
+
+    const MAX_RETRIES = 5;
+    const RETRY_DELAY_MS = 2000;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (ringingConfirmed) {
+        console.log(`CallService: Ringing confirmed after ${attempt} attempt(s)`);
+        break;
+      }
+      try {
+        const res = await targetChannel.send({
           type: 'broadcast',
           event: 'call_invite',
           payload,
         });
+        console.log(`CallService: Sent call_invite attempt ${attempt + 1}:`, res);
+      } catch (err) {
+        console.warn(`Call invite send attempt ${attempt + 1} failed:`, err);
       }
-    } catch (err) {
-      console.warn('Failed to send call invite:', err);
+
+      if (attempt < MAX_RETRIES - 1) {
+        // Wait up to RETRY_DELAY_MS for ringing confirmation before next attempt
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
     }
 
+    // Remove the ringing listener — the real screen listener will handle ringing events
+    const listeners = activeCallListeners.get(callId);
+    if (listeners) listeners.delete(ringingListener);
+
+    console.log(`CallService: startCall complete. callId=${callId}, ringingConfirmed=${ringingConfirmed}`);
     return callId;
   },
 
   /**
-   * Send ringing confirmation to the caller
+   * Send ringing confirmation back to caller
    */
-  async sendRinging(callId, callerHandle) {
-    try {
-      const channel = await getTargetChannel(callerHandle);
-      if (channel) {
-        await channel.send({
+  async sendRinging(callId) {
+    if (activeCallRoomChannel) {
+      try {
+        await activeCallRoomChannel.send({
           type: 'broadcast',
           event: 'call_ringing',
           payload: { callId, receiverHandle: currentSubscribedHandle, timestamp: Date.now() },
         });
+      } catch (err) {
+        console.warn('Failed to send ringing notice:', err);
       }
-    } catch (err) {
-      console.warn('Failed to send ringing notice:', err);
     }
   },
 
   /**
    * Accept an incoming call
    */
-  async acceptCall(callId, callerHandle) {
+  async acceptCall(callId) {
     if (activeCallInfo && activeCallInfo.callId === callId) {
       activeCallInfo.status = 'connected';
       activeCallInfo.startTime = Date.now();
     }
 
-    try {
-      const channel = await getTargetChannel(callerHandle);
-      if (channel) {
-        await channel.send({
+    if (activeCallRoomChannel) {
+      try {
+        await activeCallRoomChannel.send({
           type: 'broadcast',
           event: 'call_accepted',
           payload: { callId, receiverHandle: currentSubscribedHandle, timestamp: Date.now() },
         });
+      } catch (err) {
+        console.warn('Failed to send call accept:', err);
       }
-    } catch (err) {
-      console.warn('Failed to send call accept:', err);
     }
   },
 
   /**
    * Reject / decline an incoming call
    */
-  async rejectCall(callId, callerHandle, reason = 'declined') {
+  async rejectCall(callId, reason = 'declined') {
     if (activeCallInfo && activeCallInfo.callId === callId) {
       activeCallInfo = null;
     }
 
-    try {
-      const channel = await getTargetChannel(callerHandle);
-      if (channel) {
-        await channel.send({
+    if (activeCallRoomChannel) {
+      try {
+        await activeCallRoomChannel.send({
           type: 'broadcast',
           event: 'call_rejected',
           payload: { callId, reason, receiverHandle: currentSubscribedHandle, timestamp: Date.now() },
         });
+      } catch (err) {
+        console.warn('Failed to send call reject:', err);
       }
-    } catch (err) {
-      console.warn('Failed to send call reject:', err);
     }
   },
 
   /**
    * Hang up an active or ringing call
    */
-  async endCall(callId, partnerHandle) {
+  async endCall(callId) {
     if (activeCallInfo && activeCallInfo.callId === callId) {
       activeCallInfo = null;
     }
 
-    try {
-      const channel = await getTargetChannel(partnerHandle);
-      if (channel) {
-        await channel.send({
+    if (activeCallRoomChannel) {
+      try {
+        await activeCallRoomChannel.send({
           type: 'broadcast',
           event: 'call_ended',
           payload: { callId, senderHandle: currentSubscribedHandle, timestamp: Date.now() },
         });
+        supabase.removeChannel(activeCallRoomChannel);
+      } catch (err) {
+        console.warn('Failed to send call end:', err);
       }
-    } catch (err) {
-      console.warn('Failed to send call end:', err);
+      activeCallRoomChannel = null;
     }
   },
 
@@ -284,17 +360,16 @@ export const callService = {
    * Send WebRTC signaling packet (offer, answer, ICE candidate)
    */
   async sendSignal(callId, partnerHandle, signalData) {
-    try {
-      const channel = await getTargetChannel(partnerHandle);
-      if (channel) {
-        await channel.send({
+    if (activeCallRoomChannel) {
+      try {
+        await activeCallRoomChannel.send({
           type: 'broadcast',
           event: 'call_signal',
           payload: { callId, senderHandle: currentSubscribedHandle, signalData, timestamp: Date.now() },
         });
+      } catch (err) {
+        console.warn('Failed to send call signal:', err);
       }
-    } catch (err) {
-      console.warn('Failed to send call signal:', err);
     }
   },
 

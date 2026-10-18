@@ -37,7 +37,7 @@ export default function WelcomeScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.note}>No phone number. No email. Ever.</Text>
+      <Text style={styles.note}>Direct APK Updates · Instant WhatsApp Recovery</Text>
     </View>
   );
 }

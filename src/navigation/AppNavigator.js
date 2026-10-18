@@ -1,17 +1,24 @@
 // src/navigation/AppNavigator.js
 // Root navigator — routes between Onboarding and Main app
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text } from 'react-native';
 
 import { Colors } from '../theme';
 import { useUserStore } from '../store/useUserStore';
 import { navigationRef } from './navigationRef';
-import { initCallReceiver } from '../services/callService';
+import { initCallReceiver, callService } from '../services/callService';
 import IncomingCallModal from '../components/IncomingCallModal';
+import * as Notifications from 'expo-notifications';
+import {
+  initNotifications,
+  handleNotificationClick,
+  checkInitialNotification,
+  notifyIncomingCall,
+} from '../services/notificationService';
 
 // Onboarding
 import WelcomeScreen from '../screens/onboarding/WelcomeScreen';
@@ -26,8 +33,9 @@ import ProfileScreen from '../screens/main/ProfileScreen';
 import AddContactScreen from '../screens/main/AddContactScreen';
 import CallScreen from '../screens/main/CallScreen';
 import MediaGalleryScreen from '../screens/main/MediaGalleryScreen';
+import RequestsScreen from '../screens/main/RequestsScreen';
 
-import { MessageTabIcon, UserAvatarIcon } from '../components/Icons';
+import { MessageTabIcon, UserAvatarIcon, UserCheckIcon } from '../components/Icons';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -61,6 +69,16 @@ function MainTabs() {
         }}
       />
       <Tab.Screen
+        name="Requests"
+        component={RequestsScreen}
+        options={{
+          tabBarLabel: 'Requests',
+          tabBarIcon: ({ color }) => (
+            <UserCheckIcon size={22} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
         name="Me"
         component={ProfileScreen}
         options={{
@@ -78,13 +96,80 @@ export default function AppNavigator() {
   const isSetup = useUserStore((s) => s.isSetup);
   const myHandle = useUserStore((s) => s.handle);
   const [incomingCallData, setIncomingCallData] = useState(null);
+  const incomingCallDataRef = useRef(null);
 
-  useEffect(() => {
-    if (isSetup && myHandle) {
-      initCallReceiver(myHandle, (callPayload) => {
-        setIncomingCallData(callPayload);
+  // Keep ref in sync with state so AppState handler can read the latest value
+  const handleIncomingCall = (callPayload) => {
+    incomingCallDataRef.current = callPayload;
+    setIncomingCallData(callPayload);
+
+    // Trigger high-priority heads-up notification for incoming calls
+    if (callPayload) {
+      notifyIncomingCall({
+        callerNickname: callPayload.callerNickname,
+        callerHandle: callPayload.callerHandle,
+        callType: callPayload.callType,
+        callId: callPayload.callId,
+        callerAvatarId: callPayload.callerAvatarId,
       });
     }
+  };
+
+  // Initialize notifications & setup click listeners
+  useEffect(() => {
+    initNotifications();
+
+    const responseSub = Notifications.addNotificationResponseReceivedListener(handleNotificationClick);
+    checkInitialNotification();
+
+    return () => {
+      responseSub.remove();
+    };
+  }, []);
+
+  // Initial call receiver setup when user logs in
+  useEffect(() => {
+    if (isSetup && myHandle) {
+      initCallReceiver(myHandle, handleIncomingCall);
+    }
+  }, [isSetup, myHandle]);
+
+  // Bug Fix #2: Re-subscribe to incoming call channel when app comes back to foreground.
+  // When Android backgrounds the app the Supabase WebSocket may be throttled/dropped.
+  // On resume we re-init the receiver and check if a call arrived while backgrounded.
+  useEffect(() => {
+    if (!isSetup || !myHandle) return;
+
+    const handleAppStateChange = (nextState) => {
+      if (nextState === 'active') {
+        console.log('AppNavigator: App foregrounded — re-initializing call receiver');
+
+        // Re-subscribe inbox channel (safe no-op if still healthy)
+        initCallReceiver(myHandle, handleIncomingCall);
+
+        // If there's a pending incoming call that we may have missed while backgrounded,
+        // reconstruct the modal payload from module-level state
+        const active = callService.getActiveCall();
+        if (
+          active &&
+          active.status === 'incoming' &&
+          !incomingCallDataRef.current
+        ) {
+          const reconstructed = {
+            callId: active.callId,
+            callerHandle: active.partnerHandle,
+            callerNickname: active.partnerNickname,
+            callerAvatarId: active.partnerAvatarId,
+            callType: active.callType,
+          };
+          console.log('AppNavigator: Reconstructing missed incoming call modal', reconstructed);
+          handleIncomingCall(reconstructed);
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
   }, [isSetup, myHandle]);
 
   return (
@@ -127,7 +212,10 @@ export default function AppNavigator() {
       {/* Global Incoming Call Overlay */}
       <IncomingCallModal
         callData={incomingCallData}
-        onDismiss={() => setIncomingCallData(null)}
+        onDismiss={() => {
+          incomingCallDataRef.current = null;
+          setIncomingCallData(null);
+        }}
       />
     </NavigationContainer>
   );
