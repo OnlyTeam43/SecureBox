@@ -4,16 +4,17 @@
 import React from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  StatusBar, Alert, Image, ActivityIndicator,
+  StatusBar, Alert, Image, ActivityIndicator, Share,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
 import { EXPIRY_OPTIONS } from '../../constants/avatars';
 import { useUserStore } from '../../store/useUserStore';
-import { UserAvatarIcon, CameraIcon } from '../../components/Icons';
+import { UserAvatarIcon, CameraIcon, ShareIcon, LinkIcon } from '../../components/Icons';
 import { updateUserAvatarInSupabase } from '../../services/supabase';
 import { updateContactAvatar } from '../../db/database';
+import { shareProfileInvite, getInviteLink } from '../../services/inviteService';
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -112,11 +113,50 @@ export default function ProfileScreen({ navigation }) {
           <Text style={styles.handleAt}>@</Text>
           <Text style={styles.handle}>{handle}</Text>
         </View>
+
+        {/* Share Profile Invite Link Card */}
+        <View style={styles.shareCard}>
+          <Text style={styles.shareCardTitle}>Invite someone to chat</Text>
+          <Text style={styles.shareCardSubtitle}>
+            When they tap your link, SecureBox will directly open your profile and send a chat request!
+          </Text>
+
+          <View style={styles.shareActionRow}>
+            <TouchableOpacity
+              style={styles.sharePrimaryBtn}
+              onPress={() => shareProfileInvite(handle, nickname)}
+              activeOpacity={0.85}
+            >
+              <ShareIcon size={18} color="#fff" />
+              <Text style={styles.sharePrimaryBtnText}>Share Invite Link</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.shareSecondaryBtn}
+              onPress={() => {
+                const link = getInviteLink(handle);
+                Alert.alert(
+                  'Your Invite Link',
+                  `${link}\n\nShare this link directly on WhatsApp, Instagram, or Telegram.`,
+                  [
+                    {
+                      text: 'Share Now',
+                      onPress: () => shareProfileInvite(handle, nickname),
+                    },
+                    { text: 'OK' },
+                  ]
+                );
+              }}
+              activeOpacity={0.8}
+            >
+              <LinkIcon size={18} color={Colors.accent.primary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {mobileNumber ? (
           <Text style={styles.handleHint}>{mobileNumber} • Recovery</Text>
-        ) : (
-          <Text style={styles.handleHint}>Share this handle to connect</Text>
-        )}
+        ) : null}
       </View>
 
       {/* Settings */}
@@ -229,6 +269,60 @@ const styles = StyleSheet.create({
     fontSize: Typography.sizes.xs,
     color: Colors.text.placeholder,
     marginTop: Spacing.xs,
+  },
+  shareCard: {
+    width: '100%',
+    backgroundColor: Colors.accent.glow,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginTop: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.accent.primary + '33',
+    alignItems: 'center',
+  },
+  shareCardTitle: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: '700',
+    color: Colors.text.primary,
+    marginBottom: 4,
+  },
+  shareCardSubtitle: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+    lineHeight: 16,
+  },
+  shareActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    width: '100%',
+  },
+  sharePrimaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.accent.primary,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    gap: 8,
+  },
+  sharePrimaryBtnText: {
+    color: '#ffffff',
+    fontSize: Typography.sizes.sm,
+    fontWeight: '700',
+  },
+  shareSecondaryBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: Colors.accent.primary + '44',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   section: {
     marginBottom: Spacing.lg,

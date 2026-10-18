@@ -2,7 +2,7 @@
 // Root navigator — routes between Onboarding and Main app
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -13,6 +13,7 @@ import { navigationRef } from './navigationRef';
 import { initCallReceiver, callService, processIncomingCallPayload } from '../services/callService';
 import { subscribeToMyMessages } from '../services/supabase';
 import IncomingCallModal from '../components/IncomingCallModal';
+import ActiveCallBanner from '../components/ActiveCallBanner';
 import * as Notifications from 'expo-notifications';
 import {
   initNotifications,
@@ -20,6 +21,7 @@ import {
   checkInitialNotification,
   notifyIncomingCall,
 } from '../services/notificationService';
+import { parseInviteUrl, handleIncomingInvite } from '../services/inviteService';
 
 // Onboarding
 import WelcomeScreen from '../screens/onboarding/WelcomeScreen';
@@ -96,8 +98,72 @@ function MainTabs() {
 export default function AppNavigator() {
   const isSetup = useUserStore((s) => s.isSetup);
   const myHandle = useUserStore((s) => s.handle);
+  const myNickname = useUserStore((s) => s.nickname);
+  const myAvatarId = useUserStore((s) => s.avatarId);
+  const pendingInviteHandle = useUserStore((s) => s.pendingInviteHandle);
+  const setPendingInviteHandle = useUserStore((s) => s.setPendingInviteHandle);
+  const clearPendingInviteHandle = useUserStore((s) => s.clearPendingInviteHandle);
+
   const [incomingCallData, setIncomingCallData] = useState(null);
   const incomingCallDataRef = useRef(null);
+
+  // Deep linking: Handle profile/handle invite URLs (e.g. securebox://invite/alex)
+  useEffect(() => {
+    const processUrl = (url) => {
+      if (!url) return;
+      console.log('AppNavigator: Processing deep link URL:', url);
+      const targetHandle = parseInviteUrl(url);
+      if (!targetHandle) return;
+
+      const currentSetup = useUserStore.getState().isSetup;
+      const currentHandle = useUserStore.getState().handle;
+      const currentNick = useUserStore.getState().nickname;
+      const currentAvatar = useUserStore.getState().avatarId;
+
+      if (!currentSetup || !currentHandle) {
+        // Save pending handle in store; once setup is finished, prompt the user
+        console.log('AppNavigator: User not yet logged in, saving pending invite:', targetHandle);
+        setPendingInviteHandle(targetHandle);
+      } else {
+        handleIncomingInvite(
+          targetHandle,
+          navigationRef,
+          currentHandle,
+          currentNick,
+          currentAvatar
+        );
+      }
+    };
+
+    // 1. App opened from cold start via deep link
+    Linking.getInitialURL().then((url) => {
+      if (url) processUrl(url);
+    });
+
+    // 2. App already running in foreground/background and deep link clicked
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      processUrl(url);
+    });
+
+    return () => sub.remove();
+  }, []);
+
+  // When setup completes or user is logged in, check if there was a saved pending invite
+  useEffect(() => {
+    if (isSetup && myHandle && pendingInviteHandle) {
+      const target = pendingInviteHandle;
+      clearPendingInviteHandle();
+      setTimeout(() => {
+        handleIncomingInvite(
+          target,
+          navigationRef,
+          myHandle,
+          myNickname,
+          myAvatarId
+        );
+      }, 800);
+    }
+  }, [isSetup, myHandle, pendingInviteHandle]);
 
   // Keep ref in sync with state so AppState handler can read the latest value
   const handleIncomingCall = (callPayload) => {
@@ -228,6 +294,9 @@ export default function AppNavigator() {
           </>
         )}
       </Stack.Navigator>
+
+      {/* Global Active Call Return Banner (when call is minimized) */}
+      <ActiveCallBanner navigationRef={navigationRef} />
 
       {/* Global Incoming Call Overlay */}
       <IncomingCallModal

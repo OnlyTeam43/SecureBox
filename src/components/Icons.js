@@ -171,5 +171,87 @@ export const UserCheckIcon = ({ size = 22, color = '#222' }) => (
   </Svg>
 );
 
+export const ShareIcon = ({ size = 22, color = '#222' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Circle cx="18" cy="5" r="3" />
+    <Circle cx="6" cy="12" r="3" />
+    <Circle cx="18" cy="19" r="3" />
+    <Line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+    <Line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+  </Svg>
+);
+
+export const LinkIcon = ({ size = 22, color = '#222' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <Path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </Svg>
+);
+
+export const ChevronDownIcon = ({ size = 22, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <Polyline points="6 9 12 15 18 9" />
+  </Svg>
+);
+
+export const MoreHorizontalIcon = ({ size = 22, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Circle cx="5" cy="12" r="2.2" fill={color} />
+    <Circle cx="12" cy="12" r="2.2" fill={color} />
+    <Circle cx="19" cy="12" r="2.2" fill={color} />
+  </Svg>
+);
+
+export const SolidVideoIcon = ({ size = 22, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Rect x="2" y="6" width="13" height="12" rx="2.5" fill={color} />
+    <Polygon points="22 8 16 12 22 16" fill={color} />
+  </Svg>
+);
+
+export const SolidVideoOffIcon = ({ size = 22, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Line x1="2" y1="2" x2="22" y2="22" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    <Path d="M10.5 6H13a2 2 0 0 1 2 2v2.5M15 15.5V16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1.5" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <Polygon points="22 8 16 12 22 16" fill={color} />
+  </Svg>
+);
+
+export const SolidSpeakerIcon = ({ size = 22, color = '#000' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M4 9h3l4.5-4.5v15L7 15H4a1.5 1.5 0 0 1-1.5-1.5v-3A1.5 1.5 0 0 1 4 9z" fill={color} />
+    <Path d="M15.5 8.5a5 5 0 0 1 0 7" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    <Path d="M18.8 5.5a9.5 9.5 0 0 1 0 13" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+  </Svg>
+);
+
+export const SolidMicIcon = ({ size = 22, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Rect x="8.5" y="2" width="7" height="12" rx="3.5" fill={color} />
+    <Path d="M5 10a7 7 0 0 0 14 0" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    <Line x1="12" y1="17" x2="12" y2="21" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    <Line x1="8" y1="21" x2="16" y2="21" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+  </Svg>
+);
+
+export const SolidMicOffIcon = ({ size = 22, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Line x1="2" y1="2" x2="22" y2="22" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    <Path d="M9 4.5A3.5 3.5 0 0 1 15.5 6v3.5M15.5 11.5A3.5 3.5 0 0 1 9.5 14" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    <Path d="M5 10a7 7 0 0 0 11 5.8M19 10a7 7 0 0 1-.5 2.5" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    <Line x1="12" y1="17" x2="12" y2="21" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    <Line x1="8" y1="21" x2="16" y2="21" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+  </Svg>
+);
+
+export const EndCallIcon = ({ size = 24, color = '#fff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M3 13.5c2.5-3.5 7-5 11-3.5 3 .9 5.5 2.5 7 3.5.8.5 1 1.6.4 2.4l-1.5 2.1c-.5.7-1.5.9-2.2.4-1.8-1.2-3.7-1.7-5.7-1.7s-3.9.5-5.7 1.7c-.7.5-1.7.3-2.2-.4L2.6 15.9c-.6-.8-.4-1.9.4-2.4z"
+      fill={color}
+    />
+  </Svg>
+);
+
 
 

@@ -6,9 +6,19 @@ import { supabase } from './supabase';
 let activeCallInfo = null;
 let incomingCallCallback = null;
 let activeCallListeners = new Map(); // callId -> Set of callback handlers
+let activeCallStateListeners = new Set();
 let userCallInboxChannel = null;
 let currentSubscribedHandle = null;
 let activeCallRoomChannel = null;
+
+const setActiveCallInfo = (info) => {
+  activeCallInfo = info;
+  activeCallStateListeners.forEach((cb) => {
+    try {
+      cb(activeCallInfo);
+    } catch (_) {}
+  });
+};
 
 const clean = (h) => (h ? h.replace('@', '').trim().toLowerCase() : '');
 
@@ -52,7 +62,7 @@ export const initCallReceiver = (myHandle, onIncomingCall) => {
     .on('broadcast', { event: 'call_ended' }, ({ payload }) => {
       console.log('CallService: Received call_ended for callId:', payload?.callId);
       if (activeCallInfo && (!payload?.callId || activeCallInfo.callId === payload.callId)) {
-        activeCallInfo = null;
+        setActiveCallInfo(null);
       }
       if (payload?.callId) {
         notifyCallListeners(payload.callId, 'ended', payload);
@@ -90,16 +100,16 @@ export const processIncomingCallPayload = async (payload) => {
     return;
   }
 
-  activeCallInfo = {
+  setActiveCallInfo({
     callId: payload.callId,
     partnerHandle: payload.callerHandle,
-    partnerNickname: payload.callerNickname,
-    partnerAvatarId: payload.callerAvatarId,
+    partnerNickname: payload.callerNickname || '',
+    partnerAvatarId: payload.callerAvatarId || '',
     callType: payload.callType || 'voice',
     status: 'incoming',
     isCaller: false,
     startTime: null,
-  };
+  });
 
   // Automatically join the shared call room to receive ringing/cancel/end events
   await callService.joinCallRoom(payload.callId);
@@ -151,22 +161,25 @@ export const callService = {
       .on('broadcast', { event: 'call_accepted' }, ({ payload }) => {
         console.log('CallService: Received call_accepted');
         if (activeCallInfo && activeCallInfo.callId === callId) {
-          activeCallInfo.status = 'connected';
-          activeCallInfo.startTime = Date.now();
+          setActiveCallInfo({
+            ...activeCallInfo,
+            status: 'connected',
+            startTime: activeCallInfo.startTime || Date.now(),
+          });
         }
         notifyCallListeners(callId, 'accepted', payload);
       })
       .on('broadcast', { event: 'call_rejected' }, ({ payload }) => {
         console.log('CallService: Received call_rejected');
         if (activeCallInfo && activeCallInfo.callId === callId) {
-          activeCallInfo = null;
+          setActiveCallInfo(null);
         }
         notifyCallListeners(callId, 'rejected', payload);
       })
       .on('broadcast', { event: 'call_ended' }, ({ payload }) => {
         console.log('CallService: Received call_ended');
         if (activeCallInfo && activeCallInfo.callId === callId) {
-          activeCallInfo = null;
+          setActiveCallInfo(null);
         }
         notifyCallListeners(callId, 'ended', payload);
       })
@@ -196,7 +209,7 @@ export const callService = {
    * Initiate an outgoing call.
    * Sends invite with retry until 'call_ringing' is received (confirming receiver got it).
    */
-  async startCall({ callerHandle, callerNickname, callerAvatarId, receiverHandle, callType = 'voice' }) {
+  async startCall({ callerHandle, callerNickname, callerAvatarId, receiverHandle, receiverNickname = '', receiverAvatarId = '', callType = 'voice' }) {
     const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const receiverClean = clean(receiverHandle);
     const callerClean = clean(callerHandle);
@@ -205,16 +218,16 @@ export const callService = {
       currentSubscribedHandle = callerClean;
     }
 
-    activeCallInfo = {
+    setActiveCallInfo({
       callId,
       partnerHandle: receiverHandle,
-      partnerNickname: '',
-      partnerAvatarId: '',
+      partnerNickname: receiverNickname || '',
+      partnerAvatarId: receiverAvatarId || '',
       callType,
       status: 'calling',
       isCaller: true,
       startTime: null,
-    };
+    });
 
     // 1. Join the shared call session room first (so we can detect 'ringing' confirmation)
     await this.joinCallRoom(callId);
@@ -347,8 +360,11 @@ export const callService = {
    */
   async acceptCall(callId) {
     if (activeCallInfo && activeCallInfo.callId === callId) {
-      activeCallInfo.status = 'connected';
-      activeCallInfo.startTime = Date.now();
+      setActiveCallInfo({
+        ...activeCallInfo,
+        status: 'connected',
+        startTime: activeCallInfo.startTime || Date.now(),
+      });
     }
 
     // Remove durable invite immediately
@@ -374,7 +390,7 @@ export const callService = {
    */
   async rejectCall(callId, reason = 'declined') {
     if (activeCallInfo && activeCallInfo.callId === callId) {
-      activeCallInfo = null;
+      setActiveCallInfo(null);
     }
 
     // Remove durable invite immediately
@@ -400,7 +416,7 @@ export const callService = {
    */
   async endCall(callId, partnerHandle = null) {
     if (activeCallInfo && activeCallInfo.callId === callId) {
-      activeCallInfo = null;
+      setActiveCallInfo(null);
     }
 
     // Remove durable invite immediately
@@ -476,11 +492,22 @@ export const callService = {
     };
   },
 
+  /**
+   * Subscribe to global active call state changes
+   */
+  subscribeToActiveCall(callback) {
+    activeCallStateListeners.add(callback);
+    callback(activeCallInfo);
+    return () => {
+      activeCallStateListeners.delete(callback);
+    };
+  },
+
   getActiveCall() {
     return activeCallInfo;
   },
 
   clearActiveCall() {
-    activeCallInfo = null;
+    setActiveCallInfo(null);
   },
 };

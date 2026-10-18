@@ -36,12 +36,13 @@ import { formatDistanceToNow } from 'date-fns';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as ScreenCapture from 'expo-screen-capture';
-import { TrashIcon, UserAvatarIcon, CheckIcon, DoubleCheckIcon } from '../../components/Icons';
+import { TrashIcon, UserAvatarIcon, CheckIcon, DoubleCheckIcon, ShareIcon } from '../../components/Icons';
 import {
   notifyIncomingMessage,
   notifyConnectionRequest,
   notifyRequestAccepted,
 } from '../../services/notificationService';
+import { shareProfileInvite } from '../../services/inviteService';
 
 export default function InboxScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -649,6 +650,14 @@ export default function InboxScreen({ navigation }) {
             <Text style={styles.headerTitle}>Messages</Text>
             <Text style={styles.headerSub}>@{myHandle}</Text>
           </View>
+          <TouchableOpacity
+            style={styles.headerInviteBtn}
+            onPress={() => shareProfileInvite(myHandle, myNickname)}
+            activeOpacity={0.8}
+          >
+            <ShareIcon size={16} color={Colors.accent.primary} />
+            <Text style={styles.headerInviteText}>Invite</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -714,6 +723,25 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 6,
     backgroundColor: Colors.bg.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerInviteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.accent.glow,
+    borderWidth: 1,
+    borderColor: Colors.accent.primary + '44',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+  },
+  headerInviteText: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.accent.primary,
+    fontWeight: '700',
   },
   selectionHeader: {
     flexDirection: 'row',

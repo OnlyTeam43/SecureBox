@@ -21,9 +21,15 @@ export const useUserStore = create(
       // Disappearing messages default
       defaultExpiry: null, // null = never, or seconds (3600, 86400, etc.)
 
+      // Deep link pending invite handle (e.g. user clicked securebox://invite/alex)
+      pendingInviteHandle: null,
+
       // Actions
       setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null, recoveryPin = null) =>
         set({ handle, nickname, avatarId, mobileNumber, avatarUri, recoveryPin }),
+
+      setPendingInviteHandle: (inviteHandle) => set({ pendingInviteHandle: inviteHandle }),
+      clearPendingInviteHandle: () => set({ pendingInviteHandle: null }),
 
       setRecoveryPin: (recoveryPin) => set({ recoveryPin }),
 
@@ -46,6 +52,7 @@ export const useUserStore = create(
           password: null,
           isSetup: false,
           defaultExpiry: null,
+          pendingInviteHandle: null,
         }),
     }),
     {
