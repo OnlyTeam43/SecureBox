@@ -74,21 +74,20 @@ export default function CallScreen({ route, navigation }) {
     }
   }, [contactHandle, contactAvatarId]);
 
-  // Check if call was already active (e.g. returning to call after minimizing)
+  // Check if this screen is returning to an already established WebRTC call (minimized call)
   const existingActive = callService.getActiveCall();
-  const isAlreadyConnected =
-    isResume ||
-    (existingActive &&
-      existingActive.status === 'connected' &&
-      (!initialCallId || existingActive.callId === initialCallId));
+  const isResumingOngoingCall =
+    Boolean(isResume) &&
+    Boolean(webrtcService.peerConnection) &&
+    existingActive?.status === 'connected';
 
   const [callId, setCallId] = useState(initialCallId || existingActive?.callId || null);
   const [callStatus, setCallStatus] = useState(
-    isAlreadyConnected ? 'Connected' : isIncoming ? 'Connected' : 'Calling...'
+    isResumingOngoingCall ? 'Connected' : isIncoming ? 'Connected' : 'Calling...'
   );
-  const [isConnected, setIsConnected] = useState(isAlreadyConnected || isIncoming);
+  const [isConnected, setIsConnected] = useState(isResumingOngoingCall || isIncoming);
   const [duration, setDuration] = useState(() => {
-    if (existingActive?.startTime) {
+    if (isResumingOngoingCall && existingActive?.startTime) {
       return Math.max(0, Math.floor((Date.now() - existingActive.startTime) / 1000));
     }
     return 0;
@@ -259,7 +258,7 @@ export default function CallScreen({ route, navigation }) {
     const setupCall = async () => {
       await requestCallPermissions(isVideo);
 
-      if (isAlreadyConnected) {
+      if (isResumingOngoingCall) {
         // Returning to an ongoing call: WebRTC and audio are already running!
         console.log('CallScreen: Resuming active call session', activeCallId);
         setIsConnected(true);

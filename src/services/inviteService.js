@@ -17,18 +17,24 @@ export const getInviteLink = (handle) => {
   return `securebox://invite/${clean}`;
 };
 
+export const GITHUB_APK_DOWNLOAD_URL =
+  'https://github.com/OnlyTeam43/SecureBox/releases/latest/download/SecureBox.apk';
+
 /**
  * Generate full share text for WhatsApp / SMS / Instagram / etc.
  */
 export const getInviteMessage = (handle, nickname = null) => {
   const clean = handle ? handle.replace('@', '').trim().toLowerCase() : '';
-  const link = getInviteLink(clean);
+  const appLink = getInviteLink(clean);
   const displayName = nickname ? `${nickname} (@${clean})` : `@${clean}`;
 
   return (
-    `Join me on SecureBox — private end-to-end encrypted messaging & calls!\n\n` +
-    `Click this link to connect with ${displayName}:\n${link}\n\n` +
-    `(If you haven't installed SecureBox yet, install the app first and then tap the link!)`
+    `💌 Connect with me on SecureBox — private end-to-end encrypted chat & calls!\n\n` +
+    `1️⃣ Download & install the SecureBox APK:\n` +
+    `${GITHUB_APK_DOWNLOAD_URL}\n\n` +
+    `2️⃣ Connect with me:\n` +
+    `My handle is: @${clean}\n` +
+    `Or tap this link once installed: ${appLink}`
   );
 };
 
