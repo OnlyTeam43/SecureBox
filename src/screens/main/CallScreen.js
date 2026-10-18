@@ -152,7 +152,7 @@ export default function CallScreen({ route, navigation }) {
         setCallStatus('Connected');
         callAudioService.playConnectedChime();
         startDurationTimer();
-        webrtcService.startCall(activeCallId, contactHandle, false, isVideo);
+        webrtcService.startCall(activeCallId, contactHandle, false, isVideo, myHandle);
       } else {
         // Outgoing call initiation
         callAudioService.playOutgoingRing();
@@ -185,7 +185,7 @@ export default function CallScreen({ route, navigation }) {
             callAudioService.playConnectedChime();
             startDurationTimer();
             // Start WebRTC initiator (caller)
-            webrtcService.startCall(activeCallId, contactHandle, true, isVideo);
+            webrtcService.startCall(activeCallId, contactHandle, true, isVideo, myHandle);
           } else if (eventType === 'signal' && data?.signalData) {
             // WebRTC peer connection signal packet
             webrtcService.handleSignal(data.signalData);
@@ -217,7 +217,7 @@ export default function CallScreen({ route, navigation }) {
       webrtcService.cleanup();
 
       if (!isEndingRef.current && activeCallId) {
-        callService.endCall(activeCallId);
+        callService.endCall(activeCallId, contactHandle);
       }
     };
   }, []);
@@ -270,7 +270,7 @@ export default function CallScreen({ route, navigation }) {
     setCallStatus('Ending Call...');
     webrtcService.cleanup();
     if (callId) {
-      await callService.endCall(callId);
+      await callService.endCall(callId, contactHandle);
     }
     await callAudioService.playEndedChime();
 

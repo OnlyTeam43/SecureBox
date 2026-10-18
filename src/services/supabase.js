@@ -383,6 +383,7 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
       .eq('receiver', clean)
       .not('conversation_id', 'like', 'contact_req_%')
       .not('conversation_id', 'like', 'contact_accepted_%')
+      .not('conversation_id', 'like', 'call_req_%')
       .order('sent_at', { ascending: true });
 
     if (error || !data || data.length === 0) return [];
@@ -869,6 +870,21 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
                   fromAvatar: bodyObj.senderAvatar || 'avatar_rose',
                   reqId: payload.new.id,
                 });
+              } catch (_) {}
+              return;
+            }
+
+            // Check if this is an incoming call invitation
+            if (payload.new.conversation_id === `call_req_${clean}`) {
+              try {
+                const bodyObj = JSON.parse(payload.new.body);
+                // Check if call invite is still recent (< 35 seconds old)
+                if (Date.now() - (bodyObj.timestamp || 0) < 35000) {
+                  notifyMessageStatusListeners({
+                    event: 'incoming_call',
+                    ...bodyObj,
+                  });
+                }
               } catch (_) {}
               return;
             }

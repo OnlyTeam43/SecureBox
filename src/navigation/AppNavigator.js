@@ -10,7 +10,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Colors } from '../theme';
 import { useUserStore } from '../store/useUserStore';
 import { navigationRef } from './navigationRef';
-import { initCallReceiver, callService } from '../services/callService';
+import { initCallReceiver, callService, processIncomingCallPayload } from '../services/callService';
+import { subscribeToMyMessages } from '../services/supabase';
 import IncomingCallModal from '../components/IncomingCallModal';
 import * as Notifications from 'expo-notifications';
 import {
@@ -132,6 +133,25 @@ export default function AppNavigator() {
     if (isSetup && myHandle) {
       initCallReceiver(myHandle, handleIncomingCall);
     }
+  }, [isSetup, myHandle]);
+
+  // Subscribe to durable status events (including incoming calls via Postgres Changes)
+  useEffect(() => {
+    if (!isSetup || !myHandle) return;
+
+    const unsub = subscribeToMyMessages(
+      myHandle,
+      null,
+      async (statusEvent) => {
+        if (!statusEvent) return;
+        if (statusEvent.event === 'incoming_call') {
+          console.log('AppNavigator: Received durable incoming_call event:', statusEvent);
+          await processIncomingCallPayload(statusEvent);
+        }
+      }
+    );
+
+    return () => unsub();
   }, [isSetup, myHandle]);
 
   // Bug Fix #2: Re-subscribe to incoming call channel when app comes back to foreground.

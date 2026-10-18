@@ -75,7 +75,7 @@ class WebRTCManager {
   /**
    * Start native WebRTC audio/video session
    */
-  async startCall(callId, partnerHandle, isInitiator, isVideo = false) {
+  async startCall(callId, partnerHandle, isInitiator, isVideo = false, myHandle = null) {
     if (!this.isAvailable()) {
       console.warn('WebRTC native modules are not available in this build.');
       return false;
@@ -92,6 +92,7 @@ class WebRTCManager {
     this.isInitiator = isInitiator;
     this.isVideoCall = !!isVideo;
     this.isVideoEnabled = true;
+    this.myHandle = myHandle;
 
     try {
       console.log(`WebRTC: Starting call [callId=${callId}, isInitiator=${isInitiator}, isVideo=${isVideo}]`);
@@ -129,10 +130,12 @@ class WebRTCManager {
       this.peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
           const cand = event.candidate.toJSON ? event.candidate.toJSON() : event.candidate;
-          callService.sendSignal(this.currentCallId, this.partnerHandle, {
-            type: 'candidate',
-            candidate: cand,
-          });
+          callService.sendSignal(
+            this.currentCallId,
+            this.partnerHandle,
+            { type: 'candidate', candidate: cand },
+            this.myHandle
+          );
         }
       };
 
@@ -171,10 +174,12 @@ class WebRTCManager {
       if (this.isInitiator) {
         await this.createAndSendOffer();
       } else {
-        // Notify caller that receiver peer is initialized and ready for offer
-        callService.sendSignal(this.currentCallId, this.partnerHandle, {
-          type: 'peer_ready',
-        });
+        callService.sendSignal(
+          this.currentCallId,
+          this.partnerHandle,
+          { type: 'peer_ready' },
+          this.myHandle
+        );
       }
 
       this.isStarting = false;
@@ -189,6 +194,23 @@ class WebRTCManager {
   async createAndSendOffer() {
     if (!this.peerConnection) return;
     try {
+      // If already in have-local-offer, re-send the existing offer without duplicating
+      if (this.peerConnection.signalingState === 'have-local-offer' && this.peerConnection.localDescription) {
+        console.log('WebRTC: Re-sending existing local offer SDP');
+        await callService.sendSignal(
+          this.currentCallId,
+          this.partnerHandle,
+          { type: 'offer', sdp: this.peerConnection.localDescription.sdp },
+          this.myHandle
+        );
+        return;
+      }
+
+      if (this.peerConnection.signalingState !== 'stable') {
+        console.log(`WebRTC: State is ${this.peerConnection.signalingState}, waiting before offer.`);
+        return;
+      }
+
       const offer = await this.peerConnection.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: this.isVideoCall,
@@ -196,10 +218,12 @@ class WebRTCManager {
       await this.peerConnection.setLocalDescription(offer);
 
       console.log('WebRTC: Sending SDP offer to partner');
-      await callService.sendSignal(this.currentCallId, this.partnerHandle, {
-        type: 'offer',
-        sdp: offer.sdp,
-      });
+      await callService.sendSignal(
+        this.currentCallId,
+        this.partnerHandle,
+        { type: 'offer', sdp: offer.sdp },
+        this.myHandle
+      );
     } catch (err) {
       console.warn('WebRTC createOffer error:', err);
     }
@@ -211,7 +235,6 @@ class WebRTCManager {
   async handleSignal(signalData) {
     if (!signalData) return;
 
-    // If peer connection is not ready yet, buffer the signal in queue!
     if (!this.peerConnection) {
       console.log('WebRTC: PeerConnection not ready yet, buffering signal:', signalData.type);
       this.pendingSignals.push(signalData);
@@ -226,12 +249,17 @@ class WebRTCManager {
 
     try {
       if (signalData.type === 'peer_ready') {
-        console.log('WebRTC: Received peer_ready from receiver, creating offer');
+        console.log('WebRTC: Received peer_ready from receiver, sending offer');
         if (this.isInitiator) {
           await this.createAndSendOffer();
         }
       } else if (signalData.type === 'offer') {
         console.log('WebRTC: Processing received offer');
+        if (this.peerConnection.remoteDescription && this.peerConnection.remoteDescription.type === 'offer') {
+          console.log('WebRTC: Remote offer already processed, skipping duplicate');
+          return;
+        }
+
         const desc = new RTCSessionDescription({ type: 'offer', sdp: signalData.sdp });
         await this.peerConnection.setRemoteDescription(desc);
 
@@ -250,14 +278,27 @@ class WebRTCManager {
         await this.peerConnection.setLocalDescription(answer);
 
         console.log('WebRTC: Sending SDP answer');
-        await callService.sendSignal(this.currentCallId, this.partnerHandle, {
-          type: 'answer',
-          sdp: answer.sdp,
-        });
+        await callService.sendSignal(
+          this.currentCallId,
+          this.partnerHandle,
+          { type: 'answer', sdp: answer.sdp },
+          this.myHandle
+        );
       } else if (signalData.type === 'answer') {
         console.log('WebRTC: Processing received answer');
-        const desc = new RTCSessionDescription({ type: 'answer', sdp: signalData.sdp });
-        await this.peerConnection.setRemoteDescription(desc);
+        if (this.peerConnection.signalingState === 'have-local-offer') {
+          const desc = new RTCSessionDescription({ type: 'answer', sdp: signalData.sdp });
+          await this.peerConnection.setRemoteDescription(desc);
+
+          while (this.pendingCandidates.length > 0) {
+            const cand = this.pendingCandidates.shift();
+            try {
+              await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+            } catch (e) {
+              console.warn('Error adding queued ICE candidate:', e);
+            }
+          }
+        }
 
         // Process any queued candidates
         while (this.pendingCandidates.length > 0) {
