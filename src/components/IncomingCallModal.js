@@ -16,12 +16,31 @@ import { PhoneIcon, PhoneOffIcon, UserAvatarIcon } from './Icons';
 import { callAudioService } from '../services/callAudioService';
 import { callService } from '../services/callService';
 import { navigate } from '../navigation/navigationRef';
+import { getContactByHandle } from '../db/database';
+import { getAvatar } from '../constants/avatars';
 
 export default function IncomingCallModal({ callData, onDismiss }) {
   const insets = useSafeAreaInsets();
   const [pulseAnim] = useState(new Animated.Value(1));
   const [glowAnim] = useState(new Animated.Value(0.4));
+  const [callerAvatarUri, setCallerAvatarUri] = useState(callData?.callerAvatarId || null);
   const timeoutRef = useRef(null);
+
+  useEffect(() => {
+    if (!callData) return;
+    if (callData.callerAvatarId) {
+      setCallerAvatarUri(callData.callerAvatarId);
+    } else if (callData.callerHandle) {
+      const cleanH = callData.callerHandle.replace('@', '').trim().toLowerCase();
+      getContactByHandle(cleanH)
+        .then((contact) => {
+          if (contact?.avatarId) {
+            setCallerAvatarUri(contact.avatarId);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [callData]);
 
   useEffect(() => {
     if (!callData) return;
@@ -94,7 +113,7 @@ export default function IncomingCallModal({ callData, onDismiss }) {
       callId: callData.callId,
       contactHandle: callData.callerHandle,
       contactNickname: callData.callerNickname,
-      contactAvatarId: callData.callerAvatarId,
+      contactAvatarId: callerAvatarUri || callData.callerAvatarId,
       callType: callData.callType || 'voice',
       isIncoming: true,
     });
@@ -108,10 +127,11 @@ export default function IncomingCallModal({ callData, onDismiss }) {
   };
 
   const isImageAvatar =
-    callData.callerAvatarId &&
-    (callData.callerAvatarId.startsWith('data:') ||
-      callData.callerAvatarId.startsWith('file:') ||
-      callData.callerAvatarId.startsWith('http'));
+    callerAvatarUri &&
+    (callerAvatarUri.startsWith('data:') ||
+      callerAvatarUri.startsWith('file:') ||
+      callerAvatarUri.startsWith('http'));
+  const presetAvatar = !isImageAvatar && callerAvatarUri ? getAvatar(callerAvatarUri) : null;
 
   return (
     <Modal visible={!!callData} transparent animationType="slide">
@@ -150,7 +170,9 @@ export default function IncomingCallModal({ callData, onDismiss }) {
           />
           <View style={styles.avatarCircle}>
             {isImageAvatar ? (
-              <Image source={{ uri: callData.callerAvatarId }} style={styles.avatarImage} />
+              <Image source={{ uri: callerAvatarUri }} style={styles.avatarImage} />
+            ) : presetAvatar ? (
+              <Image source={presetAvatar} style={styles.avatarImage} />
             ) : (
               <UserAvatarIcon size={76} color={Colors.accent.primary} />
             )}

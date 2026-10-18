@@ -46,11 +46,11 @@ export const initCallReceiver = (myHandle, onIncomingCall) => {
 
   channel
     .on('broadcast', { event: 'call_invite' }, async ({ payload }) => {
-      console.log('CallService: Received call_invite via user channel:', payload);
+      console.log('CallService: Received call_invite for callId:', payload?.callId, 'from:', payload?.callerHandle);
       await processIncomingCallPayload(payload);
     })
     .on('broadcast', { event: 'call_ended' }, ({ payload }) => {
-      console.log('CallService: Received call_ended via user channel:', payload);
+      console.log('CallService: Received call_ended for callId:', payload?.callId);
       if (activeCallInfo && (!payload?.callId || activeCallInfo.callId === payload.callId)) {
         activeCallInfo = null;
       }
@@ -219,11 +219,17 @@ export const callService = {
     // 1. Join the shared call session room first (so we can detect 'ringing' confirmation)
     await this.joinCallRoom(callId);
 
+    // Keep payload lightweight (<1KB): do not send 500KB raw base64 data over WebSocket signaling
+    const sanitizedAvatarId =
+      callerAvatarId && callerAvatarId.length < 100 && !callerAvatarId.startsWith('data:')
+        ? callerAvatarId
+        : null;
+
     const payload = {
       callId,
       callerHandle,
       callerNickname,
-      callerAvatarId,
+      callerAvatarId: sanitizedAvatarId,
       receiverHandle,
       callType,
       timestamp: Date.now(),

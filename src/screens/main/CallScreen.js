@@ -28,6 +28,8 @@ import { useUserStore } from '../../store/useUserStore';
 import { callService } from '../../services/callService';
 import { callAudioService } from '../../services/callAudioService';
 import { webrtcService } from '../../services/webrtcService';
+import { getContactByHandle } from '../../db/database';
+import { getAvatar } from '../../constants/avatars';
 
 // Safely require RTCView if native WebRTC is compiled
 let RTCView = null;
@@ -49,6 +51,23 @@ export default function CallScreen({ route, navigation }) {
   const myHandle = useUserStore((s) => s.handle);
   const myNickname = useUserStore((s) => s.nickname);
   const myAvatarId = useUserStore((s) => s.avatarId || s.avatarUri);
+
+  const [contactAvatar, setContactAvatar] = useState(contactAvatarId || null);
+
+  useEffect(() => {
+    if (contactAvatarId) {
+      setContactAvatar(contactAvatarId);
+    } else if (contactHandle) {
+      const cleanH = contactHandle.replace('@', '').trim().toLowerCase();
+      getContactByHandle(cleanH)
+        .then((contact) => {
+          if (contact?.avatarId) {
+            setContactAvatar(contact.avatarId);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [contactHandle, contactAvatarId]);
 
   const [callId, setCallId] = useState(initialCallId || null);
   const [callStatus, setCallStatus] = useState(isIncoming ? 'Connected' : 'Calling...');
@@ -302,10 +321,11 @@ export default function CallScreen({ route, navigation }) {
   };
 
   const isImageAvatar =
-    contactAvatarId &&
-    (contactAvatarId.startsWith('data:') ||
-      contactAvatarId.startsWith('file:') ||
-      contactAvatarId.startsWith('http'));
+    contactAvatar &&
+    (contactAvatar.startsWith('data:') ||
+      contactAvatar.startsWith('file:') ||
+      contactAvatar.startsWith('http'));
+  const presetAvatar = !isImageAvatar && contactAvatar ? getAvatar(contactAvatar) : null;
 
   const isVideo = callType === 'video';
   const remoteStreamUrl = remoteStream && typeof remoteStream.toURL === 'function' ? remoteStream.toURL() : null;
@@ -373,7 +393,9 @@ export default function CallScreen({ route, navigation }) {
           <Animated.View style={[styles.avatarGlow, { transform: [{ scale: pulseAnim }] }]}>
             <View style={styles.avatarCircle}>
               {isImageAvatar ? (
-                <Image source={{ uri: contactAvatarId }} style={styles.avatarPhoto} />
+                <Image source={{ uri: contactAvatar }} style={styles.avatarPhoto} />
+              ) : presetAvatar ? (
+                <Image source={presetAvatar} style={styles.avatarPhoto} />
               ) : (
                 <UserAvatarIcon size={68} color={Colors.accent.primary} />
               )}

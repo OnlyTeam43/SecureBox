@@ -266,6 +266,10 @@ export const notifyIncomingCall = async ({ callerNickname, callerHandle, callTyp
     const cleanHandle = callerHandle ? callerHandle.replace('@', '') : 'User';
     const displayName = callerNickname || `@${cleanHandle}`;
     const typeLabel = callType === 'video' ? 'Video' : 'Voice';
+    const safeAvatarId =
+      callerAvatarId && callerAvatarId.length < 100 && !callerAvatarId.startsWith('data:')
+        ? callerAvatarId
+        : 'avatar_rose';
 
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -276,7 +280,7 @@ export const notifyIncomingCall = async ({ callerNickname, callerHandle, callTyp
           callId,
           callerHandle: cleanHandle,
           callerNickname: displayName,
-          callerAvatarId: callerAvatarId || 'avatar_rose',
+          callerAvatarId: safeAvatarId,
           callType: callType || 'voice',
         },
         sound: 'default',
