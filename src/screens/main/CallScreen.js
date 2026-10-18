@@ -80,6 +80,10 @@ export default function CallScreen({ route, navigation }) {
   // Live video streams
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+  const [localStreamUrl, setLocalStreamUrl] = useState(null);
+  const [remoteStreamUrl, setRemoteStreamUrl] = useState(null);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
+  const [streamTick, setStreamTick] = useState(0);
 
   // Animations
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -140,9 +144,24 @@ export default function CallScreen({ route, navigation }) {
     wave.start();
 
     // Listen to video streams from webrtcService
-    const unsubscribeStreams = webrtcService.onStreamUpdate(({ localStream, remoteStream }) => {
-      setLocalStream(localStream);
-      setRemoteStream(remoteStream);
+    const unsubscribeStreams = webrtcService.onStreamUpdate(({ localStream: lStream, remoteStream: rStream }) => {
+      setLocalStream(lStream);
+      setRemoteStream(rStream);
+
+      const lUrl = lStream && typeof lStream.toURL === 'function' ? lStream.toURL() : null;
+      const rUrl = rStream && typeof rStream.toURL === 'function' ? rStream.toURL() : null;
+      const rHasVideo = !!(
+        rStream &&
+        typeof rStream.getVideoTracks === 'function' &&
+        rStream.getVideoTracks().length > 0 &&
+        rStream.getVideoTracks().some((t) => t.enabled)
+      );
+
+      console.log(`CallScreen: Stream update — localUrl=${!!lUrl}, remoteUrl=${!!rUrl}, hasRemoteVideo=${rHasVideo}`);
+      setLocalStreamUrl(lUrl);
+      setRemoteStreamUrl(rUrl);
+      setHasRemoteVideo(rHasVideo);
+      setStreamTick((t) => t + 1);
     });
 
     let activeCallId = initialCallId;
@@ -170,6 +189,7 @@ export default function CallScreen({ route, navigation }) {
         setIsConnected(true);
         setCallStatus('Connected');
         callAudioService.playConnectedChime();
+        callAudioService.setSpeakerphone(isVideo || isSpeaker);
         startDurationTimer();
         webrtcService.startCall(activeCallId, contactHandle, false, isVideo, myHandle);
       } else {
@@ -202,6 +222,7 @@ export default function CallScreen({ route, navigation }) {
             setIsConnected(true);
             setCallStatus('Connected');
             callAudioService.playConnectedChime();
+            callAudioService.setSpeakerphone(isVideo || isSpeaker);
             startDurationTimer();
             // Start WebRTC initiator (caller)
             webrtcService.startCall(activeCallId, contactHandle, true, isVideo, myHandle);
@@ -328,10 +349,8 @@ export default function CallScreen({ route, navigation }) {
   const presetAvatar = !isImageAvatar && contactAvatar ? getAvatar(contactAvatar) : null;
 
   const isVideo = callType === 'video';
-  const remoteStreamUrl = remoteStream && typeof remoteStream.toURL === 'function' ? remoteStream.toURL() : null;
-  const localStreamUrl = localStream && typeof localStream.toURL === 'function' ? localStream.toURL() : null;
-  const showRemoteVideo = isVideo && isConnected && !!remoteStreamUrl && RTCView;
-  const showLocalPip = isVideo && !!localStreamUrl && !isVideoOff && RTCView;
+  const showRemoteVideo = isVideo && isConnected && hasRemoteVideo && !!remoteStreamUrl && !!RTCView;
+  const showLocalPip = isVideo && !!localStreamUrl && !isVideoOff && !!RTCView;
 
   return (
     <View style={styles.container}>
@@ -403,15 +422,19 @@ export default function CallScreen({ route, navigation }) {
           </Animated.View>
 
           {isConnected ? (
-            <View style={styles.waveformContainer}>
-              <Animated.View style={[styles.waveBar, { height: waveAnim1 }]} />
-              <Animated.View style={[styles.waveBar, { height: waveAnim2 }]} />
-              <Animated.View style={[styles.waveBar, { height: waveAnim3 }]} />
-              <Animated.View style={[styles.waveBar, { height: waveAnim4 }]} />
-              <Animated.View style={[styles.waveBar, { height: waveAnim5 }]} />
-              <Animated.View style={[styles.waveBar, { height: waveAnim2 }]} />
-              <Animated.View style={[styles.waveBar, { height: waveAnim1 }]} />
-            </View>
+            isVideo ? (
+              <Text style={styles.encryptionNote}>Connecting HD video stream...</Text>
+            ) : (
+              <View style={styles.waveformContainer}>
+                <Animated.View style={[styles.waveBar, { height: waveAnim1 }]} />
+                <Animated.View style={[styles.waveBar, { height: waveAnim2 }]} />
+                <Animated.View style={[styles.waveBar, { height: waveAnim3 }]} />
+                <Animated.View style={[styles.waveBar, { height: waveAnim4 }]} />
+                <Animated.View style={[styles.waveBar, { height: waveAnim5 }]} />
+                <Animated.View style={[styles.waveBar, { height: waveAnim2 }]} />
+                <Animated.View style={[styles.waveBar, { height: waveAnim1 }]} />
+              </View>
+            )
           ) : (
             <Text style={styles.encryptionNote}>End-to-end peer encrypted</Text>
           )}

@@ -22,12 +22,31 @@ import { callService } from './callService';
 
 const RTC_CONFIG = {
   iceServers: [
+    // World-class public STUN servers
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:openrelay.metered.ca:80' },
+
+    // Free Open Relay TURN servers (Ports 80 & 443 — bypasses mobile carrier symmetric NAT & firewalls)
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 class WebRTCManager {
@@ -130,12 +149,18 @@ class WebRTCManager {
       this.peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
           const cand = event.candidate.toJSON ? event.candidate.toJSON() : event.candidate;
+          const candidateStr = cand.candidate || '';
+          const parts = candidateStr.split(' ');
+          const candType = parts.length > 7 ? parts[7] : 'unknown';
+          console.log(`WebRTC: Gathered ICE candidate [type=${candType}]`);
           callService.sendSignal(
             this.currentCallId,
             this.partnerHandle,
             { type: 'candidate', candidate: cand },
             this.myHandle
           );
+        } else {
+          console.log('WebRTC: ICE Candidate gathering complete');
         }
       };
 
@@ -293,26 +318,20 @@ class WebRTCManager {
           while (this.pendingCandidates.length > 0) {
             const cand = this.pendingCandidates.shift();
             try {
-              await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+              const candidateObj = typeof cand === 'string' ? { candidate: cand } : cand;
+              await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidateObj));
             } catch (e) {
               console.warn('Error adding queued ICE candidate:', e);
             }
           }
         }
-
-        // Process any queued candidates
-        while (this.pendingCandidates.length > 0) {
-          const cand = this.pendingCandidates.shift();
-          try {
-            await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
-          } catch (e) {
-            console.warn('Error adding queued ICE candidate:', e);
-          }
-        }
       } else if (signalData.type === 'candidate' && signalData.candidate) {
         if (this.peerConnection.remoteDescription && this.peerConnection.remoteDescription.type) {
           try {
-            await this.peerConnection.addIceCandidate(new RTCIceCandidate(signalData.candidate));
+            const candidateObj = typeof signalData.candidate === 'string'
+              ? { candidate: signalData.candidate }
+              : signalData.candidate;
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidateObj));
           } catch (e) {
             console.warn('Error adding ICE candidate directly:', e);
           }
