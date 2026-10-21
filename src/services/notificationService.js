@@ -4,6 +4,7 @@
 import { Platform, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { navigate } from '../navigation/navigationRef';
+import { useBadgeStore } from '../store/useBadgeStore';
 
 // Configure foreground notification behavior: Sound only, NO popup alert or banner
 Notifications.setNotificationHandler({
@@ -28,7 +29,7 @@ export const getActiveConversation = () => activeConversationId;
 export const NOTIFICATION_CHANNELS = {
   MESSAGES: 'messages_sound_v1',
   REQUESTS: 'requests_sound_v1',
-  CALLS: 'calls_sound_v1',
+  CALLS: 'calls_incoming_v2',
   SECURITY: 'security_sound_v1',
 };
 
@@ -57,12 +58,13 @@ export const initNotifications = async () => {
       return false;
     }
 
-    // 2. Set up Android Notification Channels (importance: DEFAULT = Sound only, NO heads-up popup banner)
+    // 2. Set up Android Notification Channels
     if (Platform.OS === 'android') {
-      // Clean up legacy channels that had HIGH importance
+      // Clean up legacy channels
       await Notifications.deleteNotificationChannelAsync('messages').catch(() => {});
       await Notifications.deleteNotificationChannelAsync('requests').catch(() => {});
       await Notifications.deleteNotificationChannelAsync('calls').catch(() => {});
+      await Notifications.deleteNotificationChannelAsync('calls_sound_v1').catch(() => {});
       await Notifications.deleteNotificationChannelAsync('security').catch(() => {});
 
       await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.MESSAGES, {
@@ -80,6 +82,17 @@ export const initNotifications = async () => {
         importance: Notifications.AndroidImportance.DEFAULT, // Sound, NO popup
         vibrationPattern: [0, 200, 100, 200],
         lightColor: '#E02888',
+        sound: 'default',
+        enableVibrate: true,
+        showBadge: true,
+      });
+
+      // CALLS channel: High importance so Android wakes device when app is in background/minimized
+      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.CALLS, {
+        name: 'Incoming Calls',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 1000, 500, 1000, 500, 1000],
+        lightColor: '#25D366',
         sound: 'default',
         enableVibrate: true,
         showBadge: true,
@@ -185,8 +198,6 @@ export const notifyIncomingMessage = async ({
       }
     }
 
-    // NEVER pass raw base64 data URIs into Android Notification Intent extras!
-    // Android Binder transaction limit is strictly 512KB-1MB. Passing base64 causes TransactionTooLargeException.
     const safeAvatarId =
       contactAvatarId &&
       typeof contactAvatarId === 'string' &&
@@ -196,6 +207,26 @@ export const notifyIncomingMessage = async ({
         ? contactAvatarId
         : 'avatar_rose';
 
+    // 1. If foregrounded, display the slick In-App notification toast!
+    if (AppState.currentState === 'active') {
+      useBadgeStore.getState().showInAppNotification({
+        type: 'chat',
+        title,
+        body,
+        avatar: safeAvatarId,
+        data: {
+          conversationId: String(conversationId || ''),
+          contactHandle: cleanHandle,
+          contactNickname: cleanNick,
+          contactAvatarId: safeAvatarId,
+        },
+      });
+    }
+
+    // Refresh badge counts
+    useBadgeStore.getState().refreshBadges();
+
+    // 2. Play sound via system notification handler (sound only, no heads-up popup alert in foreground)
     await Notifications.scheduleNotificationAsync({
       content: {
         title: String(title).substring(0, 40),
@@ -226,6 +257,23 @@ export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId 
     const cleanHandle = fromHandle ? fromHandle.replace('@', '').substring(0, 30) : 'someone';
     const cleanNick = fromNickname ? String(fromNickname).substring(0, 40) : null;
     const displayName = cleanNick ? `${cleanNick} (@${cleanHandle})` : `@${cleanHandle}`;
+
+    // If foregrounded, show in-app banner toast
+    if (AppState.currentState === 'active') {
+      useBadgeStore.getState().showInAppNotification({
+        type: 'request',
+        title: 'New Connection Request 💌',
+        body: `${displayName} wants to connect with you!`,
+        avatar: 'avatar_rose',
+        data: {
+          fromHandle: cleanHandle,
+          fromNickname: cleanNick || cleanHandle,
+          reqId: String(reqId || ''),
+        },
+      });
+    }
+
+    useBadgeStore.getState().refreshBadges();
 
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -266,6 +314,22 @@ export const notifyRequestAccepted = async ({ byHandle, byNickname, byAvatar }) 
         ? byAvatar
         : 'avatar_rose';
 
+    if (AppState.currentState === 'active') {
+      useBadgeStore.getState().showInAppNotification({
+        type: 'chat',
+        title: 'Request Accepted! 💕',
+        body: `${displayName} accepted your chat request! Say hi.`,
+        avatar: safeAvatar,
+        data: {
+          contactHandle: cleanHandle,
+          contactNickname: cleanNick || cleanHandle,
+          contactAvatarId: safeAvatar,
+        },
+      });
+    }
+
+    useBadgeStore.getState().refreshBadges();
+
     await Notifications.scheduleNotificationAsync({
       content: {
         title: 'Request Accepted! 💕',
@@ -288,11 +352,110 @@ export const notifyRequestAccepted = async ({ byHandle, byNickname, byAvatar }) 
 };
 
 /**
- * Notify incoming call — suppressed per user request (sound and in-app modal only, NO notification popup)
+ * Notify incoming call:
+ * - In Foreground: Handled completely by IncomingCallModal overlay + ringtone sound.
+ * - In Background: Alerts device with high-priority heads-up notification so user never misses the call!
  */
-export const notifyIncomingCall = async () => {
-  // Suppressed: Incoming calls play ringtone directly via callAudioService & open in-app IncomingCallModal.
-  // No system notification or popup is sent.
+export const notifyIncomingCall = async ({
+  callId,
+  callerHandle,
+  callerNickname,
+  callerAvatarId,
+  callType,
+}) => {
+  // If app is actively in foreground, suppress system notification because IncomingCallModal is displayed directly on screen
+  if (AppState.currentState === 'active') {
+    return;
+  }
+
+  try {
+    const cleanNick = String(callerNickname || '').substring(0, 40);
+    const cleanHandle = String(callerHandle || '').replace('@', '').substring(0, 30);
+    const displayName = cleanNick || `@${cleanHandle}`;
+    const callTypeName = callType === 'video' ? 'Video' : 'Voice';
+
+    const safeAvatarId =
+      callerAvatarId &&
+      typeof callerAvatarId === 'string' &&
+      !callerAvatarId.startsWith('data:') &&
+      !callerAvatarId.startsWith('file:') &&
+      callerAvatarId.length < 50
+        ? callerAvatarId
+        : 'avatar_rose';
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Incoming ${callTypeName} Call 📞`,
+        body: `${displayName} is calling you. Tap to answer!`,
+        data: {
+          type: 'call',
+          callId: String(callId || ''),
+          callerHandle: cleanHandle,
+          callerNickname: cleanNick,
+          callerAvatarId: safeAvatarId,
+          callType: callType || 'voice',
+        },
+        sound: 'default',
+        channelId: NOTIFICATION_CHANNELS.CALLS,
+        priority: Notifications.AndroidNotificationPriority.MAX,
+      },
+      trigger: null,
+    });
+  } catch (err) {
+    console.warn('notifyIncomingCall error:', err.message);
+  }
+};
+
+/**
+ * Notify missed call: updates badge store & in-app or system notification
+ */
+export const notifyMissedCall = async ({
+  callerHandle,
+  callerNickname,
+  callerAvatarId,
+  callType,
+}) => {
+  const cleanNick = callerNickname || (callerHandle ? `@${callerHandle.replace('@', '')}` : 'Someone');
+  const callTypeName = callType === 'video' ? 'Video' : 'Voice';
+
+  if (AppState.currentState === 'active') {
+    useBadgeStore.getState().showInAppNotification({
+      type: 'call',
+      title: `Missed ${callTypeName} Call 📵`,
+      body: `Missed call from ${cleanNick}`,
+      avatar: callerAvatarId || 'avatar_rose',
+      data: { callerHandle, callerNickname, callerAvatarId, callType },
+    });
+  } else {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `Missed ${callTypeName} Call 📵`,
+          body: `Missed call from ${cleanNick}`,
+          data: {
+            type: 'call',
+            callerHandle,
+            callerNickname,
+          },
+          sound: 'default',
+          channelId: NOTIFICATION_CHANNELS.CALLS,
+          priority: Notifications.AndroidNotificationPriority.DEFAULT,
+        },
+        trigger: null,
+      });
+    } catch (_) {}
+  }
+
+  useBadgeStore.getState().refreshBadges();
+};
+
+/**
+ * Dismiss all active call notifications
+ */
+export const dismissAllCallNotifications = async () => {
+  try {
+    await Notifications.dismissAllNotificationsAsync();
+  } catch (_) {}
 };
 
 /**

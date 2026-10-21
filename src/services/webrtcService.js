@@ -1,6 +1,8 @@
 // src/services/webrtcService.js
 // Native WebRTC Engine for SecureBox P2P Voice & HD Video Calling
 
+import { callService } from './callService';
+
 let RTCPeerConnection = null;
 let RTCIceCandidate = null;
 let RTCSessionDescription = null;
@@ -17,8 +19,6 @@ try {
 } catch (err) {
   console.warn('Native react-native-webrtc not linked yet:', err.message);
 }
-
-import { callService } from './callService';
 
 let dynamicIceServers = null;
 

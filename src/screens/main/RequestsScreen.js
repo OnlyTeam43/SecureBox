@@ -34,6 +34,7 @@ import {
 } from '../../services/supabase';
 import { insertContact, upsertConversation } from '../../db/database';
 import { UserAvatarIcon } from '../../components/Icons';
+import { useBadgeStore } from '../../store/useBadgeStore';
 
 export default function RequestsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -94,6 +95,7 @@ export default function RequestsScreen({ navigation }) {
       ]);
       setReceivedRequests(pending || []);
       setSentRequests(sent || []);
+      useBadgeStore.getState().refreshBadges(myHandle);
     } catch (err) {
       console.warn('Load requests error:', err);
     }
@@ -115,10 +117,6 @@ export default function RequestsScreen({ navigation }) {
         if (!statusEvent) return;
         if (statusEvent.event === 'incoming_connection_request') {
           loadRequests();
-          Alert.alert(
-            'New Chat Request 💌',
-            `@${statusEvent.fromHandle} sent you a connection request!`
-          );
         } else if (statusEvent.event === 'connection_request_accepted') {
           const partnerHandle = statusEvent.byHandle.toLowerCase();
           const partnerNick = statusEvent.byNickname || partnerHandle;

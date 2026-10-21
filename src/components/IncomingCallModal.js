@@ -16,7 +16,9 @@ import { PhoneIcon, PhoneOffIcon, UserAvatarIcon } from './Icons';
 import { callAudioService } from '../services/callAudioService';
 import { callService } from '../services/callService';
 import { navigate } from '../navigation/navigationRef';
-import { getContactByHandle } from '../db/database';
+import { getContactByHandle, insertCallLog } from '../db/database';
+import { notifyMissedCall } from '../services/notificationService';
+import { useBadgeStore } from '../store/useBadgeStore';
 import { getAvatar } from '../constants/avatars';
 
 export default function IncomingCallModal({ callData, onDismiss }) {
@@ -85,10 +87,31 @@ export default function IncomingCallModal({ callData, onDismiss }) {
     }, 35000);
 
     // Listen for caller hanging up before answer
-    const unsubscribe = callService.subscribeToCall(callData.callId, (eventType) => {
+    const unsubscribe = callService.subscribeToCall(callData.callId, async (eventType) => {
       if (eventType === 'ended' || eventType === 'rejected') {
         callAudioService.stopAll();
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+        await insertCallLog({
+          id: callData.callId,
+          contactHandle: callData.callerHandle,
+          contactNickname: callData.callerNickname,
+          contactAvatarId: callerAvatarUri || callData.callerAvatarId,
+          callType: callData.callType || 'voice',
+          direction: 'missed',
+          timestamp: Date.now(),
+          duration: 0,
+          seen: 0,
+        }).catch(() => {});
+
+        notifyMissedCall({
+          callerHandle: callData.callerHandle,
+          callerNickname: callData.callerNickname,
+          callerAvatarId: callerAvatarUri || callData.callerAvatarId,
+          callType: callData.callType,
+        });
+
+        useBadgeStore.getState().refreshBadges();
         onDismiss();
       }
     });
@@ -105,6 +128,20 @@ export default function IncomingCallModal({ callData, onDismiss }) {
   const handleAccept = async () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     await callAudioService.stopAll();
+
+    // Log call as incoming
+    await insertCallLog({
+      id: callData.callId,
+      contactHandle: callData.callerHandle,
+      contactNickname: callData.callerNickname,
+      contactAvatarId: callerAvatarUri || callData.callerAvatarId,
+      callType: callData.callType || 'voice',
+      direction: 'incoming',
+      timestamp: Date.now(),
+      duration: 0,
+      seen: 1,
+    }).catch(() => {});
+
     await callService.acceptCall(callData.callId);
     onDismiss();
 
@@ -122,6 +159,31 @@ export default function IncomingCallModal({ callData, onDismiss }) {
   const handleDecline = async (reason = 'declined') => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     await callAudioService.stopAll();
+
+    const isMissed = reason === 'timeout';
+    await insertCallLog({
+      id: callData.callId,
+      contactHandle: callData.callerHandle,
+      contactNickname: callData.callerNickname,
+      contactAvatarId: callerAvatarUri || callData.callerAvatarId,
+      callType: callData.callType || 'voice',
+      direction: 'missed',
+      timestamp: Date.now(),
+      duration: 0,
+      seen: isMissed ? 0 : 1,
+    }).catch(() => {});
+
+    if (isMissed) {
+      notifyMissedCall({
+        callerHandle: callData.callerHandle,
+        callerNickname: callData.callerNickname,
+        callerAvatarId: callerAvatarUri || callData.callerAvatarId,
+        callType: callData.callType,
+      });
+    }
+
+    useBadgeStore.getState().refreshBadges();
+
     await callService.rejectCall(callData.callId, reason);
     onDismiss();
   };

@@ -43,6 +43,7 @@ import {
   notifyRequestAccepted,
 } from '../../services/notificationService';
 import { shareProfileInvite } from '../../services/inviteService';
+import { useBadgeStore } from '../../store/useBadgeStore';
 
 export default function InboxScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -67,6 +68,7 @@ export default function InboxScreen({ navigation }) {
     try {
       const data = await getAllConversations();
       setConversations(data || []);
+      useBadgeStore.getState().refreshBadges(myHandle);
     } catch (e) {
       console.warn('Inbox load error:', e);
     }

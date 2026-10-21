@@ -253,5 +253,27 @@ export const EndCallIcon = ({ size = 24, color = '#fff' }) => (
   </Svg>
 );
 
+export const CallIncomingIcon = ({ size = 16, color = '#25d366' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <Polyline points="16 17 7 17 7 8" />
+    <Line x1="17" y1="7" x2="7" y2="17" />
+  </Svg>
+);
+
+export const CallOutgoingIcon = ({ size = 16, color = '#0084ff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <Polyline points="7 7 17 7 17 16" />
+    <Line x1="7" y1="17" x2="17" y2="7" />
+  </Svg>
+);
+
+export const CallMissedIcon = ({ size = 16, color = '#ff3b30' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <Polyline points="16 17 7 17 7 8" />
+    <Line x1="17" y1="7" x2="7" y2="17" />
+  </Svg>
+);
+
+
 
 

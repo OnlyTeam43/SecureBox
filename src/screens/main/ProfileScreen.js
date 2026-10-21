@@ -4,7 +4,7 @@
 import React from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  StatusBar, Alert, Image, ActivityIndicator, Share,
+  StatusBar, Alert, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -20,7 +20,6 @@ import { shareProfileInvite, getInviteLink } from '../../services/inviteService'
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { handle, nickname, avatarId, avatarUri, mobileNumber, defaultExpiry, setAvatarUri } = useUserStore();
-  const [uploading, setUploading] = React.useState(false);
 
   const displayPhoto = avatarUri || (avatarId && (avatarId.startsWith('data:') || avatarId.startsWith('file:') || avatarId.startsWith('http')) ? avatarId : null);
 

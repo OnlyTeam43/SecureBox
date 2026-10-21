@@ -7,12 +7,18 @@ import {
   checkConnectionStatus,
   sendConnectionRequest,
 } from './supabase';
-import { useUserStore } from '../store/useUserStore';
+
+export const WEB_INVITE_BASE_URL = 'https://onlyteam43.github.io/SecureBox';
 
 /**
  * Generate a shareable invite link & message for a given handle
  */
 export const getInviteLink = (handle) => {
+  const clean = handle ? handle.replace('@', '').trim().toLowerCase() : '';
+  return `${WEB_INVITE_BASE_URL}/?u=${clean}`;
+};
+
+export const getNativeInviteLink = (handle) => {
   const clean = handle ? handle.replace('@', '').trim().toLowerCase() : '';
   return `securebox://invite/${clean}`;
 };
@@ -25,16 +31,17 @@ export const GITHUB_APK_DOWNLOAD_URL =
  */
 export const getInviteMessage = (handle, nickname = null) => {
   const clean = handle ? handle.replace('@', '').trim().toLowerCase() : '';
-  const appLink = getInviteLink(clean);
+  const webLink = getInviteLink(clean);
   const displayName = nickname ? `${nickname} (@${clean})` : `@${clean}`;
 
   return (
     `💌 Connect with me on SecureBox — private end-to-end encrypted chat & calls!\n\n` +
-    `1️⃣ Download & install the SecureBox APK:\n` +
+    `👉 Tap to connect:\n` +
+    `${webLink}\n\n` +
+    `1️⃣ If you don't have SecureBox installed, download the APK here:\n` +
     `${GITHUB_APK_DOWNLOAD_URL}\n\n` +
-    `2️⃣ Connect with me:\n` +
-    `My handle is: @${clean}\n` +
-    `Or tap this link once installed: ${appLink}`
+    `2️⃣ My handle is: ${displayName}\n` +
+    `Once installed, tap the connect link above or search for @${clean} inside the app!`
   );
 };
 
@@ -57,7 +64,7 @@ export const shareProfileInvite = async (handle, nickname = null) => {
 };
 
 /**
- * Parse an incoming deep link URL (e.g. "securebox://invite/alex" or "com.securebox.app://invite/alex")
+ * Parse an incoming deep link URL (e.g. "https://onlyteam43.github.io/SecureBox/?u=alex" or "securebox://invite/alex")
  * Returns the target handle or null
  */
 export const parseInviteUrl = (url) => {
@@ -65,10 +72,37 @@ export const parseInviteUrl = (url) => {
   try {
     const cleanUrl = url.trim();
 
-    // Match patterns like securebox://invite/<handle> or securebox://add/<handle> or securebox://<handle>
+    // 1. Check for https? web links (e.g. https://onlyteam43.github.io/SecureBox/?u=alex or #alex)
+    if (/^https?:\/\//i.test(cleanUrl)) {
+      try {
+        const parsed = new URL(cleanUrl);
+        const queryHandle =
+          parsed.searchParams.get('u') ||
+          parsed.searchParams.get('invite') ||
+          parsed.searchParams.get('handle');
+        if (queryHandle) {
+          const h = queryHandle.replace('@', '').trim().toLowerCase();
+          return h.length >= 3 ? h : null;
+        }
+        if (parsed.hash) {
+          const h = parsed.hash.replace(/^[#/]+/, '').replace('@', '').trim().toLowerCase();
+          if (h && h.length >= 3) return h;
+        }
+        const pathParts = parsed.pathname.split('/').filter(Boolean);
+        const inviteIdx = pathParts.findIndex((p) => p.toLowerCase() === 'invite');
+        if (inviteIdx !== -1 && pathParts[inviteIdx + 1]) {
+          const h = pathParts[inviteIdx + 1].replace('@', '').trim().toLowerCase();
+          return h.length >= 3 ? h : null;
+        }
+      } catch (_e) {
+        // Continue to fallback regex if URL parsing fails
+      }
+    }
+
+    // 2. Check for custom app scheme links (securebox://invite/alex or securebox://alex)
     const match =
       cleanUrl.match(/^[a-z0-9_.-]+:\/\/(?:invite|add|connect)\/([a-z0-9_.]+)/i) ||
-      cleanUrl.match(/^[a-z0-9_.-]+:\/\/([a-z0-9_.]{3,})/i);
+      cleanUrl.match(/^securebox:\/\/([a-z0-9_.]{3,})/i);
 
     if (match && match[1]) {
       const handle = match[1].toLowerCase().replace('@', '').trim();

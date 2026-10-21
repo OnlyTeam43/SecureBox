@@ -14,10 +14,9 @@ import { webrtcService } from '../services/webrtcService';
 import { callAudioService } from '../services/callAudioService';
 import { EndCallIcon, PhoneIcon, VideoIcon } from './Icons';
 
-export default function ActiveCallBanner({ navigationRef }) {
+export default function ActiveCallBanner({ navigationRef, currentRouteName }) {
   const insets = useSafeAreaInsets();
   const [activeCall, setActiveCall] = useState(null);
-  const [currentRoute, setCurrentRoute] = useState(null);
   const [duration, setDuration] = useState(0);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -30,34 +29,18 @@ export default function ActiveCallBanner({ navigationRef }) {
     return unsub;
   }, []);
 
-  // Listen to navigation state changes to hide banner on CallScreen
-  useEffect(() => {
-    if (!navigationRef?.current) return;
-
-    const updateRoute = () => {
-      try {
-        const route = navigationRef.current.getCurrentRoute();
-        setCurrentRoute(route ? route.name : null);
-      } catch (_) {}
-    };
-
-    updateRoute();
-    const unsub = navigationRef.current.addListener('state', updateRoute);
-    return unsub;
-  }, [navigationRef]);
-
   // Pulse animation for green indicator
   useEffect(() => {
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
-          toValue: 1.3,
-          duration: 800,
+          toValue: 1.35,
+          duration: 750,
           useNativeDriver: true,
         }),
         Animated.timing(pulseAnim, {
           toValue: 1,
-          duration: 800,
+          duration: 750,
           useNativeDriver: true,
         }),
       ])
@@ -92,14 +75,28 @@ export default function ActiveCallBanner({ navigationRef }) {
     return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  // Only show banner when call is connected and user is NOT on the Call screen
-  if (!activeCall || activeCall.status !== 'connected' || currentRoute === 'Call') {
+  // Determine current route: check prop or navigationRef
+  let activeRoute = currentRouteName;
+  if (!activeRoute && navigationRef) {
+    try {
+      activeRoute = navigationRef.getCurrentRoute()?.name;
+    } catch (_) {}
+  }
+
+  // Only show banner when call is active (connected or calling) and user is NOT on the Call screen
+  const isCallActive =
+    activeCall &&
+    (activeCall.status === 'connected' || activeCall.status === 'calling');
+
+  if (!isCallActive || activeRoute === 'Call') {
     return null;
   }
 
+  const isConnected = activeCall.status === 'connected';
+
   const handleReturnToCall = () => {
-    if (navigationRef?.current) {
-      navigationRef.current.navigate('Call', {
+    if (navigationRef) {
+      navigationRef.navigate('Call', {
         callId: activeCall.callId,
         contactHandle: activeCall.partnerHandle,
         contactNickname: activeCall.partnerNickname,
@@ -125,13 +122,25 @@ export default function ActiveCallBanner({ navigationRef }) {
     'Partner';
 
   return (
-    <View style={[styles.container, { top: Math.max(insets.top, 12) + 4 }]}>
+    <View
+      style={[
+        styles.container,
+        { top: Math.max(insets.top, 12) + 2 },
+      ]}
+      pointerEvents="box-none"
+    >
       <TouchableOpacity
         style={styles.pill}
         onPress={handleReturnToCall}
-        activeOpacity={0.85}
+        activeOpacity={0.88}
       >
-        <Animated.View style={[styles.indicator, { transform: [{ scale: pulseAnim }] }]} />
+        <Animated.View
+          style={[
+            styles.indicator,
+            isConnected ? styles.indicatorLive : styles.indicatorCalling,
+            { transform: [{ scale: pulseAnim }] },
+          ]}
+        />
 
         <View style={styles.iconWrap}>
           {activeCall.callType === 'video' ? (
@@ -143,15 +152,17 @@ export default function ActiveCallBanner({ navigationRef }) {
 
         <View style={styles.textWrap}>
           <Text style={styles.name} numberOfLines={1}>
-            {displayName}
+            {isConnected ? 'Connected Call' : 'Calling...'} • {displayName}
           </Text>
-          <Text style={styles.timer}>{formatDuration(duration)} • Tap to return</Text>
+          <Text style={styles.timer}>
+            {isConnected ? `${formatDuration(duration)} • Tap to return` : 'Tap to return'}
+          </Text>
         </View>
 
         <TouchableOpacity
           style={styles.hangupBtn}
           onPress={handleEndCall}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <EndCallIcon size={14} color="#ffffff" />
         </TouchableOpacity>
@@ -163,39 +174,49 @@ export default function ActiveCallBanner({ navigationRef }) {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    zIndex: 9999,
+    left: 12,
+    right: 12,
+    zIndex: 99998,
     alignItems: 'center',
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1b1b1e',
-    borderRadius: 28,
-    paddingVertical: 8,
+    backgroundColor: '#16161c',
+    borderRadius: 30,
+    paddingVertical: 9,
     paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    shadowColor: '#000',
+    borderWidth: 1.5,
+    borderColor: 'rgba(37, 211, 102, 0.45)',
+    shadowColor: '#25d366',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.45,
-    shadowRadius: 8,
-    elevation: 10,
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 20,
     width: '100%',
     maxWidth: 420,
     gap: 10,
   },
   indicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+  },
+  indicatorLive: {
     backgroundColor: '#25d366',
     shadowColor: '#25d366',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 5,
-    elevation: 3,
+    shadowOpacity: 0.95,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  indicatorCalling: {
+    backgroundColor: '#f59e0b',
+    shadowColor: '#f59e0b',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.95,
+    shadowRadius: 6,
+    elevation: 4,
   },
   iconWrap: {
     width: 26,
@@ -214,11 +235,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   timer: {
-    color: 'rgba(255, 255, 255, 0.65)',
+    color: '#25d366',
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '600',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontVariant: ['tabular-nums'],
+    marginTop: 1,
   },
   hangupBtn: {
     width: 32,

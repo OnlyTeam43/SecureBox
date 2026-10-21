@@ -29,10 +29,11 @@ import {
   CameraFlipIcon,
 } from '../../components/Icons';
 import { useUserStore } from '../../store/useUserStore';
+import { useBadgeStore } from '../../store/useBadgeStore';
 import { callService } from '../../services/callService';
 import { callAudioService } from '../../services/callAudioService';
 import { webrtcService } from '../../services/webrtcService';
-import { getContactByHandle } from '../../db/database';
+import { getContactByHandle, insertCallLog, updateCallLogDuration } from '../../db/database';
 import { getAvatar } from '../../constants/avatars';
 
 // Safely require RTCView if native WebRTC is compiled
@@ -144,6 +145,11 @@ export default function CallScreen({ route, navigation }) {
   const durationTimerRef = useRef(null);
   const timeoutTimerRef = useRef(null);
   const isEndingRef = useRef(false);
+  const durationRef = useRef(0);
+
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
 
   // Format MM:SS
   const formatDuration = (sec) => {
@@ -288,6 +294,20 @@ export default function CallScreen({ route, navigation }) {
         });
         setCallId(activeCallId);
 
+        // Record outgoing call in local database
+        await insertCallLog({
+          id: activeCallId,
+          contactHandle,
+          contactNickname: contactNickname || contactHandle,
+          contactAvatarId: contactAvatar,
+          callType,
+          direction: 'outgoing',
+          timestamp: Date.now(),
+          duration: 0,
+          seen: 1,
+        }).catch(() => {});
+        useBadgeStore.getState().refreshBadges();
+
         // 35s timeout if no answer
         timeoutTimerRef.current = setTimeout(() => {
           handleCallTermination('No Answer');
@@ -343,7 +363,9 @@ export default function CallScreen({ route, navigation }) {
         webrtcService.cleanup();
         if (activeCallId) {
           callService.endCall(activeCallId, contactHandle);
+          updateCallLogDuration(activeCallId, durationRef.current || 0).catch(() => {});
         }
+        useBadgeStore.getState().refreshBadges();
       }
     };
   }, []);
@@ -379,6 +401,12 @@ export default function CallScreen({ route, navigation }) {
     if (durationTimerRef.current) clearInterval(durationTimerRef.current);
     if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
 
+    const finalId = callId || initialCallId;
+    if (finalId) {
+      updateCallLogDuration(finalId, durationRef.current || 0).catch(() => {});
+    }
+    useBadgeStore.getState().refreshBadges();
+
     webrtcService.cleanup();
     await callAudioService.playEndedChime();
 
@@ -393,9 +421,13 @@ export default function CallScreen({ route, navigation }) {
 
     setCallStatus('Ending Call...');
     webrtcService.cleanup();
-    if (callId) {
-      await callService.endCall(callId, contactHandle);
+
+    const finalId = callId || initialCallId;
+    if (finalId) {
+      await callService.endCall(finalId, contactHandle);
+      updateCallLogDuration(finalId, durationRef.current || 0).catch(() => {});
     }
+    useBadgeStore.getState().refreshBadges();
     await callAudioService.playEndedChime();
 
     setTimeout(() => {

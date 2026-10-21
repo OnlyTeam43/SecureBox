@@ -54,6 +54,21 @@ const initSchema = async () => {
 
     CREATE INDEX IF NOT EXISTS idx_messages_conv
       ON messages(conversation_id, sent_at DESC);
+
+    CREATE TABLE IF NOT EXISTS call_logs (
+      id              TEXT PRIMARY KEY,
+      contact_handle  TEXT NOT NULL,
+      contact_nickname TEXT,
+      contact_avatar_id TEXT,
+      call_type       TEXT NOT NULL,
+      direction       TEXT NOT NULL,
+      timestamp       INTEGER NOT NULL,
+      duration        INTEGER DEFAULT 0,
+      seen            INTEGER DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_call_logs_time
+      ON call_logs(timestamp DESC);
   `);
 
   try {
@@ -372,3 +387,73 @@ export const clearConversationMessages = async (conversationId) => {
     [Date.now(), conversationId]
   );
 };
+
+// ─── Call Logs ───────────────────────────────────────────────────────────────
+
+export const insertCallLog = async (log) => {
+  const db = await getDB();
+  const id = log.id || `call_log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  await db.runAsync(
+    `INSERT OR REPLACE INTO call_logs (id, contact_handle, contact_nickname, contact_avatar_id, call_type, direction, timestamp, duration, seen)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      log.contactHandle,
+      log.contactNickname || log.contactHandle,
+      log.contactAvatarId || 'avatar_rose',
+      log.callType || 'voice',
+      log.direction || 'outgoing',
+      log.timestamp || Date.now(),
+      log.duration || 0,
+      log.seen || 0,
+    ]
+  );
+  return id;
+};
+
+export const updateCallLogDuration = async (id, duration) => {
+  const db = await getDB();
+  await db.runAsync(`UPDATE call_logs SET duration = ? WHERE id = ?`, [duration, id]);
+};
+
+export const updateCallLogDirection = async (id, direction, seen = 0) => {
+  const db = await getDB();
+  await db.runAsync(`UPDATE call_logs SET direction = ?, seen = ? WHERE id = ?`, [direction, seen, id]);
+};
+
+export const getCallLogs = async () => {
+  const db = await getDB();
+  return await db.getAllAsync(`SELECT * FROM call_logs ORDER BY timestamp DESC`);
+};
+
+export const getUnseenMissedCallsCount = async () => {
+  const db = await getDB();
+  const row = await db.getFirstAsync(
+    `SELECT COUNT(*) as count FROM call_logs WHERE direction = 'missed' AND seen = 0`
+  );
+  return row?.count || 0;
+};
+
+export const markCallLogsAsSeen = async () => {
+  const db = await getDB();
+  await db.runAsync(`UPDATE call_logs SET seen = 1 WHERE seen = 0`);
+};
+
+export const deleteCallLog = async (id) => {
+  const db = await getDB();
+  await db.runAsync(`DELETE FROM call_logs WHERE id = ?`, [id]);
+};
+
+export const clearAllCallLogs = async () => {
+  const db = await getDB();
+  await db.runAsync(`DELETE FROM call_logs`);
+};
+
+export const getTotalUnreadMessagesCount = async () => {
+  const db = await getDB();
+  const row = await db.getFirstAsync(
+    `SELECT SUM(unread) as total FROM conversations`
+  );
+  return row?.total || 0;
+};
+

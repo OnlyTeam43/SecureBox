@@ -400,6 +400,45 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
 };
 
 /**
+ * Fetch latest pending incoming call invite for this user (if sent in the last 35 seconds)
+ */
+export const fetchPendingCallInvite = async (myHandle) => {
+  if (!myHandle) return null;
+  const clean = myHandle.replace('@', '').trim().toLowerCase();
+  try {
+    const cutoff = Date.now() - 35000;
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', `call_req_${clean}`)
+      .gt('sent_at', cutoff)
+      .order('sent_at', { ascending: false })
+      .limit(1);
+
+    if (error || !data || data.length === 0) return null;
+    const row = data[0];
+    const parsed = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
+    if (Date.now() - (parsed.timestamp || row.sent_at) < 35000) {
+      return parsed;
+    }
+    return null;
+  } catch (err) {
+    console.log('fetchPendingCallInvite notice:', err.message);
+    return null;
+  }
+};
+
+/**
+ * Clear durable call invite from server relay queue once handled
+ */
+export const clearPendingCallInvite = async (callId) => {
+  if (!callId) return;
+  try {
+    await supabase.from('messages').delete().eq('id', `call_req_${callId}`);
+  } catch (_) {}
+};
+
+/**
  * Broadcast typing status to the conversation room
  */
 export const broadcastTypingStatus = async (conversationId, senderHandle, isTyping) => {

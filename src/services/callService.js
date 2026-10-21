@@ -1,7 +1,8 @@
 // src/services/callService.js
 // Supabase Realtime calling signaling service for SecureBox
 
-import { supabase } from './supabase';
+import { supabase, clearPendingCallInvite } from './supabase';
+import { notifyIncomingCall, dismissAllCallNotifications } from './notificationService';
 
 let activeCallInfo = null;
 let incomingCallCallback = null;
@@ -116,6 +117,15 @@ export const processIncomingCallPayload = async (payload) => {
 
   // Notify caller that phone is ringing
   callService.sendRinging(payload.callId);
+
+  // If app is not in active foreground, alert user via high-priority background notification
+  notifyIncomingCall({
+    callId: payload.callId,
+    callerHandle: payload.callerHandle,
+    callerNickname: payload.callerNickname,
+    callerAvatarId: payload.callerAvatarId,
+    callType: payload.callType,
+  });
 
   if (incomingCallCallback) {
     incomingCallCallback(payload);
@@ -359,6 +369,9 @@ export const callService = {
    * Accept an incoming call
    */
   async acceptCall(callId) {
+    dismissAllCallNotifications();
+    clearPendingCallInvite(callId);
+
     if (activeCallInfo && activeCallInfo.callId === callId) {
       setActiveCallInfo({
         ...activeCallInfo,
@@ -366,11 +379,6 @@ export const callService = {
         startTime: activeCallInfo.startTime || Date.now(),
       });
     }
-
-    // Remove durable invite immediately
-    try {
-      supabase.from('messages').delete().eq('id', `call_req_${callId}`).then(() => {}).catch(() => {});
-    } catch (_) {}
 
     if (activeCallRoomChannel) {
       try {
@@ -389,14 +397,12 @@ export const callService = {
    * Reject / decline an incoming call
    */
   async rejectCall(callId, reason = 'declined') {
+    dismissAllCallNotifications();
+    clearPendingCallInvite(callId);
+
     if (activeCallInfo && activeCallInfo.callId === callId) {
       setActiveCallInfo(null);
     }
-
-    // Remove durable invite immediately
-    try {
-      supabase.from('messages').delete().eq('id', `call_req_${callId}`).then(() => {}).catch(() => {});
-    } catch (_) {}
 
     if (activeCallRoomChannel) {
       try {
@@ -415,14 +421,12 @@ export const callService = {
    * Hang up an active or ringing call
    */
   async endCall(callId, partnerHandle = null) {
+    dismissAllCallNotifications();
+    clearPendingCallInvite(callId);
+
     if (activeCallInfo && activeCallInfo.callId === callId) {
       setActiveCallInfo(null);
     }
-
-    // Remove durable invite immediately
-    try {
-      supabase.from('messages').delete().eq('id', `call_req_${callId}`).then(() => {}).catch(() => {});
-    } catch (_) {}
 
     if (activeCallRoomChannel) {
       try {

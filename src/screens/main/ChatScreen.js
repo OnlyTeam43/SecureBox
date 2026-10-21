@@ -61,6 +61,7 @@ import {
   notifySecurityAlert,
   notifyScreenshotRequest,
 } from '../../services/notificationService';
+import { useBadgeStore } from '../../store/useBadgeStore';
 
 // Swipeable Message Row Component
 // - For sent messages (isMe): pull right-to-left (dx < 0) to reply
@@ -394,6 +395,7 @@ export default function ChatScreen({ route, navigation }) {
       const localData = await getMessages(conversationId, 60);
       setMessages(localData.reverse()); // oldest first
       await markConversationRead(conversationId, myHandle);
+      useBadgeStore.getState().refreshBadges(myHandle);
       markMessagesDeliveredInSupabase(conversationId, myHandle, contactHandle);
       markMessagesSeenInSupabase(conversationId, myHandle, contactHandle);
       shouldScrollToEndRef.current = true;

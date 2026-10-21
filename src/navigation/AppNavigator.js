@@ -2,18 +2,20 @@
 // Root navigator — routes between Onboarding and Main app
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AppState, Linking } from 'react-native';
+import { View, AppState, Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { Colors } from '../theme';
 import { useUserStore } from '../store/useUserStore';
+import { useBadgeStore } from '../store/useBadgeStore';
 import { navigationRef } from './navigationRef';
 import { initCallReceiver, callService, processIncomingCallPayload } from '../services/callService';
-import { subscribeToMyMessages } from '../services/supabase';
+import { subscribeToMyMessages, fetchPendingCallInvite } from '../services/supabase';
 import IncomingCallModal from '../components/IncomingCallModal';
 import ActiveCallBanner from '../components/ActiveCallBanner';
+import InAppNotificationBanner from '../components/InAppNotificationBanner';
 import * as Notifications from 'expo-notifications';
 import {
   initNotifications,
@@ -30,6 +32,7 @@ import LoginScreen from '../screens/onboarding/LoginScreen';
 
 // Main
 import InboxScreen from '../screens/main/InboxScreen';
+import CallsScreen from '../screens/main/CallsScreen';
 import ChatScreen from '../screens/main/ChatScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
 import AddContactScreen from '../screens/main/AddContactScreen';
@@ -37,12 +40,16 @@ import CallScreen from '../screens/main/CallScreen';
 import MediaGalleryScreen from '../screens/main/MediaGalleryScreen';
 import RequestsScreen from '../screens/main/RequestsScreen';
 
-import { MessageTabIcon, UserAvatarIcon, UserCheckIcon } from '../components/Icons';
+import { MessageTabIcon, PhoneIcon, UserAvatarIcon, UserCheckIcon } from '../components/Icons';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function MainTabs() {
+  const unreadMessagesCount = useBadgeStore((s) => s.unreadMessagesCount);
+  const missedCallsCount = useBadgeStore((s) => s.missedCallsCount);
+  const pendingRequestsCount = useBadgeStore((s) => s.pendingRequestsCount);
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -68,6 +75,20 @@ function MainTabs() {
           tabBarIcon: ({ color }) => (
             <MessageTabIcon size={22} color={color} />
           ),
+          tabBarBadge: unreadMessagesCount > 0 ? (unreadMessagesCount > 99 ? '99+' : unreadMessagesCount) : undefined,
+          tabBarBadgeStyle: { backgroundColor: Colors.accent.primary, color: '#fff', fontSize: 10, fontWeight: '700' },
+        }}
+      />
+      <Tab.Screen
+        name="Calls"
+        component={CallsScreen}
+        options={{
+          tabBarLabel: 'Calls',
+          tabBarIcon: ({ color }) => (
+            <PhoneIcon size={22} color={color} />
+          ),
+          tabBarBadge: missedCallsCount > 0 ? (missedCallsCount > 99 ? '99+' : missedCallsCount) : undefined,
+          tabBarBadgeStyle: { backgroundColor: Colors.accent.primary, color: '#fff', fontSize: 10, fontWeight: '700' },
         }}
       />
       <Tab.Screen
@@ -78,6 +99,8 @@ function MainTabs() {
           tabBarIcon: ({ color }) => (
             <UserCheckIcon size={22} color={color} />
           ),
+          tabBarBadge: pendingRequestsCount > 0 ? (pendingRequestsCount > 99 ? '99+' : pendingRequestsCount) : undefined,
+          tabBarBadgeStyle: { backgroundColor: Colors.accent.primary, color: '#fff', fontSize: 10, fontWeight: '700' },
         }}
       />
       <Tab.Screen
@@ -104,6 +127,7 @@ export default function AppNavigator() {
   const clearPendingInviteHandle = useUserStore((s) => s.clearPendingInviteHandle);
 
   const [incomingCallData, setIncomingCallData] = useState(null);
+  const [currentRouteName, setCurrentRouteName] = useState(null);
   const incomingCallDataRef = useRef(null);
 
   // Deep linking: Handle profile/handle invite URLs (e.g. securebox://invite/alex)
@@ -182,10 +206,19 @@ export default function AppNavigator() {
     };
   }, []);
 
-  // Initial call receiver setup when user logs in
+  // Initial call receiver setup & badge check when user logs in
   useEffect(() => {
     if (isSetup && myHandle) {
       initCallReceiver(myHandle, handleIncomingCall);
+      useBadgeStore.getState().refreshBadges(myHandle);
+
+      // Check if a call invite was sent while app was launching
+      fetchPendingCallInvite(myHandle).then((pending) => {
+        if (pending && pending.callId) {
+          console.log('AppNavigator: Processing pending call invite on setup:', pending);
+          processIncomingCallPayload(pending);
+        }
+      }).catch(() => {});
     }
   }, [isSetup, myHandle]);
 
@@ -208,7 +241,7 @@ export default function AppNavigator() {
     return () => unsub();
   }, [isSetup, myHandle]);
 
-  // Bug Fix #2: Re-subscribe to incoming call channel when app comes back to foreground.
+  // Re-subscribe to incoming call channel & poll pending invite when app comes to foreground.
   // When Android backgrounds the app the Supabase WebSocket may be throttled/dropped.
   // On resume we re-init the receiver and check if a call arrived while backgrounded.
   useEffect(() => {
@@ -216,10 +249,21 @@ export default function AppNavigator() {
 
     const handleAppStateChange = (nextState) => {
       if (nextState === 'active') {
-        console.log('AppNavigator: App foregrounded — re-initializing call receiver');
+        console.log('AppNavigator: App foregrounded — re-initializing call receiver & refreshing badges');
 
         // Re-subscribe inbox channel (safe no-op if still healthy)
         initCallReceiver(myHandle, handleIncomingCall);
+
+        // Refresh badges
+        useBadgeStore.getState().refreshBadges(myHandle);
+
+        // Check if an incoming call invite arrived while backgrounded or closed (<35s)
+        fetchPendingCallInvite(myHandle).then((pending) => {
+          if (pending && pending.callId) {
+            console.log('AppNavigator: Found pending call invite on resume:', pending);
+            processIncomingCallPayload(pending);
+          }
+        }).catch(() => {});
 
         // If there's a pending incoming call that we may have missed while backgrounded,
         // reconstruct the modal payload from module-level state
@@ -247,44 +291,56 @@ export default function AppNavigator() {
   }, [isSetup, myHandle]);
 
   return (
-    <NavigationContainer
-      ref={navigationRef}
-      theme={{
-        dark: false,
-        colors: {
-          primary: Colors.accent.primary,
-          background: Colors.bg.primary,
-          card: Colors.bg.primary,
-          text: Colors.text.primary,
-          border: Colors.divider,
-          notification: Colors.accent.primary,
-        },
-      }}
-    >
-      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-        {!isSetup ? (
-          // Onboarding flow
-          <>
-            <Stack.Screen name="Welcome" component={WelcomeScreen} />
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="CreateProfile" component={CreateProfileScreen} />
-            <Stack.Screen name="SetExpiry" component={SetExpiryScreen} />
-          </>
-        ) : (
-          // Main app
-          <>
-            <Stack.Screen name="MainTabs" component={MainTabs} />
-            <Stack.Screen name="Chat" component={ChatScreen} options={{ animation: 'slide_from_right' }} />
-            <Stack.Screen name="Call" component={CallScreen} options={{ animation: 'fade' }} />
-            <Stack.Screen name="AddContact" component={AddContactScreen} options={{ animation: 'slide_from_bottom' }} />
-            <Stack.Screen name="SetExpiry" component={SetExpiryScreen} />
-            <Stack.Screen name="MediaGallery" component={MediaGalleryScreen} options={{ animation: 'slide_from_right' }} />
-          </>
-        )}
-      </Stack.Navigator>
+    <View style={{ flex: 1, backgroundColor: Colors.bg.primary }}>
+      <NavigationContainer
+        ref={navigationRef}
+        onReady={() => {
+          setCurrentRouteName(navigationRef.getCurrentRoute()?.name);
+        }}
+        onStateChange={() => {
+          const currentRoute = navigationRef.getCurrentRoute();
+          setCurrentRouteName(currentRoute?.name);
+        }}
+        theme={{
+          dark: false,
+          colors: {
+            primary: Colors.accent.primary,
+            background: Colors.bg.primary,
+            card: Colors.bg.primary,
+            text: Colors.text.primary,
+            border: Colors.divider,
+            notification: Colors.accent.primary,
+          },
+        }}
+      >
+        <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+          {!isSetup ? (
+            // Onboarding flow
+            <>
+              <Stack.Screen name="Welcome" component={WelcomeScreen} />
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="CreateProfile" component={CreateProfileScreen} />
+              <Stack.Screen name="SetExpiry" component={SetExpiryScreen} />
+            </>
+          ) : (
+            // Main app
+            <>
+              <Stack.Screen name="MainTabs" component={MainTabs} />
+              <Stack.Screen name="Chat" component={ChatScreen} options={{ animation: 'slide_from_right' }} />
+              <Stack.Screen name="Call" component={CallScreen} options={{ animation: 'fade' }} />
+              <Stack.Screen name="AddContact" component={AddContactScreen} options={{ animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="SetExpiry" component={SetExpiryScreen} />
+              <Stack.Screen name="MediaGallery" component={MediaGalleryScreen} options={{ animation: 'slide_from_right' }} />
+            </>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
 
-      {/* Global Active Call Return Banner (when call is minimized) */}
-      <ActiveCallBanner navigationRef={navigationRef} />
+      {/* Global Active Call Return Banner (when call is active & user is browsing other screens) */}
+      <ActiveCallBanner navigationRef={navigationRef} currentRouteName={currentRouteName} />
+
+      {/* Global In-App Notification Toast */}
+      <InAppNotificationBanner navigationRef={navigationRef} />
 
       {/* Global Incoming Call Overlay */}
       <IncomingCallModal
@@ -294,6 +350,6 @@ export default function AppNavigator() {
           setIncomingCallData(null);
         }}
       />
-    </NavigationContainer>
+    </View>
   );
 }
