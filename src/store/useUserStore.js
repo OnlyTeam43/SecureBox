@@ -28,7 +28,10 @@ export const useUserStore = create(
       isStealthModeEnabled: false,
       stealthPin: '1357', // Default PIN for calculator unlock
       stealthDuressPin: '9999', // Emergency duress PIN that silently nukes all data
+      stealthDecoyPin: '0000', // Decoy PIN that unlocks fake innocent study chats
       isStealthUnlocked: false,
+      isDecoyUnlocked: false,
+      isStealthNotificationsEnabled: false, // Disguises lock screen push notifications
 
       // Actions
       setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null, recoveryPin = null) =>
@@ -48,7 +51,10 @@ export const useUserStore = create(
       setStealthModeEnabled: (enabled) => set({ isStealthModeEnabled: enabled }),
       setStealthPin: (pin) => set({ stealthPin: pin }),
       setStealthDuressPin: (pin) => set({ stealthDuressPin: pin }),
+      setStealthDecoyPin: (pin) => set({ stealthDecoyPin: pin }),
       setStealthUnlocked: (unlocked) => set({ isStealthUnlocked: unlocked }),
+      setDecoyUnlocked: (unlocked) => set({ isDecoyUnlocked: unlocked }),
+      setStealthNotificationsEnabled: (enabled) => set({ isStealthNotificationsEnabled: enabled }),
 
       completeSetup: () => set({ isSetup: true }),
 
@@ -67,7 +73,10 @@ export const useUserStore = create(
           isStealthModeEnabled: false,
           stealthPin: '1357',
           stealthDuressPin: '9999',
+          stealthDecoyPin: '0000',
           isStealthUnlocked: false,
+          isDecoyUnlocked: false,
+          isStealthNotificationsEnabled: false,
         }),
     }),
     {

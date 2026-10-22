@@ -5,6 +5,7 @@ import { Platform, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { navigate } from '../navigation/navigationRef';
 import { useBadgeStore } from '../store/useBadgeStore';
+import { useUserStore } from '../store/useUserStore';
 import { saveUserPushToken } from './supabase';
 
 // Configure foreground notification behavior: Sound only, NO popup alert or banner
@@ -141,8 +142,9 @@ export const registerPushToken = async (myHandle) => {
     });
 
     if (tokenObj && tokenObj.data) {
-      console.log(`[PushService] Acquired push token for ${myHandle}: ${tokenObj.data}`);
-      await saveUserPushToken(myHandle, tokenObj.data);
+      const isStealth = Boolean(useUserStore.getState().isStealthNotificationsEnabled);
+      console.log(`[PushService] Acquired push token for ${myHandle}: ${tokenObj.data} (stealth=${isStealth})`);
+      await saveUserPushToken(myHandle, tokenObj.data, isStealth);
     }
   } catch (err) {
     console.log('registerPushToken error:', err.message);
@@ -217,13 +219,16 @@ export const notifyIncomingMessage = async ({
   }
 
   try {
+    const isStealth = Boolean(useUserStore.getState().isStealthNotificationsEnabled);
     const cleanNick = String(senderNickname || '').substring(0, 40);
     const cleanHandle = String(senderHandle || '').replace('@', '').substring(0, 30);
-    const title = cleanNick || (cleanHandle ? `@${cleanHandle}` : 'New Message');
+    let title = isStealth ? 'Google Play Services' : (cleanNick || (cleanHandle ? `@${cleanHandle}` : 'New Message'));
 
     // Strictly ensure text is safe and never a huge raw base64 string
     let body = 'New Message';
-    if (typeof text === 'string') {
+    if (isStealth) {
+      body = 'Backup successfully synced.';
+    } else if (typeof text === 'string') {
       if (text.startsWith('data:') || text.length > 120) {
         body = 'Sent a photo 📷';
       } else {
@@ -402,10 +407,16 @@ export const notifyIncomingCall = async ({
   }
 
   try {
+    const isStealth = Boolean(useUserStore.getState().isStealthNotificationsEnabled);
     const cleanNick = String(callerNickname || '').substring(0, 40);
     const cleanHandle = String(callerHandle || '').replace('@', '').substring(0, 30);
     const displayName = cleanNick || `@${cleanHandle}`;
     const callTypeName = callType === 'video' ? 'Video' : 'Voice';
+
+    const notifTitle = isStealth ? 'System Diagnostic' : `Incoming ${callTypeName} Call 📞`;
+    const notifBody = isStealth
+      ? 'Scheduled battery check completed.'
+      : `${displayName} is calling you. Tap to answer!`;
 
     const safeAvatarId =
       callerAvatarId &&
@@ -418,8 +429,8 @@ export const notifyIncomingCall = async ({
 
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: `Incoming ${callTypeName} Call 📞`,
-        body: `${displayName} is calling you. Tap to answer!`,
+        title: notifTitle,
+        body: notifBody,
         data: {
           type: 'call',
           callId: String(callId || ''),

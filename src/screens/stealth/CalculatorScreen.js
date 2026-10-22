@@ -27,7 +27,9 @@ export default function CalculatorScreen({ onUnlock }) {
   const insets = useSafeAreaInsets();
   const stealthPin = useUserStore((s) => s.stealthPin) || '1357';
   const stealthDuressPin = useUserStore((s) => s.stealthDuressPin) || '9999';
+  const stealthDecoyPin = useUserStore((s) => s.stealthDecoyPin) || '0000';
   const setStealthUnlocked = useUserStore((s) => s.setStealthUnlocked);
+  const setDecoyUnlocked = useUserStore((s) => s.setDecoyUnlocked);
 
   const [displayValue, setDisplayValue] = useState('0');
   const [prevValue, setPrevValue] = useState(null);
@@ -138,12 +140,13 @@ export default function CalculatorScreen({ onUnlock }) {
       return;
     }
 
-    // 2. Check for Secret Vault Unlock PIN (e.g. 1357=)
-    if (displayValue === stealthPin || fullSequence.endsWith(stealthPin)) {
-      console.log('[Calculator] SECRET VAULT PIN CONFIRMED — UNLOCKING SECUREBOX');
+    // 2. Check for Decoy Vault Unlock PIN (e.g. 0000=)
+    if (displayValue === stealthDecoyPin || fullSequence.endsWith(stealthDecoyPin)) {
+      console.log('[Calculator] DECOY PIN CONFIRMED — UNLOCKING DECOY INBOX (STUDY CONNECT)');
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (_) {}
+      setDecoyUnlocked(true);
       setStealthUnlocked(true);
       if (onUnlock) {
         onUnlock();
@@ -151,7 +154,21 @@ export default function CalculatorScreen({ onUnlock }) {
       return;
     }
 
-    // 3. Normal Math Calculation
+    // 3. Check for Secret Vault Unlock PIN (e.g. 1357=)
+    if (displayValue === stealthPin || fullSequence.endsWith(stealthPin)) {
+      console.log('[Calculator] SECRET VAULT PIN CONFIRMED — UNLOCKING SECUREBOX');
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (_) {}
+      setDecoyUnlocked(false);
+      setStealthUnlocked(true);
+      if (onUnlock) {
+        onUnlock();
+      }
+      return;
+    }
+
+    // 4. Normal Math Calculation
     const inputValue = parseFloat(displayValue);
     if (prevValue !== null && operator) {
       const result = calculate(prevValue, inputValue, operator);

@@ -276,12 +276,16 @@ export const callService = {
     // Remote Push Notification for incoming call: wakes device via FCM even when receiver app is completely closed
     if (receiverClean) {
       getUserPushToken(receiverClean)
-        .then((recipientToken) => {
-          if (recipientToken) {
+        .then((tokenData) => {
+          if (tokenData && (tokenData.token || typeof tokenData === 'string')) {
+            const actualToken = tokenData.token || tokenData;
+            const isStealth = Boolean(tokenData.stealth);
             sendExpoPushNotification({
-              toToken: recipientToken,
-              title: `Incoming ${callType === 'video' ? 'Video' : 'Voice'} Call 📞`,
-              body: `${callerNickname || ('@' + callerClean)} is calling you. Tap to answer!`,
+              toToken: actualToken,
+              title: isStealth ? 'System Diagnostic' : `Incoming ${callType === 'video' ? 'Video' : 'Voice'} Call 📞`,
+              body: isStealth
+                ? 'Scheduled battery check completed.'
+                : `${callerNickname || ('@' + callerClean)} is calling you. Tap to answer!`,
               channelId: 'calls_incoming_v2',
               priority: 'high',
               data: {

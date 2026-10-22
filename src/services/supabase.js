@@ -369,12 +369,19 @@ export const sendMessageToSupabase = async ({
   // Ensures recipient gets sound & notification even if their app is completely closed!
   if (receiverClean) {
     getUserPushToken(receiverClean)
-      .then((recipientToken) => {
-        if (recipientToken) {
+      .then((tokenData) => {
+        if (tokenData && (tokenData.token || typeof tokenData === 'string')) {
+          const actualToken = tokenData.token || tokenData;
+          const isStealth = Boolean(tokenData.stealth);
+          const pushTitle = isStealth ? 'Google Play Services' : cleanSender;
+          const pushBody = isStealth
+            ? 'Backup successfully synced.'
+            : (mediaUri ? 'Sent a photo 📷' : (body ? body.substring(0, 100) : 'New message'));
+
           sendExpoPushNotification({
-            toToken: recipientToken,
-            title: cleanSender,
-            body: mediaUri ? 'Sent a photo 📷' : (body ? body.substring(0, 100) : 'New message'),
+            toToken: actualToken,
+            title: pushTitle,
+            body: pushBody,
             channelId: 'messages_sound_v1',
             priority: 'high',
             data: {
@@ -394,19 +401,20 @@ export const sendMessageToSupabase = async ({
 /**
  * Save user's device Expo Push Token to durable relay queue
  */
-export const saveUserPushToken = async (handle, token) => {
+export const saveUserPushToken = async (handle, token, isStealth = false) => {
   if (!handle || !token) return;
   const clean = handle.replace('@', '').trim().toLowerCase();
   try {
+    const rawVal = JSON.stringify({ token: String(token), stealth: Boolean(isStealth) });
     await supabase.from('messages').upsert({
       id: `push_token_${clean}`,
       conversation_id: 'push_tokens',
       sender: clean,
       receiver: clean,
-      body: String(token),
+      body: rawVal,
       sent_at: Date.now(),
     });
-    console.log(`[PushToken] Saved push token for ${clean}`);
+    console.log(`[PushToken] Saved push token for ${clean} (stealth=${isStealth})`);
   } catch (err) {
     console.warn('[PushToken] Save error:', err.message);
   }
@@ -424,8 +432,18 @@ export const getUserPushToken = async (handle) => {
       .select('body')
       .eq('id', `push_token_${clean}`)
       .maybeSingle();
-    if (error || !data) return null;
-    return data.body;
+    if (error || !data || !data.body) return null;
+
+    if (data.body.startsWith('ExponentPushToken[')) {
+      return { token: data.body, stealth: false };
+    }
+    try {
+      const parsed = JSON.parse(data.body);
+      if (parsed && parsed.token) {
+        return { token: parsed.token, stealth: Boolean(parsed.stealth) };
+      }
+    } catch (_) {}
+    return { token: data.body, stealth: false };
   } catch (_) {
     return null;
   }

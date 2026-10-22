@@ -41,6 +41,7 @@ import CallScreen from '../screens/main/CallScreen';
 import MediaGalleryScreen from '../screens/main/MediaGalleryScreen';
 import RequestsScreen from '../screens/main/RequestsScreen';
 import CalculatorScreen from '../screens/stealth/CalculatorScreen';
+import DecoyInboxScreen from '../screens/stealth/DecoyInboxScreen';
 
 import { MessageTabIcon, PhoneIcon, UserAvatarIcon, UserCheckIcon } from '../components/Icons';
 
@@ -131,6 +132,8 @@ export default function AppNavigator() {
   const isStealthModeEnabled = useUserStore((s) => s.isStealthModeEnabled);
   const isStealthUnlocked = useUserStore((s) => s.isStealthUnlocked);
   const setStealthUnlocked = useUserStore((s) => s.setStealthUnlocked);
+  const isDecoyUnlocked = useUserStore((s) => s.isDecoyUnlocked);
+  const setDecoyUnlocked = useUserStore((s) => s.setDecoyUnlocked);
 
   const [incomingCallData, setIncomingCallData] = useState(null);
   const [currentRouteName, setCurrentRouteName] = useState(null);
@@ -294,6 +297,7 @@ export default function AppNavigator() {
         // Automatically re-lock to decoy calculator when app is minimized or phone locked
         console.log('AppNavigator: App backgrounded — re-locking to Calculator Decoy');
         setStealthUnlocked(false);
+        setDecoyUnlocked(false);
       }
     };
 
@@ -304,6 +308,18 @@ export default function AppNavigator() {
   // If user has Stealth / Decoy Calculator enabled and has not unlocked with PIN yet
   if (isSetup && isStealthModeEnabled && !isStealthUnlocked) {
     return <CalculatorScreen onUnlock={() => setStealthUnlocked(true)} />;
+  }
+
+  // If Decoy PIN was entered (e.g. 0000=), show innocent Decoy Study Connect screen
+  if (isSetup && isStealthModeEnabled && isDecoyUnlocked) {
+    return (
+      <DecoyInboxScreen
+        onLock={() => {
+          setDecoyUnlocked(false);
+          setStealthUnlocked(false);
+        }}
+      />
+    );
   }
 
   return (

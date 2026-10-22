@@ -989,25 +989,49 @@ export default function ChatScreen({ route, navigation }) {
             </TouchableOpacity>
           )}
 
-          {item.body && (!mediaUri || item.body !== 'Photo') && (
-            <Text style={[styles.msgText, hasReply && styles.msgTextWithReply]}>{item.body}</Text>
-          )}
-
-          <View style={styles.msgMeta}>
-            {hasExpiry && <ClockIcon size={11} color="#8a8187" />}
-            <Text style={styles.msgTime}>{timeStr}</Text>
-            {isMe && (
-              <View style={styles.tickRow}>
-                {item.read === 1 || item.read === true ? (
-                  <DoubleCheckIcon size={14} color="#e0527a" />
-                ) : item.delivered === 1 || item.delivered === true ? (
-                  <DoubleCheckIcon size={14} color="#8a8187" />
-                ) : (
-                  <CheckIcon size={14} color="#8a8187" />
+          {/* WhatsApp-Style Inline Timestamp for Short Single-Line Messages */}
+          {!mediaUri && !hasReply && item.body && item.body.length < 32 && !item.body.includes('\n') ? (
+            <View style={styles.shortMsgRow}>
+              <Text style={styles.msgText}>{item.body}</Text>
+              <View style={[styles.msgMeta, styles.msgMetaInline]}>
+                {hasExpiry && <ClockIcon size={11} color="#8a8187" />}
+                <Text style={styles.msgTime}>{timeStr}</Text>
+                {isMe && (
+                  <View style={styles.tickRow}>
+                    {item.read === 1 || item.read === true ? (
+                      <DoubleCheckIcon size={14} color="#e0527a" />
+                    ) : item.delivered === 1 || item.delivered === true ? (
+                      <DoubleCheckIcon size={14} color="#8a8187" />
+                    ) : (
+                      <CheckIcon size={14} color="#8a8187" />
+                    )}
+                  </View>
                 )}
               </View>
-            )}
-          </View>
+            </View>
+          ) : (
+            <>
+              {item.body && (!mediaUri || item.body !== 'Photo') && (
+                <Text style={[styles.msgText, hasReply && styles.msgTextWithReply]}>{item.body}</Text>
+              )}
+
+              <View style={styles.msgMeta}>
+                {hasExpiry && <ClockIcon size={11} color="#8a8187" />}
+                <Text style={styles.msgTime}>{timeStr}</Text>
+                {isMe && (
+                  <View style={styles.tickRow}>
+                    {item.read === 1 || item.read === true ? (
+                      <DoubleCheckIcon size={14} color="#e0527a" />
+                    ) : item.delivered === 1 || item.delivered === true ? (
+                      <DoubleCheckIcon size={14} color="#8a8187" />
+                    ) : (
+                      <CheckIcon size={14} color="#8a8187" />
+                    )}
+                  </View>
+                )}
+              </View>
+            </>
+          )}
         </View>
       </SwipeableMessageRow>
     );
@@ -1748,6 +1772,18 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignSelf: 'flex-end',
     marginTop: 1,
+  },
+  shortMsgRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  msgMetaInline: {
+    marginTop: 0,
+    marginBottom: 0,
+    paddingLeft: 4,
+    alignSelf: 'flex-end',
   },
   expiryIcon: { fontSize: 10 },
   msgTime: {

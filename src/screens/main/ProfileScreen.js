@@ -17,6 +17,7 @@ import { updateUserAvatarInSupabase } from '../../services/supabase';
 import { updateContactAvatar } from '../../db/database';
 import { shareProfileInvite, getInviteLink } from '../../services/inviteService';
 import { instantEraseEverything } from '../../services/panicService';
+import { registerPushToken } from '../../services/notificationService';
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -33,6 +34,10 @@ export default function ProfileScreen({ navigation }) {
     stealthPin,
     setStealthPin,
     stealthDuressPin,
+    stealthDecoyPin,
+    setStealthDecoyPin,
+    isStealthNotificationsEnabled,
+    setStealthNotificationsEnabled,
     setStealthUnlocked,
   } = useUserStore();
 
@@ -276,7 +281,23 @@ export default function ProfileScreen({ navigation }) {
             >
               <View>
                 <Text style={styles.rowLabel}>Secret Unlock PIN</Text>
-                <Text style={styles.rowSub}>Code: {stealthPin}=</Text>
+                <Text style={styles.rowSub}>Code: {stealthPin}= (Reveals real SecureBox)</Text>
+              </View>
+              <Text style={styles.rowArrow}>→</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.row}
+              onPress={() => {
+                Alert.alert(
+                  'Decoy School Chat PIN',
+                  `Your current decoy code is: ${stealthDecoyPin}=\n\nIf forced to unlock your phone, enter ${stealthDecoyPin}= into the calculator. It opens a fake 'Study Connect' app with innocent homework and teacher messages.`
+                );
+              }}
+            >
+              <View>
+                <Text style={styles.rowLabel}>Decoy Vault PIN (Study Connect)</Text>
+                <Text style={styles.rowSub}>Code: {stealthDecoyPin}= (Plausible deniability)</Text>
               </View>
               <Text style={styles.rowArrow}>→</Text>
             </TouchableOpacity>
@@ -303,6 +324,27 @@ export default function ProfileScreen({ navigation }) {
             </TouchableOpacity>
           </>
         ) : null}
+
+        {/* Discreet Push Notifications */}
+        <View style={styles.row}>
+          <View style={{ flex: 1, paddingRight: Spacing.sm }}>
+            <Text style={styles.rowLabel}>Discreet Push Notifications</Text>
+            <Text style={styles.rowSub}>
+              Disguises message alerts on lock screen as mundane Android alerts (e.g. "Storage optimization completed").
+            </Text>
+          </View>
+          <Switch
+            value={isStealthNotificationsEnabled}
+            onValueChange={(val) => {
+              setStealthNotificationsEnabled(val);
+              if (handle) {
+                registerPushToken(handle);
+              }
+            }}
+            trackColor={{ false: '#3a3a44', true: Colors.accent.primary }}
+            thumbColor="#ffffff"
+          />
+        </View>
       </View>
 
       {/* Emergency Kill-Switch / Danger Zone */}
