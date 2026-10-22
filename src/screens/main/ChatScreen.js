@@ -1,26 +1,68 @@
 // src/screens/main/ChatScreen.js
-// WhatsApp/Instagram-styled clean white and light pink chat with real vector icons, quoted swipe-reply, and instant online status
+// Unified Curious Animal Chat Screen styled with the Claude AI Design System.
+// Combines rich chat history (bubbles, media photos, swipe-reply, ticks)
+// with the interactive Animal Stage (Panda & Cat reactive talking/typing companions)
+// and the Claude pill composer with terracotta send button.
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TextInput,
-  TouchableOpacity, KeyboardAvoidingView, Platform,
-  StatusBar, Alert, Animated, Image, PanResponder, Modal, Keyboard, AppState,
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  StatusBar,
+  Alert,
+  Animated,
+  Image,
+  PanResponder,
+  Modal,
+  Keyboard,
+  AppState,
+  Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ScreenCapture from 'expo-screen-capture';
-import { Colors, Typography, Spacing, Radius } from '../../theme';
-import { getAvatar } from '../../constants/avatars';
-import {
-  getMessages, insertMessage, purgeExpiredMessages,
-  markConversationRead, updateConversationLastMessage,
-  deleteMessagesBatch, clearConversationMessages,
-  markSentMessagesRead, markSentMessagesDelivered,
-} from '../../db/database';
-import { useUserStore } from '../../store/useUserStore';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import {
+  ArrowUp,
+  Plus,
+  Phone,
+  Video,
+  ChevronLeft,
+  Lock,
+  MoreVertical,
+  X,
+  Trash2,
+  CornerDownRight,
+  Clock,
+  Shield,
+  ShieldCheck,
+  Check,
+  CheckCheck,
+} from 'lucide-react-native';
+
+import { useUserStore } from '../../store/useUserStore';
+import { useBadgeStore } from '../../store/useBadgeStore';
+import { CharacterAvatar } from '../../animal_ui/components/CharacterAvatar.js';
+import { SpeechBubble } from '../../animal_ui/components/SpeechBubble.js';
+import { character as timing } from '../../animal_ui/theme/motion.js';
+import {
+  getMessages,
+  insertMessage,
+  markConversationRead,
+  updateConversationLastMessage,
+  deleteMessagesBatch,
+  clearConversationMessages,
+  markSentMessagesRead,
+  markSentMessagesDelivered,
+  ensureConversationExists,
+} from '../../db/database';
 import {
   saveIncomingBase64ToVault,
   saveOutgoingImageToVault,
@@ -28,7 +70,6 @@ import {
 } from '../../services/mediaVault';
 import {
   sendMessageToSupabase,
-  fetchMessagesFromSupabase,
   fetchAndClearPendingMessages,
   subscribeToConversation,
   subscribeToGlobalPresence,
@@ -42,405 +83,185 @@ import {
   notifyScreenshotTaken,
 } from '../../services/supabase';
 import {
-  PhoneIcon,
-  VideoIcon,
-  GalleryIcon,
-  SendIcon,
-  BackArrowIcon,
-  TrashIcon,
-  ReplyIcon,
-  CheckIcon,
-  DoubleCheckIcon,
-  UserAvatarIcon,
-  ClockIcon,
-  ShieldLockIcon,
-  ChevronRightIcon,
-  BubbleTailOutgoing,
-  BubbleTailIncoming,
-} from '../../components/Icons';
-import {
   setActiveConversation,
   notifySecurityAlert,
   notifyScreenshotRequest,
 } from '../../services/notificationService';
-import { useBadgeStore } from '../../store/useBadgeStore';
 
-// Swipeable Message Row Component
-// - For sent messages (isMe): pull right-to-left (dx < 0) to reply
-// - For received messages: pull left-to-right (dx > 0) to reply
-// - Reply icon ONLY renders during active user drag — zero permanent arrow on sent messages!
-function SwipeableMessageRow({ item, isMe, inSelectionMode, isSelected, onToggleSelect, onSwipeReply, children }) {
+// Claude Theme Palette
+const PALETTE = {
+  bg: '#FAF9F5',
+  surface: '#FFFFFF',
+  surfaceMuted: '#F0EEE6',
+  text: '#141413',
+  textSecondary: '#5E5D59',
+  textMuted: '#87867F',
+  border: 'rgba(20,20,19,0.12)',
+  borderStrong: 'rgba(20,20,19,0.22)',
+  brand: '#D97757', // Claude clay terracotta
+  onBrand: '#FFFFFF',
+  info: '#2C84DB',
+  danger: '#C0392B',
+  bubbleMe: '#F0EEE6',
+  bubbleThem: '#FFFFFF',
+};
+
+// Hook for mouth talking animation trigger on new message
+function useRecentlyChanged(value, ms) {
+  const [active, setActive] = useState(false);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    if (!value) return;
+    setActive(true);
+    const id = setTimeout(() => setActive(false), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return active;
+}
+
+// Swipeable Message Row for Quoted Reply
+function SwipeableMessageRow({ item, isMe, inSelectionMode, onSwipeReply, children }) {
   const panX = useRef(new Animated.Value(0)).current;
-  const replyOpacity = useRef(new Animated.Value(0)).current;
   const [swiping, setSwiping] = useState(false);
-  const [swipeDir, setSwipeDir] = useState(isMe ? 'left' : 'right');
 
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
         if (inSelectionMode) return false;
         const isHorizontal = Math.abs(gestureState.dx) > 12 && Math.abs(gestureState.dy) < 18;
-        if (!isHorizontal) return false;
-
-        if (isMe) {
-          // Sent message: pull from right to left
-          return gestureState.dx < -8;
-        } else {
-          // Partner message: pull from left to right (or right to left)
-          return Math.abs(gestureState.dx) > 8;
-        }
+        return isHorizontal && (isMe ? gestureState.dx < -8 : gestureState.dx > 8);
       },
-      onPanResponderGrant: () => {
-        setSwiping(true);
-      },
+      onPanResponderGrant: () => setSwiping(true),
       onPanResponderMove: (_, gestureState) => {
-        if (isMe || gestureState.dx < 0) {
-          // Pulling left (towards screen center for sent messages)
-          setSwipeDir('left');
-          const clamped = Math.max(gestureState.dx, -65);
-          panX.setValue(clamped);
-          replyOpacity.setValue(Math.min(Math.abs(clamped) / 45, 1));
-        } else {
-          // Pulling right (towards screen center for partner messages)
-          setSwipeDir('right');
-          const clamped = Math.min(gestureState.dx, 65);
-          panX.setValue(clamped);
-          replyOpacity.setValue(Math.min(clamped / 45, 1));
-        }
+        const clamped = isMe
+          ? Math.max(gestureState.dx, -60)
+          : Math.min(gestureState.dx, 60);
+        panX.setValue(clamped);
       },
       onPanResponderRelease: (_, gestureState) => {
-        const triggered = isMe ? gestureState.dx < -38 : Math.abs(gestureState.dx) > 38;
+        setSwiping(false);
+        const triggered = isMe ? gestureState.dx < -40 : gestureState.dx > 40;
         if (triggered) {
           try {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           } catch (_) {}
           onSwipeReply(item);
         }
-
-        Animated.parallel([
-          Animated.spring(panX, {
-            toValue: 0,
-            useNativeDriver: true,
-            bounciness: 6,
-          }),
-          Animated.timing(replyOpacity, {
-            toValue: 0,
-            duration: 150,
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          setSwiping(false);
-        });
-      },
-      onPanResponderTerminate: () => {
-        Animated.parallel([
-          Animated.spring(panX, { toValue: 0, useNativeDriver: true }),
-          Animated.timing(replyOpacity, { toValue: 0, duration: 150, useNativeDriver: true }),
-        ]).start(() => {
-          setSwiping(false);
-        });
+        Animated.spring(panX, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 200,
+          friction: 20,
+        }).start();
       },
     })
   ).current;
 
   return (
     <View style={styles.swipeRowWrapper}>
-      {/* Reply icon ONLY mounts when actively swiping — completely removes permanent arrow! */}
-      {swiping && (
-        <Animated.View
-          style={[
-            styles.swipeIconBackdrop,
-            swipeDir === 'left' ? styles.swipeIconRight : styles.swipeIconLeft,
-            { opacity: replyOpacity },
-          ]}
-          pointerEvents="none"
-        >
-          <View style={styles.replyIconCircle}>
-            <ReplyIcon size={16} color={Colors.accent.primary} />
-          </View>
-        </Animated.View>
-      )}
-
-      <Animated.View
-        {...panResponder.panHandlers}
-        style={[
-          styles.msgRow,
-          isMe ? styles.msgRowMe : styles.msgRowThem,
-          { transform: [{ translateX: panX }] },
-          isSelected && styles.msgRowSelected,
-        ]}
-      >
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onLongPress={() => onToggleSelect(item.id)}
-          onPress={() => {
-            if (inSelectionMode) onToggleSelect(item.id);
-          }}
-        >
-          {children}
-        </TouchableOpacity>
+      <Animated.View style={{ transform: [{ translateX: panX }] }} {...panResponder.panHandlers}>
+        {children}
       </Animated.View>
     </View>
   );
 }
 
-// Shuffling Keyboard Typing Indicator Component (3 keyboard buttons shuffle / bounce)
-function ShufflingKeyboardTyping({ partnerNickname }) {
-  const anim1 = useRef(new Animated.Value(0)).current;
-  const anim2 = useRef(new Animated.Value(0)).current;
-  const anim3 = useRef(new Animated.Value(0)).current;
-  const [keys, setKeys] = useState(['S', 'E', 'C']);
-
-  useEffect(() => {
-    const createKeyAnim = (anim, delay) => {
-      return Animated.sequence([
-        Animated.delay(delay),
-        Animated.loop(
-          Animated.sequence([
-            Animated.timing(anim, {
-              toValue: -7,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-            Animated.timing(anim, {
-              toValue: 2,
-              duration: 160,
-              useNativeDriver: true,
-            }),
-            Animated.timing(anim, {
-              toValue: 0,
-              duration: 140,
-              useNativeDriver: true,
-            }),
-            Animated.delay(260),
-          ])
-        ),
-      ]);
-    };
-
-    const animSequence = Animated.parallel([
-      createKeyAnim(anim1, 0),
-      createKeyAnim(anim2, 160),
-      createKeyAnim(anim3, 320),
-    ]);
-    animSequence.start();
-
-    // Shuffling letters across keyboard buttons periodically
-    const keySets = [
-      ['S', 'E', 'C'],
-      ['B', 'O', 'X'],
-      ['K', 'E', 'Y'],
-      ['L', 'O', 'V'],
-      ['A', 'S', 'D'],
-    ];
-    let idx = 0;
-    const interval = setInterval(() => {
-      idx = (idx + 1) % keySets.length;
-      setKeys(keySets[idx]);
-    }, 1100);
-
-    return () => {
-      animSequence.stop();
-      clearInterval(interval);
-    };
-  }, []);
-
-  return (
-    <View style={styles.typingRow}>
-      <View style={styles.typingBox}>
-        <View style={styles.keyboardCluster}>
-          <Animated.View style={[styles.keyCap, { transform: [{ translateY: anim1 }] }]}>
-            <Text style={styles.keyCapText}>{keys[0]}</Text>
-          </Animated.View>
-          <Animated.View style={[styles.keyCap, { transform: [{ translateY: anim2 }] }]}>
-            <Text style={styles.keyCapText}>{keys[1]}</Text>
-          </Animated.View>
-          <Animated.View style={[styles.keyCap, { transform: [{ translateY: anim3 }] }]}>
-            <Text style={styles.keyCapText}>{keys[2]}</Text>
-          </Animated.View>
-        </View>
-        <Text style={styles.typingLabel}>
-          {partnerNickname ? `${partnerNickname} is typing...` : 'typing...'}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
 export default function ChatScreen({ route, navigation }) {
-  const { conversationId, contactHandle, contactNickname, contactAvatarId } = route.params || {};
-  const insets = useSafeAreaInsets();
+  const {
+    conversationId,
+    contactHandle,
+    contactNickname,
+    contactAvatarId,
+  } = route.params || {};
 
-  const [inputText, setInputText] = useState('');
+  const insets = useSafeAreaInsets();
+  const myHandle = useUserStore((s) => s.handle);
+  const myNickname = useUserStore((s) => s.nickname);
+  const myAvatarId = useUserStore((s) => s.avatarId || s.avatarUri);
+  const defaultExpiry = useUserStore((s) => s.defaultExpiry);
+  const setDefaultExpiry = useUserStore((s) => s.setDefaultExpiry);
+
+  const myCharacter = useUserStore((s) => s.myCharacter) || 'panda';
+  const setMyCharacter = useUserStore((s) => s.setMyCharacter);
+
+  const [friendCharacter, setFriendCharacter] = useState('cat');
+  const [showCharacterModal, setShowCharacterModal] = useState(false);
+  const [pickingFor, setPickingFor] = useState('me');
+
   const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
-  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+  const [viewingPhotoUri, setViewingPhotoUri] = useState(null);
+  const [isAnimalStageExpanded, setIsAnimalStageExpanded] = useState(true);
+
+  // Online & Typing states
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
   const [partnerLastSeen, setPartnerLastSeen] = useState(null);
-
-  // Realtime Typing Indicator State
+  const [isTyping, setIsTyping] = useState(false);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+
+  // Latest messages for speech bubbles
+  const [myLastMessage, setMyLastMessage] = useState('');
+  const [friendLastMessage, setFriendLastMessage] = useState('');
+
+  // Screenshot defense states
+  const [screenshotAllowed, setScreenshotAllowed] = useState(false);
+  const [requestPending, setRequestPending] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState(60);
+  const screenshotAllowedRef = useRef(false);
+
+  // Selection & Header menu states
+  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+  const inSelectionMode = selectedMessageIds.length > 0;
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [showExpiryPicker, setShowExpiryPicker] = useState(false);
+
+  const flatRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const myTypingTimerRef = useRef(null);
   const isTypingRef = useRef(false);
 
-  // Screenshot Ban & Confirmation States
-  const [screenshotAllowed, setScreenshotAllowed] = useState(false);
-  const [countdownSeconds, setCountdownSeconds] = useState(0);
-  const [requestPending, setRequestPending] = useState(false);
-  const [incomingScreenshotRequest, setIncomingScreenshotRequest] = useState(null);
+  // Talking animations
+  const meTalking = useRecentlyChanged(myLastMessage, timing.talkHold);
+  const friendTalking = useRecentlyChanged(friendLastMessage, timing.talkHold);
 
-  // Header Menu & Settings States
-  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
-  const [showExpiryPicker, setShowExpiryPicker] = useState(false);
-  const [viewingPhotoUri, setViewingPhotoUri] = useState(null);
-  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
-  const highlightTimerRef = useRef(null);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const shouldScrollToEndRef = useRef(true);
+  const myAnimalState = isTyping ? 'typing' : meTalking ? 'talking' : 'idle';
+  const friendAnimalState = isPartnerTyping ? 'typing' : friendTalking ? 'talking' : 'idle';
 
-  const flatRef = useRef(null);
-  const screenshotAllowedRef = useRef(false);
-  screenshotAllowedRef.current = screenshotAllowed;
-
-  const myHandle = useUserStore((s) => s.handle);
-  const myNickname = useUserStore((s) => s.nickname);
-  const defaultExpiry = useUserStore((s) => s.defaultExpiry);
-  const setDefaultExpiry = useUserStore((s) => s.setDefaultExpiry);
-  const avatar = getAvatar(contactAvatarId);
-
-  const inSelectionMode = selectedMessageIds.length > 0;
-
-  // Listen to keyboard visibility to eliminate empty bottom gap and keep messages in view
-  useEffect(() => {
-    const showSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => {
-        setIsKeyboardVisible(true);
-        setTimeout(() => {
-          flatRef.current?.scrollToEnd({ animated: true });
-        }, 80);
-      }
-    );
-    const hideSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        setIsKeyboardVisible(false);
-      }
-    );
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-
-  // Cleanup typing timers on unmount
-  useEffect(() => {
-    return () => {
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      if (myTypingTimerRef.current) clearTimeout(myTypingTimerRef.current);
-      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-      if (isTypingRef.current) {
-        broadcastTypingStatus(conversationId, myHandle, false);
-      }
-    };
-  }, [conversationId, myHandle]);
-
-  // Screen Capture Protection: Strict Ban & Detection by Default
-  useEffect(() => {
-    // 1. Immediately prevent screenshots and screen recordings on mount
-    ScreenCapture.preventScreenCaptureAsync().catch(() => {});
-
-    // 2. Add listener to detect when a screenshot is attempted / captured
-    const subscription = ScreenCapture.addScreenshotListener(() => {
-      notifyScreenshotTaken(conversationId, myHandle);
-      if (!screenshotAllowedRef.current) {
-        try {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        } catch (_) {}
-      }
-    });
-
-    return () => {
-      subscription?.remove();
-      ScreenCapture.preventScreenCaptureAsync().catch(() => {});
-    };
-  }, [conversationId, myHandle]);
-
-  // Countdown timer when screenshot permission is granted
-  useEffect(() => {
-    if (!screenshotAllowed || countdownSeconds <= 0) return;
-
-    const interval = setInterval(() => {
-      setCountdownSeconds((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setScreenshotAllowed(false);
-          ScreenCapture.preventScreenCaptureAsync().catch(() => {});
-          try {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          } catch (_) {}
-          // No full-screen popup or blocking alert here
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [screenshotAllowed, countdownSeconds]);
-
-  // Load messages from SQLite and sync from Supabase
+  // Load messages from SQLite database
   const loadMessages = useCallback(async () => {
+    if (!conversationId) return;
     try {
-      await purgeExpiredMessages();
-      const localData = await getMessages(conversationId, 60);
-      setMessages(localData.reverse()); // oldest first
-      await markConversationRead(conversationId, myHandle);
-      useBadgeStore.getState().refreshBadges(myHandle);
-      markMessagesDeliveredInSupabase(conversationId, myHandle, contactHandle);
-      markMessagesSeenInSupabase(conversationId, myHandle, contactHandle);
-      shouldScrollToEndRef.current = true;
-      setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 150);
+      await ensureConversationExists(conversationId, contactHandle, contactNickname, contactAvatarId);
+      const dbMsgs = await getMessages(conversationId);
+      const sorted = (dbMsgs || []).reverse(); // Oldest first, newest at bottom
+      setMessages(sorted);
 
-      // Background fetch latest from Supabase
-      const remoteData = await fetchMessagesFromSupabase(conversationId);
-      if (remoteData && remoteData.length > 0) {
-        for (const rMsg of remoteData) {
-          if (!rMsg.body && !rMsg.media_uri) continue;
-          let localMedia = null;
-          if (rMsg.media_uri) {
-            localMedia = await saveIncomingBase64ToVault(rMsg.id, rMsg.media_uri);
-          }
-          await insertMessage({
-            id: rMsg.id,
-            conversationId: rMsg.conversation_id,
-            sender: rMsg.sender,
-            type: rMsg.media_uri ? 'image' : 'text',
-            body: rMsg.body,
-            mediaUri: localMedia,
-            sentAt: rMsg.sent_at,
-            expiresAt: rMsg.expires_at,
-          });
-        }
-        await markConversationRead(conversationId, myHandle);
-        useBadgeStore.getState().refreshBadges(myHandle);
+      const myMsgs = sorted.filter((m) => m.sender === myHandle);
+      const friendMsgs = sorted.filter((m) => m.sender !== myHandle);
 
-        const updatedLocal = await getMessages(conversationId, 60);
-        setMessages(updatedLocal.reverse());
-        shouldScrollToEndRef.current = true;
-        setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 150);
+      if (myMsgs.length > 0) {
+        setMyLastMessage(myMsgs[myMsgs.length - 1].body || '📷 Photo');
       }
-    } catch (e) {
-      console.warn('Chat load error:', e);
+      if (friendMsgs.length > 0) {
+        setFriendLastMessage(friendMsgs[friendMsgs.length - 1].body || '📷 Photo');
+      }
+    } catch (err) {
+      console.warn('ChatScreen loadMessages note:', err.message);
     }
-  }, [conversationId, myHandle, contactHandle]);
+  }, [conversationId, contactHandle, contactNickname, contactAvatarId, myHandle]);
 
+  // Realtime listeners & setup
   useEffect(() => {
+    ScreenCapture.preventScreenCaptureAsync().catch(() => {});
     setActiveConversation(conversationId);
     loadMessages();
 
-    // 1. Realtime listener for incoming messages, seen status, deletions & screenshot permissions
+    // 1. Subscribe to realtime messages & typing status
     const unsubscribeMessages = subscribeToConversation(
       conversationId,
       async (newMsg) => {
@@ -451,15 +272,16 @@ export default function ChatScreen({ route, navigation }) {
           }
           const storedMsg = {
             id: newMsg.id,
-            conversationId: newMsg.conversation_id,
+            conversationId: newMsg.conversation_id || conversationId,
             sender: newMsg.sender,
             type: newMsg.media_uri ? 'image' : 'text',
             body: newMsg.body,
             mediaUri: localMedia,
-            replyTo: newMsg.reply_to || null,
             sentAt: newMsg.sent_at,
             expiresAt: newMsg.expires_at,
-            read: 1, // Already viewed since chat is open
+            replyTo: newMsg.reply_to || null,
+            read: 1,
+            delivered: 1,
           };
           await insertMessage(storedMsg);
           await updateConversationLastMessage(
@@ -470,127 +292,69 @@ export default function ChatScreen({ route, navigation }) {
           );
           await markConversationRead(conversationId, myHandle);
           useBadgeStore.getState().refreshBadges(myHandle);
+
+          setFriendLastMessage(newMsg.body || '📷 Photo');
           setMessages((prev) => {
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             return [...prev, storedMsg];
           });
           markMessagesDeliveredInSupabase(conversationId, myHandle, contactHandle);
           markMessagesSeenInSupabase(conversationId, myHandle, contactHandle);
-          shouldScrollToEndRef.current = true;
+
           setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+          try {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          } catch (_) {}
         }
       },
       async (secEvent) => {
         if (!secEvent) return;
 
-        // 0. Partner typing status in realtime
+        // Typing event
         if (secEvent.event === 'typing_status') {
           if (secEvent.sender?.toLowerCase() !== myHandle?.toLowerCase()) {
             setIsPartnerTyping(!!secEvent.isTyping);
             if (secEvent.isTyping) {
               if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-              typingTimeoutRef.current = setTimeout(() => {
-                setIsPartnerTyping(false);
-              }, 4000);
+              typingTimeoutRef.current = setTimeout(() => setIsPartnerTyping(false), 4000);
             }
           }
           return;
         }
 
-        // 0b. Partner deleted messages in realtime
-        if (secEvent.event === 'delete_messages' && secEvent.payload?.messageIds) {
-          const ids = secEvent.payload.messageIds;
-          await deleteMessagesBatch(ids);
-          setMessages((prev) => prev.filter((m) => !ids.includes(m.id)));
-          return;
+        // Screenshot events
+        if (secEvent.event === 'screenshot_request' && secEvent.requesterHandle !== myHandle) {
+          Alert.alert(
+            'Screenshot Request 🛡️',
+            `@${secEvent.requesterHandle} requested permission to take a screenshot. Allow for 60 seconds?`,
+            [
+              {
+                text: 'Deny',
+                style: 'cancel',
+                onPress: () => respondScreenshotPermission(conversationId, myHandle, false),
+              },
+              {
+                text: 'Allow',
+                onPress: () => respondScreenshotPermission(conversationId, myHandle, true, 60),
+              },
+            ]
+          );
         }
 
-        // 0c. Partner viewed messages in realtime -> update my sent messages to pink 2 ticks
-        if (secEvent.event === 'messages_seen') {
-          if (secEvent.viewerHandle?.toLowerCase() !== myHandle?.toLowerCase()) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.sender?.toLowerCase() === myHandle?.toLowerCase()
-                  ? { ...m, read: 1, delivered: 1 }
-                  : m
-              )
-            );
-            await markSentMessagesRead(conversationId, myHandle);
-          }
-          return;
-        }
-
-        // 0d. Partner received messages in realtime -> update my sent messages to grey 2 ticks
-        if (secEvent.event === 'messages_delivered') {
-          if (secEvent.receiverHandle?.toLowerCase() !== myHandle?.toLowerCase()) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.sender?.toLowerCase() === myHandle?.toLowerCase() && !m.read
-                  ? { ...m, delivered: 1 }
-                  : m
-              )
-            );
-            await markSentMessagesDelivered(conversationId, myHandle);
-          }
-          return;
-        }
-
-        // 1. Partner requests screenshot permission
-        if (secEvent.event === 'screenshot_request') {
-          if (secEvent.requesterHandle?.toLowerCase() !== myHandle?.toLowerCase()) {
-            setIncomingScreenshotRequest({
-              requesterHandle: secEvent.requesterHandle,
-              requesterNickname: secEvent.requesterNickname || secEvent.requesterHandle,
-            });
-            notifyScreenshotRequest({
-              requesterNickname: secEvent.requesterNickname,
-              requesterHandle: secEvent.requesterHandle,
-              conversationId,
-            });
-            try {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            } catch (_) {}
-          }
-        }
-
-        // 2. Partner responds to our screenshot request
-        if (secEvent.event === 'screenshot_response') {
-          if (secEvent.responderHandle?.toLowerCase() !== myHandle?.toLowerCase()) {
-            setRequestPending(false);
-            if (secEvent.approved) {
-              const duration = secEvent.durationSeconds || 60;
-              setCountdownSeconds(duration);
-              setScreenshotAllowed(true);
-              ScreenCapture.allowScreenCaptureAsync().catch((err) => {
-                console.warn('Allow screenshot error:', err);
-              });
-              try {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              } catch (_) {}
-            } else {
-              setScreenshotAllowed(false);
-              ScreenCapture.preventScreenCaptureAsync().catch(() => {});
-              try {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-              } catch (_) {}
-            }
-          }
-        }
-
-        // 3. Notification that a screenshot was taken
-        if (secEvent.event === 'screenshot_taken') {
-          if (secEvent.actorHandle?.toLowerCase() !== myHandle?.toLowerCase()) {
-            notifySecurityAlert({
-              actorHandle: secEvent.actorHandle,
-              message: `@${secEvent.actorHandle} took a screenshot in this chat.`,
-            });
-            Alert.alert('Security Alert', `@${secEvent.actorHandle} took a screenshot in this chat.`);
+        if (secEvent.event === 'screenshot_response' && secEvent.responderHandle !== myHandle) {
+          setRequestPending(false);
+          if (secEvent.approved) {
+            setScreenshotAllowed(true);
+            ScreenCapture.allowScreenCaptureAsync().catch(() => {});
+          } else {
+            setScreenshotAllowed(false);
+            ScreenCapture.preventScreenCaptureAsync().catch(() => {});
           }
         }
       }
     );
 
-    // 2. Realtime presence tracking for partner's online/last seen status across the entire app
+    // 2. Subscribe to partner global online presence
     const unsubscribePresence = subscribeToGlobalPresence(
       myHandle,
       contactHandle,
@@ -606,12 +370,17 @@ export default function ChatScreen({ route, navigation }) {
       useBadgeStore.getState().refreshBadges(myHandle);
       if (unsubscribeMessages) unsubscribeMessages();
       if (unsubscribePresence) unsubscribePresence();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (myTypingTimerRef.current) clearTimeout(myTypingTimerRef.current);
+      if (isTypingRef.current) {
+        broadcastTypingStatus(conversationId, myHandle, false);
+      }
     };
   }, [conversationId, contactHandle, loadMessages, myHandle]);
 
-  // Sync queued messages and broadcast seen/delivered status when chat is active or resumed
+  // Sync queued pending messages on resume
   useEffect(() => {
-    const syncChat = async () => {
+    const sync = async () => {
       try {
         const queued = await fetchAndClearPendingMessages(myHandle);
         if (queued && queued.length > 0) {
@@ -635,98 +404,18 @@ export default function ChatScreen({ route, navigation }) {
         }
         markMessagesDeliveredInSupabase(conversationId, myHandle, contactHandle);
         markMessagesSeenInSupabase(conversationId, myHandle, contactHandle);
-      } catch (err) {
-        console.log('ChatScreen sync error:', err);
-      }
+      } catch (_) {}
     };
+    sync();
+  }, [conversationId, contactHandle, loadMessages, myHandle]);
 
-    syncChat();
-
-    const sub = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') {
-        syncChat();
-      }
-    });
-
-    return () => sub.remove();
-  }, [conversationId, myHandle, contactHandle, loadMessages]);
-
-  const toggleSelectMessage = (id) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch (_) {}
-    setSelectedMessageIds((prev) => {
-      if (prev.includes(id)) {
-        return prev.filter((mId) => mId !== id);
-      }
-      return [...prev, id];
-    });
-  };
-
-  const deleteSelectedMessages = async () => {
-    if (selectedMessageIds.length === 0) return;
-    Alert.alert(
-      'Delete Messages',
-      `Delete ${selectedMessageIds.length} message(s)?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            const idsToDelete = [...selectedMessageIds];
-            setSelectedMessageIds([]);
-            await deleteMessagesBatch(idsToDelete);
-            broadcastMessageDelete(conversationId, idsToDelete);
-            setMessages((prev) => prev.filter((m) => !idsToDelete.includes(m.id)));
-          },
-        },
-      ]
-    );
-  };
-
-  const handleShieldPress = () => {
-    if (screenshotAllowed) {
-      Alert.alert(
-        'Screenshot Unlocked',
-        `Screenshot capture is currently UNLOCKED with lover's permission (${countdownSeconds}s remaining).\n\nWhen the timer reaches 0, screenshots and screen recordings will automatically be banned again.`,
-        [{ text: 'OK' }]
-      );
-    } else if (requestPending) {
-      Alert.alert(
-        'Pending Confirmation',
-        `Waiting for @${contactNickname || contactHandle} to confirm your screenshot permission request.`,
-        [
-          { text: 'Wait' },
-          { text: 'Cancel Request', style: 'destructive', onPress: () => setRequestPending(false) },
-        ]
-      );
-    } else {
-      Alert.alert(
-        'Screenshot Protection Active',
-        `Screenshots and screen recordings are strictly banned in this private chat.\n\nTo capture a screenshot, a confirmation request must be sent to @${contactNickname || contactHandle}.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Request Permission',
-            onPress: async () => {
-              setRequestPending(true);
-              await requestScreenshotPermission(conversationId, myHandle, myNickname);
-              Alert.alert(
-                'Request Sent',
-                `A confirmation message was sent to @${contactNickname || contactHandle}. Screenshot will unlock only if they approve.`
-              );
-            },
-          },
-        ]
-      );
-    }
-  };
-
-  const handleInputChange = (text) => {
+  // Handle typing status
+  const handleTyping = (text) => {
     setInputText(text);
+    const hasText = text.trim().length > 0;
+    setIsTyping(hasText);
 
-    if (text.length > 0) {
+    if (hasText) {
       if (!isTypingRef.current) {
         isTypingRef.current = true;
         broadcastTypingStatus(conversationId, myHandle, true);
@@ -735,20 +424,19 @@ export default function ChatScreen({ route, navigation }) {
       myTypingTimerRef.current = setTimeout(() => {
         isTypingRef.current = false;
         broadcastTypingStatus(conversationId, myHandle, false);
-      }, 2500);
-    } else {
-      if (myTypingTimerRef.current) clearTimeout(myTypingTimerRef.current);
-      if (isTypingRef.current) {
-        isTypingRef.current = false;
-        broadcastTypingStatus(conversationId, myHandle, false);
-      }
+      }, 3000);
+    } else if (isTypingRef.current) {
+      isTypingRef.current = false;
+      broadcastTypingStatus(conversationId, myHandle, false);
     }
   };
 
-  const sendMessage = async () => {
+  // Send message
+  const handleSend = async () => {
     const text = inputText.trim();
     if (!text) return;
     setInputText('');
+    setIsTyping(false);
 
     if (myTypingTimerRef.current) clearTimeout(myTypingTimerRef.current);
     if (isTypingRef.current) {
@@ -766,7 +454,6 @@ export default function ChatScreen({ route, navigation }) {
       `${myHandle}-${now}-${Math.random()}`
     );
 
-    // Clean JSON or structured format for reply (no extra emojis added)
     let replyPayload = null;
     if (replying) {
       replyPayload = {
@@ -789,13 +476,13 @@ export default function ChatScreen({ route, navigation }) {
       read: 0,
     };
 
+    setMyLastMessage(text);
     try {
+      await ensureConversationExists(conversationId, contactHandle, contactNickname, contactAvatarId);
       await insertMessage(msg);
       await updateConversationLastMessage(conversationId, text, now, myHandle, 'sent');
       setMessages((prev) => [...prev, msg]);
-      setHighlightedMessageId(null);
-      shouldScrollToEndRef.current = true;
-      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
 
       sendMessageToSupabase({
         id,
@@ -808,75 +495,67 @@ export default function ChatScreen({ route, navigation }) {
         expiresAt,
         replyTo: replyPayload ? JSON.stringify(replyPayload) : null,
       });
+
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (_) {}
     } catch (e) {
-      console.error('Failed to send message:', e);
-      Alert.alert('Error', `Failed to send message: ${e?.message || e}`);
+      console.warn('Failed to send message:', e);
+      Alert.alert('Error', `Failed to send: ${e?.message || e}`);
     }
   };
 
-  const pickAndSendImage = async () => {
+  // Send photo
+  const handlePickPhoto = async () => {
     try {
-      // Request storage permission + initialize hidden vault on first photo access
       const permitted = await requestStoragePermissionAndInit();
       if (!permitted) {
-        Alert.alert(
-          'Storage Permission Required',
-          'SecureBox needs device storage access to securely encrypt and save photos.\n\nAll media is stored privately in the SecureBox encrypted vault — never visible to your device gallery.',
-          [{ text: 'OK' }]
-        );
-        return;
+        return Alert.alert('Storage Access Needed', 'Allow storage access to encrypt and save private photos.');
       }
-
-      // Also request gallery picker permission
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Gallery Access Needed', 'Allow SecureBox to access your gallery to send photos.');
-        return;
+        return Alert.alert('Gallery Access Needed', 'Allow gallery access to select photos.');
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
         quality: 0.5,
+        base64: true,
       });
 
-      if (!result.canceled && result.assets && result.assets[0]?.uri) {
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const asset = result.assets[0];
         const now = Date.now();
-        const expiresAt = defaultExpiry ? now + defaultExpiry * 1000 : null;
         const id = await Crypto.digestStringAsync(
           Crypto.CryptoDigestAlgorithm.SHA256,
-          `${myHandle}-${now}-img-${Math.random()}`
+          `${myHandle}-${now}-${Math.random()}`
         );
 
-        const asset = result.assets[0];
-        // Save into hidden, encrypted app sandbox vault (.nomedia) with auto-resizing
-        const { vaultUri, base64DataUri } = await saveOutgoingImageToVault(
-          asset.uri,
-          asset.width,
-          asset.height
-        );
+        let vaultUri = null;
+        if (asset.uri) {
+          vaultUri = await saveOutgoingImageToVault(id, asset.uri);
+        }
 
+        const base64DataUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : vaultUri;
         const msg = {
           id,
           conversationId,
           sender: myHandle,
           type: 'image',
           body: 'Photo',
-          mediaUri: vaultUri,
+          mediaUri: vaultUri || asset.uri,
           sentAt: now,
-          expiresAt,
+          read: 1,
           delivered: 0,
-          read: 0,
         };
 
+        setMyLastMessage('📷 Photo');
+        await ensureConversationExists(conversationId, contactHandle, contactNickname, contactAvatarId);
         await insertMessage(msg);
         await updateConversationLastMessage(conversationId, 'Photo', now, myHandle, 'sent');
         setMessages((prev) => [...prev, msg]);
-        setHighlightedMessageId(null);
-        shouldScrollToEndRef.current = true;
-        setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+        setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
 
-        // Send base64 image data to Supabase so receiver can download & save to their own vault
         sendMessageToSupabase({
           id,
           conversationId,
@@ -885,641 +564,532 @@ export default function ChatScreen({ route, navigation }) {
           body: 'Photo',
           mediaUri: base64DataUri,
           sentAt: now,
-          expiresAt,
         });
       }
-    } catch (e) {
-      console.error('Failed to send image:', e);
-      Alert.alert('Error', `Failed to send photo: ${e?.message || e}`);
+    } catch (err) {
+      console.warn('Send image error:', err);
     }
   };
 
-  const scrollToMessageById = (replyToId) => {
-    if (!replyToId || !messages || messages.length === 0) return;
-    const idx = messages.findIndex((m) => m.id === replyToId);
-    if (idx !== -1) {
-      // Highlight message until user starts scrolling (keeps highlight as requested)
-      setHighlightedMessageId(replyToId);
-      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-
-      try {
-        flatRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 });
-      } catch (_) {
-        // Fallback if scrollToIndex fails
-        flatRef.current?.scrollToOffset({ offset: idx * 80, animated: true });
-      }
-    }
-  };
-
-  const renderMessage = ({ item, index }) => {
+  // Render individual chat bubble
+  const renderMessageItem = ({ item }) => {
     const isMe = item.sender === myHandle;
     const mediaUri = item.media_uri || item.mediaUri;
-
-    // Do NOT render empty messages where both body and media are deleted (prevents floating timestamp bug)
-    if (!item.body && !mediaUri) {
-      return null;
-    }
-
     const timeStr = new Date(item.sent_at || item.sentAt).toLocaleTimeString([], {
-      hour: '2-digit', minute: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
     });
-    const hasExpiry = item.expires_at || item.expiresAt;
-    const isSelected = selectedMessageIds.includes(item.id);
-    const isHighlighted = highlightedMessageId === item.id;
 
-    // Parse reply metadata if present
     let replyData = null;
     if (item.replyTo || item.reply_to) {
       try {
         replyData = JSON.parse(item.replyTo || item.reply_to);
       } catch (_) {}
     }
-    const hasReply = !!replyData;
+
+    const hasValidPhoto =
+      mediaUri &&
+      (mediaUri.startsWith('file:') || mediaUri.startsWith('data:') || mediaUri.startsWith('http'));
+
+    const isShortText =
+      !hasValidPhoto &&
+      !replyData &&
+      item.body &&
+      item.body.length < 32 &&
+      !item.body.includes('\n');
 
     return (
       <SwipeableMessageRow
         item={item}
         isMe={isMe}
         inSelectionMode={inSelectionMode}
-        isSelected={isSelected}
-        onToggleSelect={toggleSelectMessage}
         onSwipeReply={setReplyingTo}
       >
-        <View style={[
-          styles.bubble,
-          isMe ? styles.bubbleMe : styles.bubbleThem,
-          hasReply && styles.bubbleWithReply,
-          isHighlighted && styles.bubbleHighlighted,
-        ]}>
-          {isMe ? (
-            <BubbleTailOutgoing color={Colors.bubble.sentPink} />
-          ) : (
-            <BubbleTailIncoming color={Colors.bubble.received} />
-          )}
-
-          {/* WhatsApp-Style Quoted Reply Box inside bubble — tap scrolls to original */}
-          {replyData && (
-            <TouchableOpacity
-              activeOpacity={0.75}
-              onPress={() => scrollToMessageById(replyData.replyToId)}
-              style={[styles.quotedBox, isMe ? styles.quotedBoxMe : styles.quotedBoxThem]}
-            >
-              <View style={[styles.quotedBar, isMe ? styles.quotedBarMe : styles.quotedBarThem]} />
-              <View style={styles.quotedContent}>
-                <Text style={styles.quotedAuthor}>{replyData.replyAuthor}</Text>
-                <Text style={styles.quotedText} numberOfLines={2}>
-                  {replyData.replySnippet}
-                </Text>
+        <View
+          style={[
+            styles.bubbleWrap,
+            isMe ? styles.bubbleWrapMe : styles.bubbleWrapThem,
+          ]}
+        >
+          <View
+            style={[
+              styles.bubble,
+              isMe ? styles.bubbleMe : styles.bubbleThem,
+              replyData && styles.bubbleWithReply,
+            ]}
+          >
+            {/* Quoted Reply Snippet */}
+            {replyData && (
+              <View style={[styles.replySnippetBox, isMe ? styles.replyBoxMe : styles.replyBoxThem]}>
+                <View style={[styles.replyBar, isMe ? styles.replyBarMe : styles.replyBarThem]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.replyAuthor}>{replyData.replyAuthor}</Text>
+                  <Text style={styles.replyText} numberOfLines={1}>{replyData.replySnippet}</Text>
+                </View>
               </View>
-            </TouchableOpacity>
-          )}
+            )}
 
-          {mediaUri && (
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={() => {
-                if (inSelectionMode) {
-                  toggleSelectMessage(item.id);
-                } else {
-                  setViewingPhotoUri(mediaUri);
-                }
-              }}
-            >
-              <Image source={{ uri: mediaUri }} style={styles.messageImage} resizeMode="cover" />
-            </TouchableOpacity>
-          )}
+            {/* Media Image */}
+            {hasValidPhoto && (
+              <TouchableOpacity activeOpacity={0.9} onPress={() => setViewingPhotoUri(mediaUri)}>
+                <Image source={{ uri: mediaUri }} style={styles.messagePhoto} resizeMode="cover" />
+              </TouchableOpacity>
+            )}
 
-          {/* WhatsApp-Style Inline Timestamp for Short Single-Line Messages */}
-          {!mediaUri && !hasReply && item.body && item.body.length < 32 && !item.body.includes('\n') ? (
-            <View style={styles.shortMsgRow}>
-              <Text style={styles.msgText}>{item.body}</Text>
-              <View style={[styles.msgMeta, styles.msgMetaInline]}>
-                {hasExpiry && <ClockIcon size={11} color="#8a8187" />}
-                <Text style={styles.msgTime}>{timeStr}</Text>
-                {isMe && (
-                  <View style={styles.tickRow}>
-                    {item.read === 1 || item.read === true ? (
-                      <DoubleCheckIcon size={14} color="#e0527a" />
-                    ) : item.delivered === 1 || item.delivered === true ? (
-                      <DoubleCheckIcon size={14} color="#8a8187" />
+            {/* Inline Short Text */}
+            {isShortText ? (
+              <View style={styles.inlineShortRow}>
+                <Text style={[styles.bodyText, { color: PALETTE.text }]}>{item.body}</Text>
+                <View style={styles.metaRowInline}>
+                  {item.expires_at ? <Clock size={10} color={PALETTE.textMuted} /> : null}
+                  <Text style={styles.timeText}>{timeStr}</Text>
+                  {isMe && (
+                    item.read === 1 ? (
+                      <CheckCheck size={13} color={PALETTE.brand} />
+                    ) : item.delivered === 1 ? (
+                      <CheckCheck size={13} color={PALETTE.textMuted} />
                     ) : (
-                      <CheckIcon size={14} color="#8a8187" />
-                    )}
-                  </View>
-                )}
+                      <Check size={13} color={PALETTE.textMuted} />
+                    )
+                  )}
+                </View>
               </View>
-            </View>
-          ) : (
-            <>
-              {item.body && (!mediaUri || item.body !== 'Photo') && (
-                <Text style={[styles.msgText, hasReply && styles.msgTextWithReply]}>{item.body}</Text>
-              )}
-
-              <View style={styles.msgMeta}>
-                {hasExpiry && <ClockIcon size={11} color="#8a8187" />}
-                <Text style={styles.msgTime}>{timeStr}</Text>
-                {isMe && (
-                  <View style={styles.tickRow}>
-                    {item.read === 1 || item.read === true ? (
-                      <DoubleCheckIcon size={14} color="#e0527a" />
-                    ) : item.delivered === 1 || item.delivered === true ? (
-                      <DoubleCheckIcon size={14} color="#8a8187" />
+            ) : (
+              <>
+                {item.body && (!hasValidPhoto || item.body !== 'Photo') && (
+                  <Text style={[styles.bodyText, { color: PALETTE.text }]}>{item.body}</Text>
+                )}
+                <View style={styles.metaRow}>
+                  {item.expires_at ? <Clock size={10} color={PALETTE.textMuted} /> : null}
+                  <Text style={styles.timeText}>{timeStr}</Text>
+                  {isMe && (
+                    item.read === 1 ? (
+                      <CheckCheck size={13} color={PALETTE.brand} />
+                    ) : item.delivered === 1 ? (
+                      <CheckCheck size={13} color={PALETTE.textMuted} />
                     ) : (
-                      <CheckIcon size={14} color="#8a8187" />
-                    )}
-                  </View>
-                )}
-              </View>
-            </>
-          )}
+                      <Check size={13} color={PALETTE.textMuted} />
+                    )
+                  )}
+                </View>
+              </>
+            )}
+          </View>
         </View>
       </SwipeableMessageRow>
     );
   };
 
-  // Status subtitle: Online or Last seen
-  let onlineSubtitle = 'offline';
-  if (isPartnerOnline) {
-    onlineSubtitle = 'online';
-  } else if (partnerLastSeen) {
-    onlineSubtitle = `last seen ${new Date(partnerLastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  }
-
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.bg.primary} />
+    <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={PALETTE.bg} />
 
-      {/* Header */}
-      {inSelectionMode ? (
-        <View style={[styles.header, styles.selectionHeader]}>
-          <TouchableOpacity onPress={() => setSelectedMessageIds([])} style={styles.headerBtn}>
-            <Text style={styles.selectionCancelText}>✕</Text>
-          </TouchableOpacity>
-          <Text style={styles.selectionCountText}>{selectedMessageIds.length} Selected</Text>
-          <TouchableOpacity onPress={deleteSelectedMessages} style={styles.deleteHeaderBtn}>
-            <TrashIcon size={18} color="#fff" />
-            <Text style={styles.deleteHeaderText}>Delete</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <BackArrowIcon size={24} color={Colors.text.primary} />
-          </TouchableOpacity>
+      {/* Claude Minimalist Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
+          <ChevronLeft size={24} color={PALETTE.text} />
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.headerCenter}
-            onPress={() => setShowHeaderMenu(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.avatarWrap}>
-              <View style={styles.avatarCircle}>
-                {contactAvatarId && (contactAvatarId.startsWith('data:') || contactAvatarId.startsWith('file:') || contactAvatarId.startsWith('http')) ? (
-                  <Image source={{ uri: contactAvatarId }} style={styles.headerAvatarPhoto} />
-                ) : (
-                  <UserAvatarIcon size={22} color={Colors.accent.primary} />
-                )}
-              </View>
-              {isPartnerOnline && <View style={styles.onlineDot} />}
+        {/* Center: Contact Info */}
+        <TouchableOpacity style={styles.headerTitleBox} onPress={() => setShowHeaderMenu(true)}>
+          <View style={styles.headerAvatarWrap}>
+            <View style={styles.headerAvatarCircle}>
+              <Text style={styles.headerAvatarLetter}>
+                {(contactNickname || contactHandle || 'F').charAt(0).toUpperCase()}
+              </Text>
             </View>
-            <View style={styles.headerInfo}>
-              <Text style={styles.headerName} numberOfLines={1}>{contactNickname || 'Lover'}</Text>
-              <View style={styles.headerSubRow}>
-                <Text style={styles.headerHandle}>@{contactHandle ? contactHandle.replace('@', '') : ''}</Text>
-                <Text style={styles.headerDot}>•</Text>
-                <Text style={[styles.headerStatus, isPartnerOnline && styles.headerStatusOnline]}>
-                  {onlineSubtitle}
-                </Text>
-              </View>
+            {isPartnerOnline && <View style={styles.onlineDot} />}
+          </View>
+
+          <View style={{ flex: 1, marginLeft: 8 }}>
+            <Text style={styles.headerName} numberOfLines={1}>
+              {contactNickname || contactHandle || 'Friend'}
+            </Text>
+            <View style={styles.headerSubRow}>
+              <Lock size={10} color={PALETTE.textMuted} />
+              <Text style={styles.headerSubText}>
+                {isPartnerOnline ? 'online now' : partnerLastSeen ? 'recently active' : 'end-to-end encrypted'}
+              </Text>
             </View>
-          </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
 
-          {/* Switch to Claude Animal Scene Button */}
-          <TouchableOpacity
-            style={styles.actionIconBtn}
-            onPress={() =>
-              navigation.replace('ClaudeChat', {
-                conversationId,
-                contactHandle,
-                contactNickname,
-                contactAvatarId,
-              })
+        {/* Action Buttons */}
+        <TouchableOpacity
+          style={styles.headerActionBtn}
+          onPress={() => navigation.navigate('Call', {
+            contactHandle,
+            contactNickname,
+            contactAvatarId,
+            callType: 'voice',
+          })}
+        >
+          <Phone size={19} color={PALETTE.text} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.headerActionBtn}
+          onPress={() => navigation.navigate('Call', {
+            contactHandle,
+            contactNickname,
+            contactAvatarId,
+            callType: 'video',
+          })}
+        >
+          <Video size={20} color={PALETTE.text} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.headerActionBtn}
+          onPress={() => {
+            if (screenshotAllowed) {
+              Alert.alert('Screenshot Shield', 'Screenshot is currently allowed for this chat.');
+            } else {
+              setRequestPending(true);
+              requestScreenshotPermission(conversationId, myHandle);
+              Alert.alert('Shield Request Sent', 'Requested partner permission for 60-second screenshot access.');
             }
-          >
-            <Text style={{ fontSize: 18 }}>🐼</Text>
-          </TouchableOpacity>
+          }}
+        >
+          {screenshotAllowed ? (
+            <ShieldCheck size={19} color="#2F7D4F" />
+          ) : (
+            <Shield size={19} color={PALETTE.text} />
+          )}
+        </TouchableOpacity>
 
-          {/* Real Phone Call Icon */}
-          <TouchableOpacity
-            style={styles.actionIconBtn}
-            onPress={() =>
-              navigation.navigate('Call', {
-                contactHandle,
-                contactNickname,
-                contactAvatarId,
-                callType: 'voice',
-              })
-            }
-          >
-            <PhoneIcon size={22} color={Colors.text.primary} />
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.headerActionBtn} onPress={() => setShowHeaderMenu(true)}>
+          <MoreVertical size={19} color={PALETTE.text} />
+        </TouchableOpacity>
+      </View>
 
-          {/* Real Video Call Icon */}
-          <TouchableOpacity
-            style={styles.actionIconBtn}
-            onPress={() =>
-              navigation.navigate('Call', {
-                contactHandle,
-                contactNickname,
-                contactAvatarId,
-                callType: 'video',
-              })
-            }
-          >
-            <VideoIcon size={22} color={Colors.text.primary} />
-          </TouchableOpacity>
-
-          {/* Screenshot Shield Permission Button */}
-          <TouchableOpacity
-            style={[
-              styles.actionIconBtn,
-              screenshotAllowed && styles.actionIconBtnAllowed,
-              requestPending && !screenshotAllowed && styles.actionIconBtnPending,
-            ]}
-            onPress={handleShieldPress}
-          >
-            <ShieldLockIcon
-              size={20}
-              color={screenshotAllowed ? '#28a745' : requestPending ? '#e69500' : Colors.text.primary}
-            />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Screenshot Permission Banners */}
-      {screenshotAllowed && (
-        <View style={styles.secBannerAllowed}>
-          <ShieldLockIcon size={14} color="#155724" />
-          <Text style={styles.secBannerAllowedText}>
-            Screenshot Allowed · {countdownSeconds}s remaining
-          </Text>
-        </View>
-      )}
-      {requestPending && !screenshotAllowed && (
-        <View style={styles.secBannerPending}>
-          <Text style={styles.secBannerPendingText}>
-            ⏳ Waiting for lover to confirm screenshot request...
-          </Text>
-        </View>
-      )}
-
-      {/* Messages & Chat Input Area */}
       <KeyboardAvoidingView
         style={styles.chatArea}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 56 : 0}
       >
+        {/* Message Stream */}
         <FlatList
           ref={flatRef}
           data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item, index }) => renderMessage({ item, index })}
-          style={styles.messagesContainer}
-          contentContainerStyle={styles.msgList}
+          keyExtractor={(m) => m.id}
+          renderItem={renderMessageItem}
+          contentContainerStyle={styles.messageListContent}
+          onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: true })}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          onScrollBeginDrag={() => setHighlightedMessageId(null)}
-          onContentSizeChange={() => {
-            if (shouldScrollToEndRef.current) {
-              shouldScrollToEndRef.current = false;
-              flatRef.current?.scrollToEnd({ animated: true });
-            }
-          }}
-          onScrollToIndexFailed={(info) => {
-            // Fallback: scroll to offset estimate if exact index isn't yet laid out
-            const wait = new Promise((resolve) => setTimeout(resolve, 350));
-            wait.then(() => {
-              flatRef.current?.scrollToIndex({ index: info.index, animated: true });
-            });
-          }}
         />
 
-        {/* WhatsApp / Instagram Style Reply Banner */}
-        {replyingTo && (
-          <View style={styles.replyBar}>
-            <View style={styles.replyBarColor} />
-            <View style={styles.replyContent}>
-              <Text style={styles.replyAuthor}>
-                {replyingTo.sender === myHandle ? 'You' : contactNickname}
+        {/* 🎭 The Interactive Animal Stage (Sitting right above composer) */}
+        {isAnimalStageExpanded ? (
+          <View style={styles.animalStageContainer}>
+            {/* Minimize handle */}
+            <TouchableOpacity
+              onPress={() => setIsAnimalStageExpanded(false)}
+              style={styles.stageToggleHandle}
+            >
+              <Text style={styles.stageToggleText}>
+                {myCharacter === 'panda' ? '🐼' : myCharacter === 'cat' ? '🐱' : '🐶'}
+                {'  Tap to minimize companions  '}
+                {friendCharacter === 'panda' ? '🐼' : friendCharacter === 'cat' ? '🐱' : '🐶'}
               </Text>
-              <Text style={styles.replySnippet} numberOfLines={1}>
+            </TouchableOpacity>
+
+            <View style={styles.animalColumnsRow}>
+              {/* Left Column: My Character */}
+              <View style={styles.animalColumn}>
+                <SpeechBubble
+                  text={myLastMessage || 'Ready to chat 🌿'}
+                  typing={isTyping}
+                />
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setPickingFor('me');
+                    setShowCharacterModal(true);
+                  }}
+                  style={styles.characterAvatarWrap}
+                >
+                  <CharacterAvatar
+                    character={myCharacter}
+                    state={myAnimalState}
+                    size={95}
+                    tilt={4}
+                  />
+                </TouchableOpacity>
+                <Text style={styles.animalNameLabel}>You ({myCharacter})</Text>
+              </View>
+
+              {/* Right Column: Friend Character */}
+              <View style={styles.animalColumn}>
+                <SpeechBubble
+                  text={friendLastMessage || 'Waiting... ✨'}
+                  typing={isPartnerTyping}
+                />
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setPickingFor('friend');
+                    setShowCharacterModal(true);
+                  }}
+                  style={styles.characterAvatarWrap}
+                >
+                  <CharacterAvatar
+                    character={friendCharacter}
+                    state={friendAnimalState}
+                    size={95}
+                    tilt={-4}
+                  />
+                </TouchableOpacity>
+                <Text style={styles.animalNameLabel}>
+                  {contactNickname || contactHandle || 'Friend'} ({friendCharacter})
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={() => setIsAnimalStageExpanded(true)}
+            style={styles.collapsedStageBar}
+          >
+            <Text style={styles.collapsedStageText}>
+              🐼 Expand Animated Stage 🐱
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Quoted Reply Preview Bar */}
+        {replyingTo && (
+          <View style={styles.replyPreviewBar}>
+            <CornerDownRight size={16} color={PALETTE.brand} />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={styles.replyPreviewAuthor}>
+                Replying to {replyingTo.sender === myHandle ? 'yourself' : contactNickname}
+              </Text>
+              <Text style={styles.replyPreviewSnippet} numberOfLines={1}>
                 {replyingTo.body || 'Photo'}
               </Text>
             </View>
-            <TouchableOpacity onPress={() => setReplyingTo(null)} style={styles.replyCloseBtn}>
-              <Text style={styles.replyCloseText}>✕</Text>
+            <TouchableOpacity onPress={() => setReplyingTo(null)} style={{ padding: 4 }}>
+              <X size={16} color={PALETTE.textMuted} />
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Shuffling Keyboard Typing Indicator Box */}
-        {isPartnerTyping && <ShufflingKeyboardTyping partnerNickname={contactNickname} />}
+        {/* 🎨 Claude Pill Composer */}
+        <View style={styles.composerWrapper}>
+          <View style={styles.composerBox}>
+            <TextInput
+              style={styles.composerInput}
+              value={inputText}
+              onChangeText={handleTyping}
+              placeholder="Say something sweet..."
+              placeholderTextColor={PALETTE.textMuted}
+              multiline
+              maxLength={2000}
+            />
+            <View style={styles.composerControlsRow}>
+              {/* Photo attachment button */}
+              <TouchableOpacity
+                onPress={handlePickPhoto}
+                style={styles.composerAddBtn}
+                activeOpacity={0.7}
+              >
+                <Plus size={18} color={PALETTE.textSecondary} />
+              </TouchableOpacity>
 
-        {/* WhatsApp-Style Input Bar */}
-        <View style={[styles.inputBar, { paddingBottom: isKeyboardVisible ? 8 : Math.max(insets.bottom, 8) }]}>
-          {/* Gallery Button with Real Icon */}
-          <TouchableOpacity
-            style={styles.attachBtn}
-            onPress={pickAndSendImage}
-            activeOpacity={0.7}
-          >
-            <GalleryIcon size={22} color={Colors.icon} />
-          </TouchableOpacity>
-
-          <TextInput
-            style={styles.textInput}
-            placeholder={replyingTo ? "Type a reply..." : "Type a message..."}
-            placeholderTextColor={Colors.text.placeholder}
-            value={inputText}
-            onChangeText={handleInputChange}
-            multiline
-            maxLength={2000}
-          />
-
-          {/* Send Button with Real Icon */}
-          <TouchableOpacity
-            style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
-            onPress={sendMessage}
-            disabled={!inputText.trim()}
-            activeOpacity={0.8}
-          >
-            <SendIcon size={18} color="#fff" />
-          </TouchableOpacity>
+              {/* Terracotta Clay circular send button */}
+              <TouchableOpacity
+                onPress={handleSend}
+                disabled={!inputText.trim()}
+                style={[
+                  styles.composerSendBtn,
+                  inputText.trim() ? styles.composerSendActive : styles.composerSendDisabled,
+                ]}
+                activeOpacity={0.8}
+              >
+                <ArrowUp size={18} color={inputText.trim() ? PALETTE.onBrand : PALETTE.textMuted} strokeWidth={2.2} />
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </KeyboardAvoidingView>
 
-      {/* Real-time Confirmation Modal for Partner's Screenshot Request */}
-      <Modal visible={!!incomingScreenshotRequest} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.confirmBox}>
-            <View style={styles.confirmIconCircle}>
-              <ShieldLockIcon size={32} color={Colors.accent.primary} />
-            </View>
-            <Text style={styles.confirmHeading}>Screenshot Request</Text>
-            <Text style={styles.confirmText}>
-              <Text style={{ fontWeight: '700' }}>
-                @{incomingScreenshotRequest?.requesterNickname || incomingScreenshotRequest?.requesterHandle}
-              </Text>{' '}
-              wants to take a screenshot in this private chat.
+      {/* Character Selector Modal */}
+      <Modal
+        visible={showCharacterModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCharacterModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowCharacterModal(false)}
+        >
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              Choose {pickingFor === 'me' ? 'Your' : `${contactNickname || 'Friend'}'s`} Persona
             </Text>
-            <Text style={styles.confirmSubtext}>
-              Screenshots and screen recordings are strictly banned by default. Do you allow it for 60 seconds?
-            </Text>
-
-            <View style={styles.confirmActionsRow}>
-              <TouchableOpacity
-                style={styles.denyButton}
-                onPress={() => {
-                  respondScreenshotPermission(conversationId, myHandle, false);
-                  setIncomingScreenshotRequest(null);
-                }}
-              >
-                <Text style={styles.denyButtonText}>Deny</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.allowButton}
-                onPress={() => {
-                  respondScreenshotPermission(conversationId, myHandle, true, 60);
-                  setIncomingScreenshotRequest(null);
-                  try {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  } catch (_) {}
-                }}
-              >
-                <Text style={styles.allowButtonText}>Allow (60s)</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Header Profile, Settings & Media Locker Modal */}
-      <Modal visible={showHeaderMenu} transparent animationType="slide" onRequestClose={() => setShowHeaderMenu(false)}>
-        <View style={styles.sheetOverlay}>
-          <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setShowHeaderMenu(false)} />
-          <View style={styles.sheetContainer}>
-            {/* Handle Drag Bar */}
-            <View style={styles.sheetHandleBar} />
-
-            {/* Profile Header Card */}
-            <View style={styles.sheetProfileCard}>
-              <View style={styles.sheetAvatarCircle}>
-                {contactAvatarId && (contactAvatarId.startsWith('data:') || contactAvatarId.startsWith('file:') || contactAvatarId.startsWith('http')) ? (
-                  <Image source={{ uri: contactAvatarId }} style={styles.sheetAvatarPhoto} />
-                ) : (
-                  <UserAvatarIcon size={38} color={Colors.accent.primary} />
-                )}
-              </View>
-              <Text style={styles.sheetName}>{contactNickname || 'Lover'}</Text>
-              <Text style={styles.sheetHandle}>@{contactHandle ? contactHandle.replace('@', '') : ''}</Text>
-              <View style={styles.sheetStatusPill}>
-                {isPartnerOnline && <View style={styles.sheetOnlineDot} />}
-                <Text style={[styles.sheetStatusText, isPartnerOnline && styles.sheetStatusOnlineText]}>
-                  {onlineSubtitle}
-                </Text>
-              </View>
-            </View>
-
-            {/* Action Items List */}
-            <View style={styles.sheetMenuSection}>
-              {/* Media Locker */}
-              <TouchableOpacity
-                style={styles.sheetMenuItem}
-                activeOpacity={0.7}
-                onPress={() => {
-                  setShowHeaderMenu(false);
-                  navigation.navigate('MediaGallery', {
-                    conversationId,
-                    contactNickname,
-                  });
-                }}
-              >
-                <View style={[styles.sheetIconWrap, { backgroundColor: '#fef1f5' }]}>
-                  <GalleryIcon size={20} color={Colors.accent.primary} />
-                </View>
-                <View style={styles.sheetMenuTexts}>
-                  <Text style={styles.sheetMenuTitle}>Media Locker</Text>
-                  <Text style={styles.sheetMenuSub}>Photos, images & shared files in this chat</Text>
-                </View>
-                <ChevronRightIcon size={18} color="#b3a9af" />
-              </TouchableOpacity>
-
-              {/* Disappearing Messages Settings */}
-              <TouchableOpacity
-                style={styles.sheetMenuItem}
-                activeOpacity={0.7}
-                onPress={() => setShowExpiryPicker(true)}
-              >
-                <View style={[styles.sheetIconWrap, { backgroundColor: '#f3eefe' }]}>
-                  <ClockIcon size={20} color="#7c4dff" />
-                </View>
-                <View style={styles.sheetMenuTexts}>
-                  <Text style={styles.sheetMenuTitle}>Disappearing Messages</Text>
-                  <Text style={styles.sheetMenuSub}>
-                    {defaultExpiry === null
-                      ? 'Off (Keep forever)'
-                      : defaultExpiry === 30
-                      ? '30 seconds'
-                      : defaultExpiry === 300
-                      ? '5 minutes'
-                      : defaultExpiry === 3600
-                      ? '1 hour'
-                      : defaultExpiry === 86400
-                      ? '24 hours'
-                      : '7 days'}
-                  </Text>
-                </View>
-                <ChevronRightIcon size={18} color="#b3a9af" />
-              </TouchableOpacity>
-
-              {/* Screenshot Protection Status */}
-              <View style={styles.sheetMenuItem}>
-                <View style={[styles.sheetIconWrap, { backgroundColor: '#eafbf3' }]}>
-                  <ShieldLockIcon size={20} color={screenshotAllowed ? '#10b981' : '#059669'} />
-                </View>
-                <View style={styles.sheetMenuTexts}>
-                  <Text style={styles.sheetMenuTitle}>Screenshot Protection</Text>
-                  <Text style={styles.sheetMenuSub}>
-                    {screenshotAllowed
-                      ? `Unlocked (${countdownSeconds}s remaining)`
-                      : 'Active (Bilateral consent required)'}
-                  </Text>
-                </View>
-                <View style={[styles.statusBadge, screenshotAllowed && styles.statusBadgeUnlocked]}>
-                  <Text style={[styles.statusBadgeText, screenshotAllowed && styles.statusBadgeUnlockedText]}>
-                    {screenshotAllowed ? 'UNLOCKED' : 'ENFORCED'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Clear Chat History */}
-              <TouchableOpacity
-                style={styles.sheetMenuItem}
-                activeOpacity={0.7}
-                onPress={() => {
-                  Alert.alert(
-                    'Clear Chat',
-                    'Are you sure you want to delete all messages in this conversation?',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Clear All',
-                        style: 'destructive',
-                        onPress: async () => {
-                          try {
-                            await clearConversationMessages(conversationId);
-                            await deleteConversationFromSupabase(conversationId);
-                            setMessages([]);
-                            setShowHeaderMenu(false);
-                          } catch (err) {
-                            console.warn('Clear chat error:', err);
-                          }
-                        },
-                      },
-                    ]
-                  );
-                }}
-              >
-                <View style={[styles.sheetIconWrap, { backgroundColor: '#fee2e2' }]}>
-                  <TrashIcon size={18} color="#ef4444" />
-                </View>
-                <View style={styles.sheetMenuTexts}>
-                  <Text style={[styles.sheetMenuTitle, { color: '#ef4444' }]}>Clear Chat History</Text>
-                  <Text style={styles.sheetMenuSub}>Erase all local messages in this conversation</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-
-            {/* Close Button */}
-            <TouchableOpacity
-              style={styles.sheetCloseBtn}
-              onPress={() => setShowHeaderMenu(false)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.sheetCloseBtnText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Disappearing Messages Expiry Selector Modal */}
-      <Modal visible={showExpiryPicker} transparent animationType="fade" onRequestClose={() => setShowExpiryPicker(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.expiryBox}>
-            <View style={styles.expiryHeaderRow}>
-              <ClockIcon size={24} color={Colors.accent.primary} />
-              <Text style={styles.expiryTitle}>Disappearing Messages</Text>
-            </View>
-            <Text style={styles.expirySubtitle}>
-              New messages sent in this chat will self-destruct after the chosen time.
+            <Text style={styles.modalSubtitle}>
+              Tap to switch animated companion on the stage
             </Text>
 
-            <View style={styles.expiryOptionsList}>
+            <View style={styles.modalCharactersRow}>
               {[
-                { label: 'Off (Keep Forever)', value: null },
-                { label: '30 seconds', value: 30 },
-                { label: '5 minutes', value: 300 },
-                { label: '1 hour', value: 3600 },
-                { label: '24 hours (1 day)', value: 86400 },
-                { label: '7 days (1 week)', value: 604800 },
-              ].map((opt) => {
-                const isSelected = defaultExpiry === opt.value;
+                { id: 'panda', name: 'Panda 🐼' },
+                { id: 'cat', name: 'Cat 🐱' },
+                { id: 'puppy', name: 'Puppy 🐶' },
+              ].map((item) => {
+                const active = (pickingFor === 'me' ? myCharacter : friendCharacter) === item.id;
                 return (
                   <TouchableOpacity
-                    key={String(opt.value)}
-                    style={[styles.expiryOptionItem, isSelected && styles.expiryOptionSelected]}
+                    key={item.id}
                     onPress={() => {
-                      setDefaultExpiry(opt.value);
-                      setShowExpiryPicker(false);
+                      if (pickingFor === 'me') {
+                        setMyCharacter(item.id);
+                      } else {
+                        setFriendCharacter(item.id);
+                      }
+                      setShowCharacterModal(false);
                       try {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       } catch (_) {}
                     }}
-                    activeOpacity={0.7}
+                    style={[
+                      styles.modalOption,
+                      active && styles.modalOptionActive,
+                    ]}
                   >
-                    <Text style={[styles.expiryOptionText, isSelected && styles.expiryOptionSelectedText]}>
-                      {opt.label}
+                    <CharacterAvatar character={item.id} state="idle" size={75} />
+                    <Text style={[styles.modalOptionText, active && { color: PALETTE.brand, fontWeight: '700' }]}>
+                      {item.name}
                     </Text>
-                    {isSelected && <CheckIcon size={16} color={Colors.accent.primary} />}
                   </TouchableOpacity>
                 );
               })}
             </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Header More Options Sheet */}
+      <Modal
+        visible={showHeaderMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowHeaderMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowHeaderMenu(false)}
+        >
+          <View style={styles.menuSheetCard}>
+            <Text style={styles.menuSheetTitle}>Chat Settings</Text>
 
             <TouchableOpacity
-              style={styles.expiryCancelBtn}
-              onPress={() => setShowExpiryPicker(false)}
+              style={styles.menuRow}
+              onPress={() => {
+                setShowHeaderMenu(false);
+                setShowExpiryPicker(true);
+              }}
             >
-              <Text style={styles.expiryCancelText}>Cancel</Text>
+              <Clock size={18} color={PALETTE.text} />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.menuRowLabel}>Disappearing Messages</Text>
+                <Text style={styles.menuRowSub}>
+                  {defaultExpiry ? `${defaultExpiry} seconds` : 'Off (Keep Forever)'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                setShowHeaderMenu(false);
+                Alert.alert(
+                  'Clear History',
+                  'Erase all local messages in this conversation?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Clear All',
+                      style: 'destructive',
+                      onPress: async () => {
+                        await clearConversationMessages(conversationId);
+                        setMessages([]);
+                        setMyLastMessage('');
+                        setFriendLastMessage('');
+                      },
+                    },
+                  ]
+                );
+              }}
+            >
+              <Trash2 size={18} color={PALETTE.danger} />
+              <Text style={[styles.menuRowLabel, { color: PALETTE.danger, marginLeft: 10 }]}>
+                Clear Chat History
+              </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Expiry Selector Modal */}
+      <Modal
+        visible={showExpiryPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowExpiryPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowExpiryPicker(false)}
+        >
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Disappearing Messages</Text>
+            <Text style={styles.modalSubtitle}>New messages will automatically purge after:</Text>
+            {[
+              { label: 'Off (Keep Forever)', value: null },
+              { label: '30 seconds', value: 30 },
+              { label: '5 minutes', value: 300 },
+              { label: '1 hour', value: 3600 },
+              { label: '24 hours', value: 86400 },
+            ].map((opt) => (
+              <TouchableOpacity
+                key={String(opt.value)}
+                style={styles.expiryItem}
+                onPress={() => {
+                  setDefaultExpiry(opt.value);
+                  setShowExpiryPicker(false);
+                }}
+              >
+                <Text style={styles.expiryItemText}>{opt.label}</Text>
+                {defaultExpiry === opt.value && <Check size={16} color={PALETTE.brand} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
       </Modal>
 
       {/* Full-Screen Photo Viewer Modal */}
-      <Modal visible={!!viewingPhotoUri} transparent animationType="fade" onRequestClose={() => setViewingPhotoUri(null)}>
-        <View style={styles.photoViewerBg}>
-          <TouchableOpacity style={styles.photoViewerClose} onPress={() => setViewingPhotoUri(null)} activeOpacity={0.8}>
-            <Text style={styles.photoViewerCloseText}>✕ Close</Text>
+      <Modal
+        visible={!!viewingPhotoUri}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewingPhotoUri(null)}
+      >
+        <View style={styles.photoViewerBackdrop}>
+          <TouchableOpacity style={styles.photoCloseBtn} onPress={() => setViewingPhotoUri(null)}>
+            <X size={26} color="#FFFFFF" />
           </TouchableOpacity>
-          {viewingPhotoUri && (
+          {viewingPhotoUri ? (
             <Image
               source={{ uri: viewingPhotoUri }}
-              style={styles.photoViewerFull}
+              style={styles.photoFullImage}
               resizeMode="contain"
             />
-          )}
+          ) : null}
         </View>
       </Modal>
     </View>
@@ -1527,788 +1097,415 @@ export default function ChatScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bg.chatBg },
-  chatArea: {
+  root: {
     flex: 1,
-    backgroundColor: Colors.bg.chatBg,
-  },
-  messagesContainer: {
-    flex: 1,
+    backgroundColor: PALETTE.bg,
   },
   header: {
+    height: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.divider,
-    backgroundColor: Colors.bg.primary,
-    gap: Spacing.sm,
-  },
-  selectionHeader: {
-    backgroundColor: Colors.accent.soft,
-    justifyContent: 'space-between',
-  },
-  headerBtn: { padding: 4 },
-  selectionCancelText: { fontSize: 20, color: Colors.text.primary, fontWeight: '700' },
-  selectionCountText: {
-    fontSize: Typography.sizes.md,
-    fontWeight: '700',
-    color: Colors.text.primary,
-    flex: 1,
-    marginLeft: 12,
-  },
-  deleteHeaderBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
     paddingHorizontal: 12,
-    backgroundColor: Colors.status.error,
-    borderRadius: Radius.full,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: PALETTE.border,
+    backgroundColor: PALETTE.bg,
   },
-  deleteHeaderText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: Typography.sizes.xs,
+  headerBtn: {
+    padding: 6,
   },
-  backBtn: { padding: Spacing.xs },
-  headerCenter: {
+  headerTitleBox: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    marginLeft: 6,
   },
-  avatarWrap: { position: 'relative' },
-  avatarCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.accent.soft,
+  headerAvatarWrap: {
+    position: 'relative',
+  },
+  headerAvatarCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: PALETTE.surfaceMuted,
+    borderWidth: 1,
+    borderColor: PALETTE.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.accent.light,
-    overflow: 'hidden',
   },
-  headerAvatarPhoto: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 20,
+  headerAvatarLetter: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: PALETTE.text,
   },
   onlineDot: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: Colors.status.online,
-    borderWidth: 2,
-    borderColor: Colors.bg.primary,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#2F7D4F',
+    borderWidth: 1.5,
+    borderColor: PALETTE.bg,
   },
-  headerInfo: { flex: 1 },
   headerName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.text.primary,
+    fontSize: 15,
+    fontWeight: '600',
+    color: PALETTE.text,
   },
   headerSubRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
     marginTop: 1,
   },
-  headerHandle: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    fontWeight: '500',
+  headerSubText: {
+    fontSize: 11,
+    color: PALETTE.textMuted,
   },
-  headerDot: {
-    fontSize: 10,
-    color: Colors.text.placeholder,
+  headerActionBtn: {
+    padding: 8,
+    marginLeft: 2,
   },
-  headerStatus: {
-    fontSize: 12,
-    color: Colors.text.placeholder,
+  chatArea: {
+    flex: 1,
   },
-  headerStatusOnline: {
-    color: Colors.status.online,
-    fontWeight: '600',
-  },
-  actionIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.bg.secondary,
+  messageListContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    gap: 8,
   },
   swipeRowWrapper: {
-    position: 'relative',
-    justifyContent: 'center',
     marginVertical: 1,
   },
-  swipeIconBackdrop: {
-    position: 'absolute',
-    top: '50%',
-    marginTop: -16,
-    zIndex: 0,
+  bubbleWrap: {
+    flexDirection: 'row',
+    width: '100%',
   },
-  swipeIconRight: {
-    right: 14,
+  bubbleWrapMe: {
+    justifyContent: 'flex-end',
   },
-  swipeIconLeft: {
-    left: 14,
-  },
-  replyIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#ffe8f0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#f5c6d6',
-  },
-  msgList: {
-    padding: Spacing.md,
-    paddingBottom: 16,
-    gap: Spacing.xs,
-  },
-  msgRow: {
-    marginVertical: 1,
-  },
-  msgRowMe: { alignItems: 'flex-end' },
-  msgRowThem: { alignItems: 'flex-start' },
-  msgRowSelected: {
-    backgroundColor: Colors.accent.soft,
-    borderRadius: Radius.md,
+  bubbleWrapThem: {
+    justifyContent: 'flex-start',
   },
   bubble: {
-    maxWidth: '78%',
-    minWidth: 70,
-    borderRadius: 15,
-    paddingHorizontal: 11,
-    paddingTop: 6,
-    paddingBottom: 5,
-    gap: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  bubbleWithReply: {
-    minWidth: 175,
     maxWidth: '82%',
-    paddingTop: 6,
-    paddingHorizontal: 8,
-    paddingBottom: 6,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   bubbleMe: {
-    backgroundColor: Colors.bubble.sentPink, // Clean romantic light pink for me
-    borderBottomRightRadius: 2,
-    borderWidth: 1,
-    borderColor: Colors.bubble.sentBorder,
+    backgroundColor: PALETTE.bubbleMe,
+    borderColor: PALETTE.borderStrong,
+    borderBottomRightRadius: 4,
   },
   bubbleThem: {
-    backgroundColor: Colors.bubble.received, // Clean pure white for partner
-    borderBottomLeftRadius: 2,
-    borderWidth: 1,
-    borderColor: Colors.bubble.receivedBorder,
+    backgroundColor: PALETTE.bubbleThem,
+    borderColor: PALETTE.border,
+    borderBottomLeftRadius: 4,
   },
-  bubbleHighlighted: {
-    backgroundColor: '#ffd6e5', // Romantic rose glow when scrolled to
-    borderColor: Colors.accent.primary,
-    borderWidth: 1.5,
-    transform: [{ scale: 1.02 }],
-    shadowColor: Colors.accent.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 4,
+  bubbleWithReply: {
+    minWidth: 180,
   },
-  quotedBox: {
-    flexDirection: 'row',
-    borderRadius: 8,
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    marginBottom: 5,
-    alignSelf: 'stretch',
-    width: '100%',
-    overflow: 'hidden',
-  },
-  quotedBoxMe: {
-    backgroundColor: 'rgba(224, 82, 122, 0.12)',
-  },
-  quotedBoxThem: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-  },
-  quotedBar: {
-    width: 3.5,
-    borderRadius: 2,
-    marginRight: 8,
-  },
-  quotedBarMe: {
-    backgroundColor: Colors.accent.primary,
-  },
-  quotedBarThem: {
-    backgroundColor: '#e0527a',
-  },
-  quotedContent: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  quotedAuthor: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.accent.primary,
-    marginBottom: 2,
-  },
-  quotedText: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    lineHeight: 16,
-  },
-  msgText: {
+  bodyText: {
     fontSize: 15,
-    color: Colors.text.primary,
     lineHeight: 20,
-    letterSpacing: -0.15,
   },
-  msgTextWithReply: {
-    paddingHorizontal: 3,
-    marginTop: 2,
-  },
-  msgMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    justifyContent: 'flex-end',
-    alignSelf: 'flex-end',
-    marginTop: 1,
-  },
-  shortMsgRow: {
+  inlineShortRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 10,
   },
-  msgMetaInline: {
-    marginTop: 0,
-    marginBottom: 0,
-    paddingLeft: 4,
-    alignSelf: 'flex-end',
+  metaRowInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginBottom: 1,
   },
-  expiryIcon: { fontSize: 10 },
-  msgTime: {
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 3,
+    marginTop: 4,
+  },
+  timeText: {
     fontSize: 10,
-    color: Colors.text.placeholder,
+    color: PALETTE.textMuted,
   },
-  tickRow: {
-    marginLeft: 2,
+  messagePhoto: {
+    width: 220,
+    height: 160,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  replySnippetBox: {
+    flexDirection: 'row',
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    marginBottom: 6,
+  },
+  replyBoxMe: {
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  replyBoxThem: {
+    backgroundColor: 'rgba(0,0,0,0.03)',
   },
   replyBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.bg.primary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: Colors.divider,
-  },
-  replyBarColor: {
-    width: 4,
-    height: '100%',
-    backgroundColor: Colors.accent.primary,
+    width: 3,
     borderRadius: 2,
-    marginRight: 10,
+    marginRight: 6,
   },
-  replyContent: { flex: 1 },
+  replyBarMe: {
+    backgroundColor: PALETTE.brand,
+  },
+  replyBarThem: {
+    backgroundColor: PALETTE.textSecondary,
+  },
   replyAuthor: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: Colors.accent.primary,
+    color: PALETTE.brand,
+    marginBottom: 1,
   },
-  replySnippet: {
+  replyText: {
     fontSize: 12,
-    color: Colors.text.secondary,
+    color: PALETTE.textSecondary,
   },
-  replyCloseBtn: { padding: 4 },
-  replyCloseText: { color: Colors.text.placeholder, fontSize: 16, fontWeight: '700' },
-  inputBar: {
+  // Animal Stage Container
+  animalStageContainer: {
+    backgroundColor: PALETTE.bg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: PALETTE.border,
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
+  stageToggleHandle: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  stageToggleText: {
+    fontSize: 11,
+    color: PALETTE.textMuted,
+    fontWeight: '500',
+  },
+  animalColumnsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.sm,
-    paddingTop: 8,
-    backgroundColor: Colors.bg.primary,
-    borderTopWidth: 1,
-    borderTopColor: Colors.divider,
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    gap: 16,
+    minHeight: 120,
+    paddingBottom: 4,
   },
-  attachBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: Colors.bg.secondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  textInput: {
+  animalColumn: {
     flex: 1,
-    backgroundColor: Colors.bg.secondary,
-    borderRadius: Radius.full,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    color: Colors.text.primary,
-    fontSize: 15,
-    maxHeight: 120,
-    borderWidth: 1,
-    borderColor: Colors.divider,
+    alignItems: 'stretch',
   },
-  sendBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: Colors.accent.primary,
+  characterAvatarWrap: {
     alignItems: 'center',
-    justifyContent: 'center',
+    marginTop: 8,
   },
-  sendBtnDisabled: {
-    backgroundColor: '#e6dfe3',
+  animalNameLabel: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: PALETTE.textSecondary,
+    marginTop: 2,
   },
-  messageImage: {
-    width: 220,
-    height: 180,
-    borderRadius: 10,
-    marginBottom: 3,
+  collapsedStageBar: {
+    backgroundColor: PALETTE.surfaceMuted,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: PALETTE.border,
+    alignItems: 'center',
+    paddingVertical: 6,
   },
-  actionIconBtnAllowed: {
-    backgroundColor: '#d4edda',
+  collapsedStageText: {
+    fontSize: 11,
+    color: PALETTE.brand,
+    fontWeight: '600',
   },
-  actionIconBtnPending: {
-    backgroundColor: '#fff3cd',
-  },
-  secBannerAllowed: {
+  replyPreviewBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#d4edda',
-    paddingVertical: 7,
+    backgroundColor: PALETTE.surfaceMuted,
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#c3e6cb',
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: PALETTE.border,
   },
-  secBannerAllowedText: {
-    fontSize: 12,
+  replyPreviewAuthor: {
+    fontSize: 11,
     fontWeight: '700',
-    color: '#155724',
+    color: PALETTE.brand,
   },
-  secBannerPending: {
-    backgroundColor: '#fff3cd',
-    paddingVertical: 7,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffeeba',
-  },
-  secBannerPendingText: {
+  replyPreviewSnippet: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#856404',
+    color: PALETTE.textSecondary,
   },
+  // Claude Composer
+  composerWrapper: {
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    paddingTop: 4,
+    backgroundColor: PALETTE.bg,
+  },
+  composerBox: {
+    borderRadius: 24,
+    backgroundColor: PALETTE.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PALETTE.borderStrong,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+    minHeight: 52,
+  },
+  composerInput: {
+    fontSize: 15,
+    lineHeight: 20,
+    color: PALETTE.text,
+    maxHeight: 100,
+    paddingTop: 0,
+    paddingBottom: 4,
+  },
+  composerControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  composerAddBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: PALETTE.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  composerSendBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  composerSendActive: {
+    backgroundColor: PALETTE.brand,
+  },
+  composerSendDisabled: {
+    backgroundColor: PALETTE.surfaceMuted,
+  },
+  // Modals
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: Spacing.xl,
+    padding: 20,
   },
-  confirmBox: {
+  modalCard: {
     width: '100%',
-    backgroundColor: '#ffffff',
-    borderRadius: Radius.xl,
-    padding: Spacing.xl,
+    maxWidth: 340,
+    backgroundColor: PALETTE.surface,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PALETTE.borderStrong,
+    padding: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
   },
-  confirmIconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: Colors.accent.soft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.md,
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: PALETTE.text,
   },
-  confirmHeading: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: Colors.text.primary,
-    marginBottom: Spacing.xs,
-    textAlign: 'center',
-  },
-  confirmText: {
-    fontSize: 15,
-    color: Colors.text.primary,
-    textAlign: 'center',
-    marginBottom: Spacing.xs,
-    lineHeight: 22,
-  },
-  confirmSubtext: {
+  modalSubtitle: {
     fontSize: 12,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-    marginBottom: Spacing.lg,
-    lineHeight: 18,
-  },
-  confirmActionsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  denyButton: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.bg.secondary,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.divider,
-  },
-  denyButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-  allowButton: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.accent.primary,
-    alignItems: 'center',
-  },
-  allowButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-
-  // Bottom Sheet Header Menu Styles
-  sheetOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  sheetBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  sheetContainer: {
-    backgroundColor: Colors.bg.primary,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 20,
-  },
-  sheetHandleBar: {
-    width: 40,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#e2d9dd',
-    alignSelf: 'center',
+    color: PALETTE.textSecondary,
+    marginTop: 4,
     marginBottom: 16,
+    textAlign: 'center',
   },
-  sheetProfileCard: {
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.divider,
-  },
-  sheetAvatarCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.accent.soft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.accent.light,
-    overflow: 'hidden',
-    marginBottom: 10,
-  },
-  sheetAvatarPhoto: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 40,
-  },
-  sheetName: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: Colors.text.primary,
-  },
-  sheetHandle: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.accent.primary,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  sheetStatusPill: {
+  modalCharactersRow: {
     flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+  },
+  modalOption: {
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: Colors.bg.secondary,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: Radius.full,
-    marginTop: 8,
+    padding: 8,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
-  sheetOnlineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.status.online,
+  modalOptionActive: {
+    borderColor: PALETTE.brand,
+    backgroundColor: PALETTE.surfaceMuted,
   },
-  sheetStatusText: {
+  modalOptionText: {
     fontSize: 12,
-    color: Colors.text.secondary,
-    fontWeight: '500',
+    color: PALETTE.text,
+    marginTop: 6,
   },
-  sheetStatusOnlineText: {
-    color: Colors.status.online,
+  menuSheetCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: PALETTE.surface,
+    borderRadius: 16,
+    padding: 16,
+  },
+  menuSheetTitle: {
+    fontSize: 16,
     fontWeight: '700',
+    color: PALETTE.text,
+    marginBottom: 14,
   },
-  sheetMenuSection: {
-    gap: 10,
-    marginBottom: 20,
-  },
-  sheetMenuItem: {
+  menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.bg.secondary,
-    gap: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: PALETTE.border,
   },
-  sheetIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
+  menuRowLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: PALETTE.text,
   },
-  sheetMenuTexts: {
-    flex: 1,
-  },
-  sheetMenuTitle: {
-    fontSize: Typography.sizes.md,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-  sheetMenuSub: {
+  menuRowSub: {
     fontSize: 12,
-    color: Colors.text.secondary,
+    color: PALETTE.textSecondary,
     marginTop: 2,
   },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: Radius.sm,
-    backgroundColor: '#ecfdf5',
-    borderWidth: 1,
-    borderColor: '#a7f3d0',
-  },
-  statusBadgeUnlocked: {
-    backgroundColor: '#fef3c7',
-    borderColor: '#fde68a',
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#059669',
-    letterSpacing: 0.5,
-  },
-  statusBadgeUnlockedText: {
-    color: '#d97706',
-  },
-  sheetCloseBtn: {
-    backgroundColor: Colors.bg.secondary,
-    paddingVertical: 14,
-    borderRadius: Radius.full,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.divider,
-  },
-  sheetCloseBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-
-  // Expiry Picker Modal Styles
-  expiryBox: {
-    width: '88%',
-    backgroundColor: Colors.bg.primary,
-    borderRadius: 24,
-    padding: Spacing.xl,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 25,
-  },
-  expiryHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
-  },
-  expiryTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: Colors.text.primary,
-  },
-  expirySubtitle: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-    lineHeight: 18,
-    marginBottom: 16,
-  },
-  expiryOptionsList: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  expiryOptionItem: {
+  expiryItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    width: '100%',
     paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.bg.secondary,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: PALETTE.border,
   },
-  expiryOptionSelected: {
-    backgroundColor: Colors.accent.soft,
-    borderColor: Colors.accent.light,
-  },
-  expiryOptionText: {
+  expiryItemText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: Colors.text.primary,
+    color: PALETTE.text,
   },
-  expiryOptionSelectedText: {
-    fontWeight: '700',
-    color: Colors.accent.primary,
-  },
-  expiryCancelBtn: {
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  expiryCancelText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.text.secondary,
-  },
-
-  // Shuffling Keyboard Typing Indicator Styles
-  typingRow: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    alignSelf: 'flex-start',
-  },
-  typingBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 18,
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: '#f2e5ea',
-    shadowColor: '#e0527a',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 5,
-    elevation: 2,
-    gap: 8,
-  },
-  keyboardCluster: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    height: 30,
-    paddingTop: 4,
-  },
-  keyCap: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
-    backgroundColor: '#fffdfd',
-    borderWidth: 1,
-    borderColor: '#ecd8df',
-    borderBottomWidth: 3,
-    borderBottomColor: '#d6aebb',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 2,
-  },
-  keyCapText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: Colors.accent.primary,
-  },
-  typingLabel: {
-    fontSize: 12,
-    color: '#9c8e95',
-    fontWeight: '600',
-    fontStyle: 'italic',
-  },
-
-  // Full-Screen Photo Viewer Styles
-  photoViewerBg: {
+  photoViewerBackdrop: {
     flex: 1,
-    backgroundColor: '#050304',
+    backgroundColor: '#000000',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  photoViewerClose: {
+  photoCloseBtn: {
     position: 'absolute',
-    top: 50,
+    top: 48,
     right: 20,
     zIndex: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
+    padding: 8,
   },
-  photoViewerCloseText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  photoViewerFull: {
+  photoFullImage: {
     width: '100%',
-    height: '82%',
+    height: '80%',
   },
 });

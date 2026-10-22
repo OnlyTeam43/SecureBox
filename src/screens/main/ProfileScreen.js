@@ -39,8 +39,6 @@ export default function ProfileScreen({ navigation }) {
     isStealthNotificationsEnabled,
     setStealthNotificationsEnabled,
     setStealthUnlocked,
-    chatViewMode,
-    setChatViewMode,
     myCharacter,
     setMyCharacter,
   } = useUserStore();
@@ -245,28 +243,9 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Claude Animal Scene & UI Theme */}
+      {/* Claude Animal Companions & Persona */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Chat Experience (Claude AI Animal UI)</Text>
-
-        <View style={styles.row}>
-          <View style={{ flex: 1, paddingRight: Spacing.sm }}>
-            <Text style={styles.rowLabel}>Default Chat Interface</Text>
-            <Text style={styles.rowSub}>
-              {chatViewMode === 'claude'
-                ? 'Curious Claude Animal Scene (Panda & Cat)'
-                : 'Classic Chat Bubble Feed'}
-            </Text>
-          </View>
-          <Switch
-            value={chatViewMode === 'claude'}
-            onValueChange={(val) => {
-              setChatViewMode(val ? 'claude' : 'classic');
-            }}
-            trackColor={{ false: '#3a3a44', true: '#D97757' }}
-            thumbColor="#ffffff"
-          />
-        </View>
+        <Text style={styles.sectionTitle}>Animal Companions (Claude Theme)</Text>
 
         <TouchableOpacity
           style={styles.row}

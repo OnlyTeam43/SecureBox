@@ -259,8 +259,52 @@ export const deleteConversationsBatch = async (conversationIds) => {
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
+export const ensureConversationExists = async (conversationId, contactHandle, contactNickname = null, contactAvatarId = null) => {
+  const db = await getDB();
+  const cleanHandle = (contactHandle || 'friend').replace('@', '').trim().toLowerCase();
+
+  // 1. Check or insert contact
+  let contact = await db.getFirstAsync(`SELECT id FROM contacts WHERE LOWER(handle) = ?`, [cleanHandle]);
+  let contactId = contact?.id;
+  if (!contactId) {
+    contactId = `contact_${cleanHandle}`;
+    await db.runAsync(
+      `INSERT OR IGNORE INTO contacts (id, handle, nickname, avatar_id, added_at) VALUES (?, ?, ?, ?, ?)`,
+      [contactId, cleanHandle, contactNickname || cleanHandle, contactAvatarId || 'avatar_rose', Date.now()]
+    );
+  }
+
+  // 2. Check or insert conversation
+  await db.runAsync(
+    `INSERT OR IGNORE INTO conversations (id, contact_id, last_msg, last_time, unread) VALUES (?, ?, ?, ?, ?)`,
+    [conversationId, contactId, '', Date.now(), 0]
+  );
+};
+
 export const insertMessage = async (msg) => {
   const db = await getDB();
+
+  // Ensure conversation & contact exist in SQLite so foreign key constraint NEVER fails!
+  if (msg.conversationId) {
+    const convRow = await db.getFirstAsync(`SELECT id FROM conversations WHERE id = ?`, [msg.conversationId]);
+    if (!convRow) {
+      const cleanSender = (msg.sender || 'friend').replace('@', '').trim().toLowerCase();
+      let contact = await db.getFirstAsync(`SELECT id FROM contacts WHERE LOWER(handle) = ?`, [cleanSender]);
+      let contactId = contact?.id;
+      if (!contactId) {
+        contactId = `contact_${cleanSender}`;
+        await db.runAsync(
+          `INSERT OR IGNORE INTO contacts (id, handle, nickname, avatar_id, added_at) VALUES (?, ?, ?, ?, ?)`,
+          [contactId, cleanSender, cleanSender, 'avatar_rose', Date.now()]
+        );
+      }
+      await db.runAsync(
+        `INSERT OR IGNORE INTO conversations (id, contact_id, last_msg, last_time, unread) VALUES (?, ?, ?, ?, ?)`,
+        [msg.conversationId, contactId, msg.body || '', msg.sentAt || Date.now(), 0]
+      );
+    }
+  }
+
   await db.runAsync(
     `INSERT OR REPLACE INTO messages (id, conversation_id, sender, type, body, media_uri, sent_at, delivered, read, expires_at, reply_to, deleted)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
@@ -295,6 +339,8 @@ export const getMessages = async (conversationId, limit = 50, before = null) => 
     [conversationId, limit]
   );
 };
+
+export const getMessagesByConversation = getMessages;
 
 export const deleteMessage = async (messageId) => {
   const db = await getDB();
