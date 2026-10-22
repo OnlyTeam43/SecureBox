@@ -42,6 +42,7 @@ import MediaGalleryScreen from '../screens/main/MediaGalleryScreen';
 import RequestsScreen from '../screens/main/RequestsScreen';
 import CalculatorScreen from '../screens/stealth/CalculatorScreen';
 import DecoyInboxScreen from '../screens/stealth/DecoyInboxScreen';
+import ClaudeChatScreen from '../screens/main/ClaudeChatScreen';
 
 import { MessageTabIcon, PhoneIcon, UserAvatarIcon, UserCheckIcon } from '../components/Icons';
 
@@ -359,6 +360,7 @@ export default function AppNavigator() {
             <>
               <Stack.Screen name="MainTabs" component={MainTabs} />
               <Stack.Screen name="Chat" component={ChatScreen} options={{ animation: 'slide_from_right' }} />
+              <Stack.Screen name="ClaudeChat" component={ClaudeChatScreen} options={{ animation: 'fade' }} />
               <Stack.Screen name="Call" component={CallScreen} options={{ animation: 'fade' }} />
               <Stack.Screen name="AddContact" component={AddContactScreen} options={{ animation: 'slide_from_bottom' }} />
               <Stack.Screen name="SetExpiry" component={SetExpiryScreen} />

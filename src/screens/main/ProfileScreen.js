@@ -39,6 +39,10 @@ export default function ProfileScreen({ navigation }) {
     isStealthNotificationsEnabled,
     setStealthNotificationsEnabled,
     setStealthUnlocked,
+    chatViewMode,
+    setChatViewMode,
+    myCharacter,
+    setMyCharacter,
   } = useUserStore();
 
   const displayPhoto = avatarUri || (avatarId && (avatarId.startsWith('data:') || avatarId.startsWith('file:') || avatarId.startsWith('http')) ? avatarId : null);
@@ -237,6 +241,54 @@ export default function ProfileScreen({ navigation }) {
 
         <TouchableOpacity style={styles.row}>
           <Text style={styles.rowLabel}>App Lock (Password / Biometric)</Text>
+          <Text style={styles.rowArrow}>→</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Claude Animal Scene & UI Theme */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Chat Experience (Claude AI Animal UI)</Text>
+
+        <View style={styles.row}>
+          <View style={{ flex: 1, paddingRight: Spacing.sm }}>
+            <Text style={styles.rowLabel}>Default Chat Interface</Text>
+            <Text style={styles.rowSub}>
+              {chatViewMode === 'claude'
+                ? 'Curious Claude Animal Scene (Panda & Cat)'
+                : 'Classic Chat Bubble Feed'}
+            </Text>
+          </View>
+          <Switch
+            value={chatViewMode === 'claude'}
+            onValueChange={(val) => {
+              setChatViewMode(val ? 'claude' : 'classic');
+            }}
+            trackColor={{ false: '#3a3a44', true: '#D97757' }}
+            thumbColor="#ffffff"
+          />
+        </View>
+
+        <TouchableOpacity
+          style={styles.row}
+          onPress={() => {
+            Alert.alert(
+              'Choose Your Animal Persona',
+              'Select the character that represents you in the interactive Claude chat scene:',
+              [
+                { text: '🐼 Panda', onPress: () => setMyCharacter('panda') },
+                { text: '🐱 Cat', onPress: () => setMyCharacter('cat') },
+                { text: '🐶 Puppy', onPress: () => setMyCharacter('puppy') },
+                { text: 'Cancel', style: 'cancel' },
+              ]
+            );
+          }}
+        >
+          <View>
+            <Text style={styles.rowLabel}>My Animal Character</Text>
+            <Text style={styles.rowSub}>
+              Current: {myCharacter === 'panda' ? '🐼 Panda' : myCharacter === 'cat' ? '🐱 Cat' : '🐶 Puppy'}
+            </Text>
+          </View>
           <Text style={styles.rowArrow}>→</Text>
         </TouchableOpacity>
       </View>

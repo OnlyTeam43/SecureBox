@@ -406,7 +406,8 @@ export default function InboxScreen({ navigation }) {
         const convId = `chat_${participants[0]}_${participants[1]}`;
         setSearchHandle('');
         setSearching(false);
-        return navigation.navigate('Chat', {
+        const targetChatScreen = useUserStore.getState().chatViewMode === 'claude' ? 'ClaudeChat' : 'Chat';
+        return navigation.navigate(targetChatScreen, {
           conversationId: convId,
           contactHandle: contact.handle,
           contactNickname: contact.nickname,
@@ -595,7 +596,8 @@ export default function InboxScreen({ navigation }) {
               markConversationRead(item.id, myHandle);
               useBadgeStore.getState().decrementUnread(item.unread);
             }
-            navigation.navigate('Chat', {
+            const targetChatScreen = useUserStore.getState().chatViewMode === 'claude' ? 'ClaudeChat' : 'Chat';
+            navigation.navigate(targetChatScreen, {
               conversationId: item.id,
               contactHandle: item.handle,
               contactNickname: item.nickname,

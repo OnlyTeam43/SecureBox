@@ -1094,6 +1094,21 @@ export default function ChatScreen({ route, navigation }) {
             </View>
           </TouchableOpacity>
 
+          {/* Switch to Claude Animal Scene Button */}
+          <TouchableOpacity
+            style={styles.actionIconBtn}
+            onPress={() =>
+              navigation.replace('ClaudeChat', {
+                conversationId,
+                contactHandle,
+                contactNickname,
+                contactAvatarId,
+              })
+            }
+          >
+            <Text style={{ fontSize: 18 }}>🐼</Text>
+          </TouchableOpacity>
+
           {/* Real Phone Call Icon */}
           <TouchableOpacity
             style={styles.actionIconBtn}

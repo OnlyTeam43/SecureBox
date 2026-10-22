@@ -33,12 +33,19 @@ export const useUserStore = create(
       isDecoyUnlocked: false,
       isStealthNotificationsEnabled: false, // Disguises lock screen push notifications
 
+      // Claude Animal Scene Preferences
+      chatViewMode: 'classic', // 'classic' | 'claude'
+      myCharacter: 'panda', // 'panda' | 'cat' | 'puppy'
+
       // Actions
       setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null, recoveryPin = null) =>
         set({ handle, nickname, avatarId, mobileNumber, avatarUri, recoveryPin }),
 
       setPendingInviteHandle: (inviteHandle) => set({ pendingInviteHandle: inviteHandle }),
       clearPendingInviteHandle: () => set({ pendingInviteHandle: null }),
+
+      setChatViewMode: (chatViewMode) => set({ chatViewMode }),
+      setMyCharacter: (myCharacter) => set({ myCharacter }),
 
       setRecoveryPin: (recoveryPin) => set({ recoveryPin }),
 
@@ -77,6 +84,8 @@ export const useUserStore = create(
           isStealthUnlocked: false,
           isDecoyUnlocked: false,
           isStealthNotificationsEnabled: false,
+          chatViewMode: 'classic',
+          myCharacter: 'panda',
         }),
     }),
     {
