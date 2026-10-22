@@ -11,13 +11,10 @@ import {
   ScrollView,
   Alert,
   StatusBar,
-  Image,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
 import { useUserStore } from '../../store/useUserStore';
 import {
@@ -26,11 +23,12 @@ import {
   checkHandleAvailability,
 } from '../../services/supabase';
 import { dispatchWhatsAppPin, generate4DigitPin } from '../../services/whatsappService';
-import { UserAvatarIcon, CameraIcon } from '../../components/Icons';
+import { CharacterAvatar } from '../../animal_ui/components/CharacterAvatar.js';
+import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 
 export default function CreateProfileScreen({ navigation }) {
   // Form fields
-  const [profilePhoto, setProfilePhoto] = useState(null);
+  const [selectedCharacter, setSelectedCharacter] = useState('panda');
   const [nickname, setNickname] = useState('');
   const [handle, setHandle] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
@@ -58,46 +56,7 @@ export default function CreateProfileScreen({ navigation }) {
   const setProfile = useUserStore((s) => s.setProfile);
   const setPassword_ = useUserStore((s) => s.setPassword);
   const completeSetup = useUserStore((s) => s.completeSetup);
-
-  // Pick profile photo from device gallery
-  const handlePickPhoto = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        return Alert.alert('Permission Needed', 'Please allow gallery access to pick a profile picture.');
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.5,
-        base64: true,
-      });
-      if (!result.canceled && result.assets && result.assets[0]) {
-        const asset = result.assets[0];
-        let photoData = asset.uri;
-
-        try {
-          const manipulated = await manipulateAsync(
-            asset.uri,
-            [{ resize: { width: 200, height: 200 } }],
-            { compress: 0.5, format: SaveFormat.JPEG, base64: true }
-          );
-          if (manipulated.base64) {
-            photoData = `data:image/jpeg;base64,${manipulated.base64}`;
-          }
-        } catch (_) {
-          if (asset.base64) {
-            photoData = `data:image/jpeg;base64,${asset.base64}`;
-          }
-        }
-
-        setProfilePhoto(photoData);
-      }
-    } catch (e) {
-      console.warn('Pick photo error:', e);
-    }
-  };
+  const setMyCharacter = useUserStore((s) => s.setMyCharacter);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -272,9 +231,9 @@ export default function CreateProfileScreen({ navigation }) {
     setLoading(true);
     try {
       const cleanPhone = mobileNumber.replace(/[^0-9+]/g, '');
-      const avatarPayload = profilePhoto || 'avatar_rose';
+      const avatarPayload = selectedCharacter || 'panda';
 
-      // Register in Supabase with handle, nickname, avatar, phone + recovery PIN, and password
+      // Register in Supabase with handle, nickname, character avatar, phone + recovery PIN, and password
       await registerUserInSupabase({
         handle,
         nickname: nickname.trim(),
@@ -285,7 +244,8 @@ export default function CreateProfileScreen({ navigation }) {
       });
 
       // Save to local Zustand store
-      setProfile(handle, nickname.trim(), avatarPayload, cleanPhone, profilePhoto, generatedPin);
+      setProfile(handle, nickname.trim(), avatarPayload, cleanPhone, null, generatedPin);
+      setMyCharacter(avatarPayload);
       setPassword_(password);
       completeSetup();
 
@@ -333,25 +293,36 @@ export default function CreateProfileScreen({ navigation }) {
           Direct APK updates & instant WhatsApp recovery. No email needed.
         </Text>
 
-        {/* Avatar Photo Picker */}
+        {/* Animal Character Persona Selector */}
         <View style={styles.avatarPickerSection}>
-          <TouchableOpacity style={styles.avatarTouchable} onPress={handlePickPhoto} activeOpacity={0.8}>
-            <View style={styles.avatarCircle}>
-              {profilePhoto ? (
-                <Image source={{ uri: profilePhoto }} style={styles.avatarPhoto} />
-              ) : (
-                <UserAvatarIcon size={46} color={Colors.accent.primary} />
-              )}
-            </View>
-            <View style={styles.cameraBadge}>
-              <CameraIcon size={14} color="#fff" />
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handlePickPhoto}>
-            <Text style={styles.changePhotoText}>
-              {profilePhoto ? 'Change Photo' : 'Upload Profile Picture'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.characterPreviewWrap}>
+            <CharacterAvatar character={selectedCharacter} state="idle" size={90} />
+          </View>
+          <Text style={styles.characterPickTitle}>Choose Your Animal Persona</Text>
+          <Text style={styles.characterPickSub}>Default character for private end-to-end messaging</Text>
+
+          <View style={styles.characterRow}>
+            {[
+              { id: 'panda', name: 'Panda', emoji: '🐼' },
+              { id: 'cat', name: 'Cat', emoji: '🐱' },
+              { id: 'puppy', name: 'Puppy', emoji: '🐶' },
+            ].map((char) => {
+              const active = selectedCharacter === char.id;
+              return (
+                <TouchableOpacity
+                  key={char.id}
+                  style={[styles.charPill, active && styles.charPillActive]}
+                  onPress={() => setSelectedCharacter(char.id)}
+                  activeOpacity={0.8}
+                >
+                  <CharacterBall character={char.id} size={24} />
+                  <Text style={[styles.charPillText, active && styles.charPillTextActive]}>
+                    {char.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         {/* Step 1: Name */}
@@ -575,42 +546,62 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.md,
   },
-  avatarTouchable: {
-    position: 'relative',
-    marginBottom: 6,
-  },
-  avatarCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: Colors.accent.soft,
+  characterPreviewWrap: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: 'rgba(217,119,87,0.25)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.accent.light,
-    overflow: 'hidden',
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  avatarPhoto: {
+  characterPickTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#141413',
+    marginBottom: 2,
+  },
+  characterPickSub: {
+    fontSize: 12,
+    color: '#5E5D59',
+    marginBottom: 12,
+  },
+  characterRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
     width: '100%',
-    height: '100%',
-    borderRadius: 44,
   },
-  cameraBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: Colors.accent.primary,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  charPill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: 'rgba(20,20,19,0.12)',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    gap: 6,
   },
-  changePhotoText: {
-    fontSize: Typography.sizes.xs,
-    color: Colors.accent.primary,
+  charPillActive: {
+    borderColor: '#D97757',
+    backgroundColor: 'rgba(217,119,87,0.08)',
+  },
+  charPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#5E5D59',
+  },
+  charPillTextActive: {
+    color: '#D97757',
     fontWeight: '700',
   },
   label: {

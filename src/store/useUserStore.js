@@ -34,8 +34,9 @@ export const useUserStore = create(
       isStealthNotificationsEnabled: false, // Disguises lock screen push notifications
 
       // Claude Animal Scene Preferences
-      chatViewMode: 'classic', // 'classic' | 'claude'
+      chatViewMode: 'claude', // 'claude'
       myCharacter: 'panda', // 'panda' | 'cat' | 'puppy'
+      gameHighScore: 0, // Brick Breaker game high score
 
       // Actions
       setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null, recoveryPin = null) =>
@@ -46,6 +47,7 @@ export const useUserStore = create(
 
       setChatViewMode: (chatViewMode) => set({ chatViewMode }),
       setMyCharacter: (myCharacter) => set({ myCharacter }),
+      setGameHighScore: (score) => set((state) => ({ gameHighScore: Math.max(state.gameHighScore || 0, score) })),
 
       setRecoveryPin: (recoveryPin) => set({ recoveryPin }),
 
@@ -84,8 +86,9 @@ export const useUserStore = create(
           isStealthUnlocked: false,
           isDecoyUnlocked: false,
           isStealthNotificationsEnabled: false,
-          chatViewMode: 'classic',
+          chatViewMode: 'claude',
           myCharacter: 'panda',
+          gameHighScore: 0,
         }),
     }),
     {

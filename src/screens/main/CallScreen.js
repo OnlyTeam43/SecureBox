@@ -35,6 +35,7 @@ import { callAudioService } from '../../services/callAudioService';
 import { webrtcService } from '../../services/webrtcService';
 import { getContactByHandle, insertCallLog, updateCallLogDuration } from '../../db/database';
 import { getAvatar } from '../../constants/avatars';
+import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 
 // Safely require RTCView if native WebRTC is compiled
 let RTCView = null;
@@ -575,12 +576,14 @@ export default function CallScreen({ route, navigation }) {
         <View style={styles.centerContainer}>
           <Animated.View style={[styles.avatarGlow, { transform: [{ scale: pulseAnim }] }]}>
             <View style={styles.avatarCircle}>
-              {isImageAvatar ? (
+              {contactAvatar === 'panda' || contactAvatar === 'cat' || contactAvatar === 'puppy' ? (
+                <CharacterBall character={contactAvatar} size={88} />
+              ) : isImageAvatar ? (
                 <Image source={{ uri: contactAvatar }} style={styles.avatarPhoto} />
               ) : presetAvatar ? (
                 <Image source={presetAvatar} style={styles.avatarPhoto} />
               ) : (
-                <UserAvatarIcon size={68} color={Colors.accent.primary} />
+                <CharacterBall character="panda" size={88} />
               )}
             </View>
           </Animated.View>

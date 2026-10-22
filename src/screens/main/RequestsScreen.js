@@ -34,6 +34,7 @@ import {
 } from '../../services/supabase';
 import { insertContact, upsertConversation } from '../../db/database';
 import { UserAvatarIcon } from '../../components/Icons';
+import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import { useBadgeStore } from '../../store/useBadgeStore';
 
 export default function RequestsScreen({ navigation }) {
@@ -340,6 +341,7 @@ export default function RequestsScreen({ navigation }) {
 
   const renderReceivedItem = ({ item }) => {
     const isImage = item.avatar && (item.avatar.startsWith('data:') || item.avatar.startsWith('file:') || item.avatar.startsWith('http'));
+    const isAnimal = item.avatar === 'panda' || item.avatar === 'cat' || item.avatar === 'puppy';
 
     let timeAgo = '';
     try {
@@ -352,10 +354,12 @@ export default function RequestsScreen({ navigation }) {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.avatarCircle}>
-            {isImage ? (
+            {isAnimal ? (
+              <CharacterBall character={item.avatar} size={42} />
+            ) : isImage ? (
               <Image source={{ uri: item.avatar }} style={styles.avatarPhoto} />
             ) : (
-              <UserAvatarIcon size={34} color={Colors.accent.primary} />
+              <CharacterBall character="panda" size={42} />
             )}
           </View>
           <View style={styles.cardInfo}>
@@ -397,7 +401,7 @@ export default function RequestsScreen({ navigation }) {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.avatarCircle}>
-            <UserAvatarIcon size={34} color={Colors.accent.primary} />
+            <CharacterBall character="cat" size={42} />
           </View>
           <View style={styles.cardInfo}>
             <Text style={styles.cardNickname}>@{item.receiver}</Text>
@@ -464,10 +468,12 @@ export default function RequestsScreen({ navigation }) {
           <View style={styles.previewCard}>
             <View style={styles.previewInfo}>
               <View style={styles.previewAvatar}>
-                {searchResult.avatar_id && (searchResult.avatar_id.startsWith('data:') || searchResult.avatar_id.startsWith('file:') || searchResult.avatar_id.startsWith('http')) ? (
+                {searchResult.avatar_id === 'panda' || searchResult.avatar_id === 'cat' || searchResult.avatar_id === 'puppy' ? (
+                  <CharacterBall character={searchResult.avatar_id} size={36} />
+                ) : searchResult.avatar_id && (searchResult.avatar_id.startsWith('data:') || searchResult.avatar_id.startsWith('file:') || searchResult.avatar_id.startsWith('http')) ? (
                   <Image source={{ uri: searchResult.avatar_id }} style={styles.avatarPhoto} />
                 ) : (
-                  <UserAvatarIcon size={30} color={Colors.accent.primary} />
+                  <CharacterBall character="panda" size={36} />
                 )}
               </View>
               <View>

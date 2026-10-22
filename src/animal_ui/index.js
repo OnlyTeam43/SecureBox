@@ -8,6 +8,7 @@ export * from './components/Button.js';
 export * from './components/IconButton.js';
 export * from './components/SpeechBubble.js';
 export * from './components/CharacterAvatar.js';
+export * from './components/CharacterBall.js';
 export * from './components/ChatScene.js';
 export * from './components/CallScreen.js';
 export * from './components/Composer.js';

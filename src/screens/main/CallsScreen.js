@@ -37,6 +37,7 @@ import { callService } from '../../services/callService';
 import { webrtcService } from '../../services/webrtcService';
 import { callAudioService } from '../../services/callAudioService';
 import { getAvatar } from '../../constants/avatars';
+import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import { useUserStore } from '../../store/useUserStore';
 import { useBadgeStore } from '../../store/useBadgeStore';
 
@@ -265,7 +266,11 @@ export default function CallsScreen({ navigation }) {
       (item.contact_avatar_id.startsWith('data:') ||
         item.contact_avatar_id.startsWith('file:') ||
         item.contact_avatar_id.startsWith('http'));
-    const presetAvatar = !isImg && item.contact_avatar_id ? getAvatar(item.contact_avatar_id) : null;
+    const isAnimal =
+      item.contact_avatar_id === 'panda' ||
+      item.contact_avatar_id === 'cat' ||
+      item.contact_avatar_id === 'puppy';
+    const presetAvatar = !isImg && !isAnimal && item.contact_avatar_id ? getAvatar(item.contact_avatar_id) : null;
 
     const displayName = item.contact_nickname || item.contact_handle || 'Unknown';
 
@@ -276,12 +281,14 @@ export default function CallsScreen({ navigation }) {
         activeOpacity={0.7}
       >
         <View style={styles.avatarWrap}>
-          {isImg ? (
+          {isAnimal ? (
+            <CharacterBall character={item.contact_avatar_id} size={40} />
+          ) : isImg ? (
             <Image source={{ uri: item.contact_avatar_id }} style={styles.avatarImg} />
           ) : presetAvatar ? (
             <Image source={presetAvatar} style={styles.avatarImg} />
           ) : (
-            <UserAvatarIcon size={36} color={Colors.accent.primary} />
+            <CharacterBall character="panda" size={40} />
           )}
         </View>
 

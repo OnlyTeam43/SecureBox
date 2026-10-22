@@ -41,6 +41,7 @@ import CallScreen from '../screens/main/CallScreen';
 import MediaGalleryScreen from '../screens/main/MediaGalleryScreen';
 import RequestsScreen from '../screens/main/RequestsScreen';
 import CalculatorScreen from '../screens/stealth/CalculatorScreen';
+import BrickBreakerGameScreen from '../screens/game/BrickBreakerGameScreen';
 import DecoyInboxScreen from '../screens/stealth/DecoyInboxScreen';
 import ClaudeChatScreen from '../screens/main/ClaudeChatScreen';
 
@@ -59,15 +60,15 @@ function MainTabs() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: Colors.bg.primary,
-          borderTopColor: Colors.divider,
+          backgroundColor: '#FAF9F5',
+          borderTopColor: 'rgba(20,20,19,0.08)',
           borderTopWidth: 1,
-          height: 60,
+          height: 62,
           paddingBottom: 8,
-          paddingTop: 4,
+          paddingTop: 6,
         },
-        tabBarActiveTintColor: Colors.accent.primary,
-        tabBarInactiveTintColor: Colors.icon,
+        tabBarActiveTintColor: '#D97757',
+        tabBarInactiveTintColor: '#87867F',
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
       }}
     >
@@ -306,9 +307,9 @@ export default function AppNavigator() {
     return () => subscription.remove();
   }, [isSetup, myHandle, isStealthModeEnabled]);
 
-  // If user has Stealth / Decoy Calculator enabled and has not unlocked with PIN yet
+  // If user has Stealth / Decoy Animal Brick Breaker Game enabled and has not unlocked with PIN yet
   if (isSetup && isStealthModeEnabled && !isStealthUnlocked) {
-    return <CalculatorScreen onUnlock={() => setStealthUnlocked(true)} />;
+    return <BrickBreakerGameScreen onUnlock={() => setStealthUnlocked(true)} />;
   }
 
   // If Decoy PIN was entered (e.g. 0000=), show innocent Decoy Study Connect screen
@@ -365,6 +366,7 @@ export default function AppNavigator() {
               <Stack.Screen name="AddContact" component={AddContactScreen} options={{ animation: 'slide_from_bottom' }} />
               <Stack.Screen name="SetExpiry" component={SetExpiryScreen} />
               <Stack.Screen name="MediaGallery" component={MediaGalleryScreen} options={{ animation: 'slide_from_right' }} />
+              <Stack.Screen name="BrickBreaker" component={BrickBreakerGameScreen} options={{ animation: 'fade' }} />
             </>
           )}
         </Stack.Navigator>

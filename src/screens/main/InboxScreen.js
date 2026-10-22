@@ -39,6 +39,7 @@ import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as ScreenCapture from 'expo-screen-capture';
 import { TrashIcon, UserAvatarIcon, CheckIcon, DoubleCheckIcon, ShareIcon } from '../../components/Icons';
+import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import {
   notifyIncomingMessage,
   notifyConnectionRequest,
@@ -608,10 +609,12 @@ export default function InboxScreen({ navigation }) {
         {/* Avatar with online dot */}
         <View style={styles.avatarWrap}>
           <View style={styles.avatarCircle}>
-            {hasPhoto ? (
+            {item.avatar_id === 'panda' || item.avatar_id === 'cat' || item.avatar_id === 'puppy' ? (
+              <CharacterBall character={item.avatar_id} size={44} />
+            ) : hasPhoto ? (
               <Image source={{ uri: item.avatar_id }} style={styles.avatarPhoto} />
             ) : (
-              <UserAvatarIcon size={26} color={Colors.accent.primary} />
+              <CharacterBall character="panda" size={44} />
             )}
           </View>
           {isPartnerOnline && <View style={styles.onlineDot} />}
@@ -687,14 +690,25 @@ export default function InboxScreen({ navigation }) {
             <Text style={styles.headerTitle}>Messages</Text>
             <Text style={styles.headerSub}>@{myHandle}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.headerInviteBtn}
-            onPress={() => shareProfileInvite(myHandle, myNickname)}
-            activeOpacity={0.8}
-          >
-            <ShareIcon size={16} color={Colors.accent.primary} />
-            <Text style={styles.headerInviteText}>Invite</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              style={styles.headerGameBtn}
+              onPress={() => navigation.navigate('BrickBreaker')}
+              activeOpacity={0.8}
+            >
+              <CharacterBall character="panda" size={20} />
+              <Text style={styles.headerGameText}>Game</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerInviteBtn}
+              onPress={() => shareProfileInvite(myHandle, myNickname)}
+              activeOpacity={0.8}
+            >
+              <ShareIcon size={15} color={Colors.accent.primary} />
+              <Text style={styles.headerInviteText}>Invite</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -763,6 +777,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  headerGameBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: Radius.full,
+  },
+  headerGameText: {
+    fontSize: Typography.sizes.xs,
+    color: '#141413',
+    fontWeight: '700',
   },
   headerInviteBtn: {
     flexDirection: 'row',

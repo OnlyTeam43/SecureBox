@@ -1,55 +1,55 @@
 // src/theme/colors.js
-// SecureBox — Clean White & Light Pink Romantic Palette
+// SecureBox — Claude AI Minimalist & Animal UI Palette
 
 export const Colors = {
-  // Backgrounds — clean white, warm cream, soft rose tint
+  // Backgrounds — Claude signature warm ivory, soft warm paper surfaces
   bg: {
-    primary: '#ffffff',       // Pure clean white
-    secondary: '#fbf7f9',     // Warm soft card/input surface
-    elevated: '#f7f0f4',      // Elevated headers, modals
-    overlay: 'rgba(0,0,0,0.5)',
-    chatBg: '#f6f3f5',        // WhatsApp-like subtle background
+    primary: '#FAF9F5',       // Claude signature warm ivory
+    secondary: '#F5F3EC',     // Warm card/surface
+    elevated: '#FFFFFF',      // Pure elevated cards & modals
+    overlay: 'rgba(20,20,19,0.5)',
+    chatBg: '#FAF9F5',        // Consistent chat canvas
   },
 
-  // Accent — romantic light pink & vibrant rose
+  // Accent — Claude warm terracotta clay & copper
   accent: {
-    primary: '#e0527a',       // Vibrant rose pink
-    secondary: '#d1436c',     // Deep rose
-    light: '#ffb3c6',         // Soft pastel blush
-    soft: '#ffeef2',          // Ultra-light pink highlight
-    glow: 'rgba(224,82,122,0.12)',
-    glowStrong: 'rgba(224,82,122,0.25)',
+    primary: '#D97757',       // Claude iconic terracotta clay
+    secondary: '#C06143',     // Deep terracotta
+    light: '#F5D5C8',         // Pastel terracotta blush
+    soft: '#FAF0EB',          // Ultra-light clay highlight
+    glow: 'rgba(217,119,87,0.15)',
+    glowStrong: 'rgba(217,119,87,0.28)',
   },
 
-  // Text — sharp, readable charcoal and warm greys
+  // Text — sharp, warm charcoal and refined stone greys
   text: {
-    primary: '#1c1b1f',       // Crisp dark text
-    secondary: '#665e64',     // Muted subtitle text
-    placeholder: '#a49ba1',
-    inverse: '#ffffff',
-    replyTitle: '#c93b67',
+    primary: '#141413',       // Crisp Claude dark charcoal
+    secondary: '#5E5D59',     // Muted subtitle text
+    placeholder: '#87867F',   // Placeholder stone grey
+    inverse: '#FFFFFF',
+    replyTitle: '#D97757',
   },
 
-  // Bubbles — WhatsApp/Instagram inspired clean styling
+  // Bubbles — Claude clean styling
   bubble: {
-    sent: '#dcf8c6',          // WhatsApp light green or light pink (#ffdce5)
-    sentPink: '#ffe8ef',      // Romantic light pink for my messages
-    sentBorder: 'rgba(224,82,122,0.15)',
-    received: '#ffffff',      // Pure white for incoming messages
-    receivedBorder: '#e8e2e6',
+    sent: '#F5F3EC',          // Sent bubble warm surface
+    sentPink: '#FAF0EB',      // Sent soft clay tint
+    sentBorder: 'rgba(20,20,19,0.12)',
+    received: '#FFFFFF',      // White for received messages
+    receivedBorder: 'rgba(20,20,19,0.08)',
   },
 
   // Status
   status: {
-    online: '#25d366',        // WhatsApp bright green
-    offline: '#a49ba1',
-    error: '#e53935',
-    sent: '#8a8187',          // Grey sent status
-    delivered: '#8a8187',     // Grey delivered status
-    seen: '#e0527a',          // Pink seen status (SecureBox romantic pink)
+    online: '#2E7D32',        // Refined forest emerald
+    offline: '#87867F',
+    error: '#C62828',
+    sent: '#87867F',
+    delivered: '#87867F',
+    seen: '#D97757',          // Terracotta seen status
   },
 
-  divider: '#eee7eb',
-  icon: '#4a4448',
-  iconActive: '#e0527a',
+  divider: 'rgba(20,20,19,0.08)',
+  icon: '#5E5D59',
+  iconActive: '#D97757',
 };

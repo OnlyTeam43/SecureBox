@@ -4,15 +4,14 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  StatusBar, Alert, Image, Switch,
+  StatusBar, Alert, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
 import { EXPIRY_OPTIONS } from '../../constants/avatars';
 import { useUserStore } from '../../store/useUserStore';
-import { UserAvatarIcon, CameraIcon, ShareIcon, LinkIcon, PanicIcon } from '../../components/Icons';
+import { ShareIcon, LinkIcon, PanicIcon } from '../../components/Icons';
+import { CharacterAvatar, CharacterBall } from '../../animal_ui/index.js';
 import { updateUserAvatarInSupabase } from '../../services/supabase';
 import { updateContactAvatar } from '../../db/database';
 import { shareProfileInvite, getInviteLink } from '../../services/inviteService';
@@ -43,60 +42,44 @@ export default function ProfileScreen({ navigation }) {
     setMyCharacter,
   } = useUserStore();
 
-  const displayPhoto = avatarUri || (avatarId && (avatarId.startsWith('data:') || avatarId.startsWith('file:') || avatarId.startsWith('http')) ? avatarId : null);
-
   const expiryLabel =
     EXPIRY_OPTIONS.find((o) => o.value === defaultExpiry)?.label || 'Never';
 
-  const handlePickProfilePhoto = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        return Alert.alert('Permission Needed', 'Please allow gallery access to set your profile picture.');
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.5,
-        base64: true,
-      });
-
-      if (!result.canceled && result.assets && result.assets[0]) {
-        const asset = result.assets[0];
-        let photoData = asset.uri;
-
-        try {
-          const manipulated = await manipulateAsync(
-            asset.uri,
-            [{ resize: { width: 200, height: 200 } }],
-            { compress: 0.5, format: SaveFormat.JPEG, base64: true }
-          );
-          if (manipulated.base64) {
-            photoData = `data:image/jpeg;base64,${manipulated.base64}`;
-          }
-        } catch (_) {
-          if (asset.base64) {
-            photoData = `data:image/jpeg;base64,${asset.base64}`;
-          }
-        }
-
-        // 1. Update in local store
-        setAvatarUri(photoData);
-
-        // 2. Persist to Supabase so partners can see it
-        await updateUserAvatarInSupabase(handle, photoData);
-
-        // 3. Update SQLite contacts
-        await updateContactAvatar(handle, photoData);
-
-        Alert.alert('Profile Updated', 'Your profile picture has been updated!');
-      }
-    } catch (err) {
-      console.warn('Profile photo pick error:', err);
-      Alert.alert('Error', 'Failed to update profile picture. Please try again.');
-    }
+  const handlePickPersona = () => {
+    Alert.alert(
+      'Choose Animal Persona',
+      'Select the character that represents you across chats and games:',
+      [
+        {
+          text: '🐼 Panda',
+          onPress: async () => {
+            setMyCharacter('panda');
+            setAvatarUri('panda');
+            await updateUserAvatarInSupabase(handle, 'panda').catch(() => {});
+            await updateContactAvatar(handle, 'panda').catch(() => {});
+          },
+        },
+        {
+          text: '🐱 Cat',
+          onPress: async () => {
+            setMyCharacter('cat');
+            setAvatarUri('cat');
+            await updateUserAvatarInSupabase(handle, 'cat').catch(() => {});
+            await updateContactAvatar(handle, 'cat').catch(() => {});
+          },
+        },
+        {
+          text: '🐶 Puppy',
+          onPress: async () => {
+            setMyCharacter('puppy');
+            setAvatarUri('puppy');
+            await updateUserAvatarInSupabase(handle, 'puppy').catch(() => {});
+            await updateContactAvatar(handle, 'puppy').catch(() => {});
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
   };
 
   const handleReset = () => {
@@ -147,22 +130,15 @@ export default function ProfileScreen({ navigation }) {
 
       {/* Avatar + Identity */}
       <View style={styles.hero}>
-        <TouchableOpacity style={styles.avatarTouchable} onPress={handlePickProfilePhoto} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.avatarTouchable} onPress={handlePickPersona} activeOpacity={0.8}>
           <View style={styles.avatarCircle}>
-            {displayPhoto ? (
-              <Image source={{ uri: displayPhoto }} style={styles.avatarPhoto} />
-            ) : (
-              <UserAvatarIcon size={52} color={Colors.accent.primary} />
-            )}
-          </View>
-          <View style={styles.cameraBadge}>
-            <CameraIcon size={14} color="#fff" />
+            <CharacterAvatar character={myCharacter || 'panda'} state="idle" size={96} />
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={handlePickProfilePhoto} style={styles.changePhotoBtn}>
+        <TouchableOpacity onPress={handlePickPersona} style={styles.changePhotoBtn}>
           <Text style={styles.changePhotoText}>
-            {displayPhoto ? 'Change Photo' : 'Upload Profile Picture'}
+            {myCharacter === 'panda' ? '🐼 Panda' : myCharacter === 'cat' ? '🐱 Cat' : '🐶 Puppy'} · Tap to change
           </Text>
         </TouchableOpacity>
 
@@ -272,15 +248,31 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Stealth & Anti-Snoop ("Hidden Gem") */}
+      {/* Stealth & Game Decoy ("Hidden Gem") */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Stealth & Anti-Snoop (Hidden Gem)</Text>
+        <Text style={styles.sectionTitle}>Stealth & Game Decoy (Hidden Gem)</Text>
+
+        <TouchableOpacity
+          style={[styles.row, { backgroundColor: 'rgba(217,119,87,0.08)' }]}
+          onPress={() => navigation.navigate('BrickBreaker')}
+          activeOpacity={0.7}
+        >
+          <View>
+            <Text style={[styles.rowLabel, { color: '#D97757', fontWeight: '800' }]}>
+              🎮 Play Animal Smash Game
+            </Text>
+            <Text style={styles.rowSub}>
+              Brick Breaker game where Panda, Cat & Puppy heads hit bricks!
+            </Text>
+          </View>
+          <Text style={[styles.rowArrow, { color: '#D97757' }]}>→</Text>
+        </TouchableOpacity>
 
         <View style={styles.row}>
           <View style={{ flex: 1, paddingRight: Spacing.sm }}>
-            <Text style={styles.rowLabel}>Calculator Decoy Mode</Text>
+            <Text style={styles.rowLabel}>Animal Game Decoy Mode</Text>
             <Text style={styles.rowSub}>
-              App disguises as a working calculator. Enter your secret PIN to unlock.
+              Disguises app as Animal Smash brick breaker game on phone lock. Enter secret PIN or 4-tap title to unlock.
             </Text>
           </View>
           <Switch
@@ -289,12 +281,12 @@ export default function ProfileScreen({ navigation }) {
               setStealthModeEnabled(val);
               if (val) {
                 Alert.alert(
-                  'Calculator Decoy Enabled 🧮',
-                  `When opening SecureBox, it will now look and compute like a normal calculator.\n\nTo unlock, type ${stealthPin}= into the calculator.`
+                  'Animal Game Decoy Enabled 🎮',
+                  `When opening SecureBox, it will disguise as the Animal Smash brick breaker game.\n\nTo unlock, tap the title 4 times or tap the secret lock icon and enter PIN: ${stealthPin}.`
                 );
               }
             }}
-            trackColor={{ false: '#3a3a44', true: Colors.accent.primary }}
+            trackColor={{ false: '#3a3a44', true: '#D97757' }}
             thumbColor="#ffffff"
           />
         </View>
@@ -306,13 +298,13 @@ export default function ProfileScreen({ navigation }) {
               onPress={() => {
                 Alert.alert(
                   'Secret Unlock PIN',
-                  `Your current unlock code is: ${stealthPin}=\n\nTo unlock SecureBox from the calculator, type ${stealthPin} followed by =.`
+                  `Your current unlock PIN is: ${stealthPin}\n\nTo unlock SecureBox from the game, tap the title 4 times or tap the lock icon and enter ${stealthPin}.`
                 );
               }}
             >
               <View>
                 <Text style={styles.rowLabel}>Secret Unlock PIN</Text>
-                <Text style={styles.rowSub}>Code: {stealthPin}= (Reveals real SecureBox)</Text>
+                <Text style={styles.rowSub}>PIN: {stealthPin} (Reveals real SecureBox)</Text>
               </View>
               <Text style={styles.rowArrow}>→</Text>
             </TouchableOpacity>
@@ -322,13 +314,13 @@ export default function ProfileScreen({ navigation }) {
               onPress={() => {
                 Alert.alert(
                   'Decoy School Chat PIN',
-                  `Your current decoy code is: ${stealthDecoyPin}=\n\nIf forced to unlock your phone, enter ${stealthDecoyPin}= into the calculator. It opens a fake 'Study Connect' app with innocent homework and teacher messages.`
+                  `Your current decoy PIN is: ${stealthDecoyPin}\n\nIf forced to unlock your phone, enter ${stealthDecoyPin}. It opens a fake 'Study Connect' app with innocent homework and teacher messages.`
                 );
               }}
             >
               <View>
                 <Text style={styles.rowLabel}>Decoy Vault PIN (Study Connect)</Text>
-                <Text style={styles.rowSub}>Code: {stealthDecoyPin}= (Plausible deniability)</Text>
+                <Text style={styles.rowSub}>PIN: {stealthDecoyPin} (Plausible deniability)</Text>
               </View>
               <Text style={styles.rowArrow}>→</Text>
             </TouchableOpacity>
@@ -337,21 +329,21 @@ export default function ProfileScreen({ navigation }) {
               <View>
                 <Text style={styles.rowLabel}>Emergency Duress PIN</Text>
                 <Text style={styles.rowSub}>
-                  Code: {stealthDuressPin}= (Silently nukes all data on emergency)
+                  PIN: {stealthDuressPin} (Silently nukes all data on emergency)
                 </Text>
               </View>
             </View>
 
             <TouchableOpacity
-              style={[styles.row, { backgroundColor: 'rgba(224, 40, 136, 0.08)' }]}
+              style={[styles.row, { backgroundColor: 'rgba(217,119,87,0.1)' }]}
               onPress={() => {
                 setStealthUnlocked(false);
               }}
             >
-              <Text style={[styles.rowLabel, { color: Colors.accent.primary, fontWeight: '700' }]}>
-                🔒 Lock to Calculator Now
+              <Text style={[styles.rowLabel, { color: '#D97757', fontWeight: '700' }]}>
+                🔒 Lock to Animal Game Now
               </Text>
-              <Text style={[styles.rowArrow, { color: Colors.accent.primary }]}>→</Text>
+              <Text style={[styles.rowArrow, { color: '#D97757' }]}>→</Text>
             </TouchableOpacity>
           </>
         ) : null}
