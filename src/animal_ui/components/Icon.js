@@ -21,7 +21,6 @@ import {
 } from 'lucide-react-native';
 import { useColors } from '../theme/ThemeProvider';
 
-// Outline icons, 24px grid, thin stroke: the same look as the Claude app.
 export const ICONS = {
   send: Send,
   sendUp: ArrowUp,
@@ -43,20 +42,14 @@ export const ICONS = {
   settings: Settings,
 };
 
-export type IconName = keyof typeof ICONS;
-
 export function Icon({
   name,
   size = 24,
   color,
   strokeWidth = 1.75,
-}: {
-  name: IconName;
-  size?: number;
-  color?: string;
-  strokeWidth?: number;
 }) {
-  const colors = useColors();
-  const Cmp = ICONS[name];
-  return <Cmp size={size} color={color ?? colors.text} strokeWidth={strokeWidth} />;
+  const c = useColors();
+  const Component = ICONS[name];
+  if (!Component) return null;
+  return <Component size={size} color={color ?? c.text} strokeWidth={strokeWidth} />;
 }

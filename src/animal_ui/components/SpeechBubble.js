@@ -5,7 +5,7 @@ import { fonts, radius, spacing } from '../theme/tokens';
 import { layout } from '../theme/layout';
 import { duration, easing } from '../theme/motion';
 
-function Dot({ index, color }: { index: number; color: string }) {
+function Dot({ index, color }) {
   const y = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -22,7 +22,7 @@ function Dot({ index, color }: { index: number; color: string }) {
   return <Animated.View style={[styles.dot, { backgroundColor: color, transform: [{ translateY: y }] }]} />;
 }
 
-export function SpeechBubble({ text, typing }: { text?: string; typing?: boolean }) {
+export function SpeechBubble({ text, typing }) {
   const c = useColors();
   const fade = useRef(new Animated.Value(1)).current;
 

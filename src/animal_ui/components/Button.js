@@ -1,9 +1,7 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../theme/ThemeProvider';
 import { radius, spacing, type } from '../theme/tokens';
-
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'brand';
 
 export function Button({
   label,
@@ -13,14 +11,6 @@ export function Button({
   loading,
   fullWidth,
   style,
-}: {
-  label: string;
-  onPress?: () => void;
-  variant?: ButtonVariant;
-  icon?: React.ReactNode;
-  loading?: boolean;
-  fullWidth?: boolean;
-  style?: StyleProp<ViewStyle>;
 }) {
   const c = useColors();
   const look = {
@@ -29,7 +19,7 @@ export function Button({
     ghost: { bg: 'transparent', fg: c.text, border: 'transparent' },
     danger: { bg: c.danger, fg: c.onDanger, border: 'transparent' },
     brand: { bg: c.brand, fg: c.onBrand, border: 'transparent' },
-  }[variant];
+  }[variant] || { bg: c.surface, fg: c.text, border: c.borderStrong };
 
   return (
     <Pressable

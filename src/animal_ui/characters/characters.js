@@ -1,20 +1,9 @@
-export type CharacterId = 'panda' | 'cat' | 'puppy';
-export type CharacterState =
-  | 'idle'
-  | 'talking'
-  | 'typing'
-  | 'mute'
-  | 'call'
-  | 'video'
-  | 'deafen'
-  | 'cameraoff';
-
-export const CHARACTERS: CharacterId[] = ['panda', 'cat', 'puppy'];
-export const STATES: CharacterState[] = [
+export const CHARACTERS = ['panda', 'cat', 'puppy'];
+export const STATES = [
   'idle', 'talking', 'typing', 'mute', 'call', 'video', 'deafen', 'cameraoff',
 ];
 
-export const DEFAULT_CHARACTER = { male: 'panda', female: 'cat' } as const;
+export const DEFAULT_CHARACTER = { male: 'panda', female: 'cat' };
 
 export const VIEWBOX = '-8 -8 136 142';
 export const VIEWBOX_RATIO = 142 / 136;
@@ -22,12 +11,12 @@ export const VIEWBOX_RATIO = 142 / 136;
 const CHEEKS =
   '<circle cx="28" cy="78" r="5" fill="#F4C0D1"/><circle cx="92" cy="78" r="5" fill="#F4C0D1"/>';
 
-const mouth = (cy: number, open: boolean, rx: number) =>
+const mouth = (cy, open, rx) =>
   open
     ? `<ellipse cx="60" cy="${cy + 3}" rx="${rx}" ry="6" fill="#712B13"/>`
     : `<ellipse cx="60" cy="${cy}" rx="${rx}" ry="2" fill="#712B13"/>`;
 
-const BASE: Record<CharacterId, (open: boolean) => string> = {
+const BASE = {
   panda: (open) =>
     '<circle cx="26" cy="26" r="15" fill="#2C2C2A"/><circle cx="94" cy="26" r="15" fill="#2C2C2A"/>' +
     '<circle cx="60" cy="66" r="44" fill="#FFFFFF" stroke="#2C2C2A" stroke-width="2"/>' +
@@ -58,51 +47,43 @@ const BASE: Record<CharacterId, (open: boolean) => string> = {
     mouth(85, open, 5),
 };
 
-const PAW = 'fill="#FAECE7" stroke="#712B13" stroke-width="2"';
-
-const OVERLAY: Partial<Record<CharacterState, (beat: boolean) => string>> = {
+const OVERLAYS = {
+  idle: () => '',
+  talking: () => '',
   typing: (beat) =>
-    '<rect x="30" y="96" width="60" height="30" rx="6" fill="#2C2C2A"/>' +
-    '<rect x="34" y="100" width="52" height="22" rx="3" fill="#85B7EB"/>' +
-    `<circle cx="26" cy="${beat ? 103 : 108}" r="9" ${PAW}/>` +
-    `<circle cx="94" cy="${beat ? 108 : 103}" r="9" ${PAW}/>`,
+    '<rect x="42" y="86" width="36" height="42" rx="6" fill="#2C2C2A" stroke="#5E5D59" stroke-width="1.5"/>' +
+    '<rect x="46" y="90" width="28" height="28" rx="3" fill="#FAF9F5"/>' +
+    `<circle cx="${beat ? 40 : 44}" cy="${beat ? 98 : 102}" r="6" fill="#D49A6A" stroke="#854F0B" stroke-width="1.5"/>` +
+    `<circle cx="${beat ? 80 : 76}" cy="${beat ? 102 : 98}" r="6" fill="#D49A6A" stroke="#854F0B" stroke-width="1.5"/>`,
   mute: () =>
-    `<rect x="54" y="66" width="12" height="36" rx="6" ${PAW}/>` +
-    `<circle cx="60" cy="106" r="13" ${PAW}/>`,
+    '<ellipse cx="60" cy="84" rx="11" ry="8" fill="#D49A6A" stroke="#854F0B" stroke-width="1.5"/>' +
+    '<rect x="57" y="72" width="6" height="16" rx="3" fill="#D49A6A" stroke="#854F0B" stroke-width="1.5"/>',
   call: () =>
-    '<path d="M16 64 A44 44 0 0 1 104 64" stroke="#534AB7" stroke-width="6" stroke-linecap="round"/>' +
-    '<rect x="8" y="54" width="14" height="26" rx="6" fill="#534AB7"/>' +
-    '<rect x="98" y="54" width="14" height="26" rx="6" fill="#534AB7"/>' +
-    '<path d="M105 80 Q104 100 74 94" stroke="#534AB7" stroke-width="3" stroke-linecap="round"/>' +
-    '<circle cx="72" cy="94" r="5" fill="#3C3489"/>',
+    '<path d="M22 66 C22 28, 98 28, 98 66" fill="none" stroke="#2C2C2A" stroke-width="4" stroke-linecap="round"/>' +
+    '<rect x="14" y="56" width="12" height="22" rx="5" fill="#D97757"/>' +
+    '<rect x="94" y="56" width="12" height="22" rx="5" fill="#D97757"/>' +
+    '<path d="M20 74 C20 92, 44 94, 52 94" fill="none" stroke="#2C2C2A" stroke-width="2.5" stroke-linecap="round"/>' +
+    '<circle cx="54" cy="94" r="3.5" fill="#D97757"/>',
   video: () =>
-    '<rect x="-4" y="-4" width="128" height="134" rx="18" stroke="#378ADD" stroke-width="3"/>' +
-    '<circle cx="10" cy="8" r="4" fill="#E24B4A"/>',
+    '<rect x="8" y="14" width="104" height="104" rx="16" fill="none" stroke="#2C84DB" stroke-width="2.5" stroke-dasharray="6 4"/>' +
+    '<circle cx="100" cy="26" r="4" fill="#C0392B"/>',
   deafen: () =>
-    `<ellipse cx="9" cy="62" rx="12" ry="16" ${PAW}/>` +
-    `<ellipse cx="111" cy="62" rx="12" ry="16" ${PAW}/>`,
+    '<ellipse cx="20" cy="64" rx="8" ry="12" fill="#D49A6A" stroke="#854F0B" stroke-width="1.5"/>' +
+    '<ellipse cx="100" cy="64" rx="8" ry="12" fill="#D49A6A" stroke="#854F0B" stroke-width="1.5"/>',
   cameraoff: () =>
-    '<path d="M60 4 C106 30 106 98 60 126 C14 98 14 30 60 4Z" fill="#97C459" stroke="#3B6D11" stroke-width="2" stroke-linejoin="round"/>' +
-    '<path d="M60 10 L60 122" stroke="#3B6D11" stroke-width="2" stroke-linecap="round"/>' +
-    '<path d="M60 40 L38 26M60 62 L32 46M60 84 L34 68M60 40 L82 26M60 62 L88 46M60 84 L86 68" stroke="#3B6D11" stroke-width="1.5" stroke-linecap="round"/>',
+    '<path d="M60 40 C36 40 20 64 20 86 C20 104 38 116 60 116 C82 116 100 104 100 86 C100 64 84 40 60 40 Z" fill="#2F7D4F" opacity="0.95"/>' +
+    '<path d="M60 44 L60 112" stroke="#E6F2EA" stroke-width="2" stroke-linecap="round"/>' +
+    '<path d="M60 62 L44 54M60 78 L40 70M60 94 L44 88M60 62 L76 54M60 78 L80 70M60 94 L76 88" stroke="#E6F2EA" stroke-width="1.5" stroke-linecap="round"/>',
 };
 
-export interface SvgOptions {
-  /** Flips between two frames: mouth open/closed (talking) or paws up/down (typing). */
-  beat?: boolean;
-}
-
-export function characterSvg(
-  character: CharacterId,
-  state: CharacterState = 'idle',
-  { beat = false }: SvgOptions = {},
-): string {
-  const mouthOpen = state === 'talking' && beat;
-  const overlay = OVERLAY[state] ? OVERLAY[state]!(beat) : '';
+export function characterSvg(character, state = 'idle', options = {}) {
+  const open = state === 'talking' ? !!options.beat : false;
+  const baseFn = BASE[character] || BASE.panda;
+  const overlayFn = OVERLAYS[state] || OVERLAYS.idle;
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VIEWBOX}" fill="none">` +
-    BASE[character](mouthOpen) +
-    overlay +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VIEWBOX}">` +
+    baseFn(open) +
+    overlayFn(!!options.beat) +
     '</svg>'
   );
 }

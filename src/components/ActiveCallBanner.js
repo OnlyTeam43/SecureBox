@@ -77,7 +77,7 @@ export default function ActiveCallBanner({ navigationRef, currentRouteName }) {
 
   // Determine current route: check prop or navigationRef
   let activeRoute = currentRouteName;
-  if (!activeRoute && navigationRef) {
+  if (!activeRoute && navigationRef && navigationRef.isReady && navigationRef.isReady()) {
     try {
       activeRoute = navigationRef.getCurrentRoute()?.name;
     } catch (_) {}
@@ -95,7 +95,7 @@ export default function ActiveCallBanner({ navigationRef, currentRouteName }) {
   const isConnected = activeCall.status === 'connected';
 
   const handleReturnToCall = () => {
-    if (navigationRef) {
+    if (navigationRef && navigationRef.isReady && navigationRef.isReady()) {
       navigationRef.navigate('Call', {
         callId: activeCall.callId,
         contactHandle: activeCall.partnerHandle,

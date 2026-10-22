@@ -80,7 +80,7 @@ export default function InAppNotificationBanner({ navigationRef }) {
     if (timerRef.current) clearTimeout(timerRef.current);
     hideBanner();
 
-    if (!navigationRef) return;
+    if (!navigationRef || !navigationRef.isReady || !navigationRef.isReady()) return;
 
     if (inAppNotification.type === 'chat' && inAppNotification.data) {
       navigationRef.navigate('Chat', {

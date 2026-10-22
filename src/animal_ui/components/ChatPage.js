@@ -1,7 +1,7 @@
 import React from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChatScene, ScenePerson } from './ChatScene';
+import { ChatScene } from './ChatScene';
 import { Composer } from './Composer';
 import { Icon } from './Icon';
 import { IconButton } from './IconButton';
@@ -9,23 +9,7 @@ import { useColors } from '../theme/ThemeProvider';
 import { radius, spacing, type } from '../theme/tokens';
 import { layout } from '../theme/layout';
 
-export interface ChatPageProps {
-  me: ScenePerson;
-  friend: ScenePerson;
-  onSend: (text: string) => void;
-  onTypingChange?: (typing: boolean) => void;
-  onBack?: () => void;
-  onVoiceCall?: () => void;
-  onVideoCall?: () => void;
-  onAdd?: () => void;
-  onSwitchView?: () => void;
-  onPressMe?: () => void;
-  onPressFriend?: () => void;
-  children?: React.ReactNode;
-}
-
-// Full chat screen: header, two-character scene, Claude-style composer with safe-area support.
-export function ChatPage(p: ChatPageProps) {
+export function ChatPage(p) {
   const c = useColors();
   const insets = useSafeAreaInsets();
 
@@ -37,7 +21,7 @@ export function ChatPage(p: ChatPageProps) {
           <IconButton icon="back" label="Back" variant="ghost" size={layout.headerIcon} onPress={p.onBack} />
           <View style={styles.titleBox}>
             <Text style={[type.title, { color: c.text }]} numberOfLines={1}>
-              {p.friend.name}
+              {p.friend?.name || 'Friend'}
             </Text>
             <View style={styles.sub}>
               <Icon name="lock" size={11} color={c.textMuted} />
@@ -61,7 +45,7 @@ export function ChatPage(p: ChatPageProps) {
           )}
         </View>
 
-        {/* Optional Custom Content (e.g. Recent Timeline) */}
+        {/* Optional Custom Content */}
         {p.children}
 
         {/* Two-Character Interactive Stage */}

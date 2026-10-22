@@ -6,18 +6,11 @@ import { useColors } from '../theme/ThemeProvider';
 import { radius, spacing, type } from '../theme/tokens';
 import { layout } from '../theme/layout';
 
-// Claude-style input: one big rounded box, plus button on the left,
-// round clay send button on the right (arrow up).
 export function Composer({
   onSend,
   onTypingChange,
   onAdd,
   placeholder = 'Say something sweet',
-}: {
-  onSend: (text: string) => void;
-  onTypingChange?: (typing: boolean) => void;
-  onAdd?: () => void;
-  placeholder?: string;
 }) {
   const c = useColors();
   const [draft, setDraft] = useState('');

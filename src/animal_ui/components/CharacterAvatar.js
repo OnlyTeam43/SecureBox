@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated } from 'react-native';
 import { SvgXml } from 'react-native-svg';
-import { CharacterId, CharacterState, VIEWBOX_RATIO, characterSvg } from '../characters/characters';
+import { VIEWBOX_RATIO, characterSvg } from '../characters/characters';
 import { character as timing, easing } from '../theme/motion';
 
 export function CharacterAvatar({
@@ -9,11 +9,6 @@ export function CharacterAvatar({
   state = 'idle',
   size = 150,
   tilt = 0,
-}: {
-  character: CharacterId;
-  state?: CharacterState;
-  size?: number;
-  tilt?: number;
 }) {
   const [beat, setBeat] = useState(false);
   const bob = useRef(new Animated.Value(0)).current;

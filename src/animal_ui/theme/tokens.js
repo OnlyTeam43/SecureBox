@@ -23,9 +23,7 @@ export const lightColors = {
   bgSuccess: '#E6F2EA',
 };
 
-export type Colors = typeof lightColors;
-
-export const darkColors: Colors = {
+export const darkColors = {
   bg: '#262624',
   surface: '#30302E',
   surfaceMuted: '#1F1E1D',
@@ -51,18 +49,17 @@ export const radius = { sm: 8, md: 12, lg: 16, xl: 24, pill: 999 };
 export const border = { width: StyleSheet.hairlineWidth };
 
 export const fonts = {
-  sans: Platform.select({ ios: 'System', android: 'sans-serif', default: 'System' }) as string,
-  // Character speech uses the serif voice, the chrome stays sans.
-  voice: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }) as string,
+  sans: Platform.select({ ios: 'System', android: 'sans-serif', default: 'System' }),
+  voice: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
 };
 
 // Two weights only: 400 regular, 500 medium. Sentence case everywhere.
 export const type = {
-  caption: { fontSize: 12, lineHeight: 16, fontWeight: '400' as const },
-  footnote: { fontSize: 13, lineHeight: 18, fontWeight: '400' as const },
-  body: { fontSize: 16, lineHeight: 24, fontWeight: '400' as const },
-  bodyMedium: { fontSize: 16, lineHeight: 24, fontWeight: '500' as const },
-  title: { fontSize: 18, lineHeight: 24, fontWeight: '500' as const },
-  heading: { fontSize: 22, lineHeight: 28, fontWeight: '500' as const },
-  timer: { fontSize: 28, lineHeight: 34, fontWeight: '500' as const },
+  caption: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
+  footnote: { fontSize: 13, lineHeight: 18, fontWeight: '400' },
+  body: { fontSize: 16, lineHeight: 24, fontWeight: '400' },
+  bodyMedium: { fontSize: 16, lineHeight: 24, fontWeight: '500' },
+  title: { fontSize: 18, lineHeight: 24, fontWeight: '500' },
+  heading: { fontSize: 22, lineHeight: 28, fontWeight: '500' },
+  timer: { fontSize: 28, lineHeight: 34, fontWeight: '500' },
 };
