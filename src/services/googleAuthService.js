@@ -1,13 +1,23 @@
 // src/services/googleAuthService.js
 // 1-Tap Google Sign-In Service for SecureBox
 // Auto-fetches identity (Name, Gmail, Profile Photo) & auto-derives unique @handle
+// Safely falls back if native module is not compiled into the current binary.
 
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { supabase, checkHandleAvailability } from './supabase';
 import { useUserStore } from '../store/useUserStore';
 
+// Safe dynamic load of @react-native-google-signin/google-signin
+let GoogleSignin = null;
+try {
+  const gModule = require('@react-native-google-signin/google-signin');
+  GoogleSignin = gModule?.GoogleSignin || null;
+} catch (_) {
+  GoogleSignin = null;
+}
+
 // Default Web Client ID from Firebase project "Animal Smash SB" (google-services.json)
-export const DEFAULT_WEB_CLIENT_ID = '457377823284-kbak1tq6qg91rsa1g7hi7ku546nj15m6.apps.googleusercontent.com';
+export const DEFAULT_WEB_CLIENT_ID =
+  '457377823284-kbak1tq6qg91rsa1g7hi7ku546nj15m6.apps.googleusercontent.com';
 let currentWebClientId = DEFAULT_WEB_CLIENT_ID;
 
 /**
@@ -27,6 +37,7 @@ export const processGoogleProfile = async ({ name, email, photo = null }) => {
  */
 export const configureGoogleSignIn = (webClientId = DEFAULT_WEB_CLIENT_ID) => {
   currentWebClientId = webClientId || DEFAULT_WEB_CLIENT_ID;
+  if (!GoogleSignin) return;
   try {
     GoogleSignin.configure({
       webClientId: currentWebClientId,
@@ -38,8 +49,12 @@ export const configureGoogleSignIn = (webClientId = DEFAULT_WEB_CLIENT_ID) => {
   }
 };
 
-// Initialize configuration
-configureGoogleSignIn();
+// Initialize configuration if native module exists
+if (GoogleSignin) {
+  try {
+    configureGoogleSignIn();
+  } catch (_) {}
+}
 
 /**
  * Auto-generate a clean, unique @handle from an email address
@@ -74,9 +89,18 @@ export const autoDeriveUniqueHandle = async (email, name = '') => {
 
 /**
  * Perform 1-Tap Google Sign-In
- * Returns { success: true, user } or throws Error
+ * Returns { success: true, user } or { needsAccountPicker: true }
  */
 export const signInWithGoogle = async (webClientId = null) => {
+  // If native module is not compiled into binary (e.g. running in Expo Go)
+  if (!GoogleSignin) {
+    console.log('[GoogleAuth] Native GoogleSignin not in current binary — opening fast account picker');
+    return {
+      success: false,
+      needsAccountPicker: true,
+    };
+  }
+
   try {
     if (webClientId && webClientId !== currentWebClientId) {
       configureGoogleSignIn(webClientId);
@@ -90,14 +114,14 @@ export const signInWithGoogle = async (webClientId = null) => {
     const idToken = response.data?.idToken || response.idToken;
 
     if (!gUser || !gUser.email) {
-      throw new Error('Google Sign-In failed: No account email returned.');
+      return { needsAccountPicker: true };
     }
 
     const email = gUser.email.toLowerCase().trim();
     const displayName = (gUser.name || gUser.givenName || 'SecureBox User').trim();
     const photoUrl = gUser.photo || null;
 
-    // 2. Check if user already exists in Supabase users table (by email or mobile_number prefix)
+    // 2. Check if user already exists in Supabase users table
     let existingUser = null;
     const { data: foundByEmail } = await supabase
       .from('users')
@@ -108,7 +132,6 @@ export const signInWithGoogle = async (webClientId = null) => {
     if (foundByEmail) {
       existingUser = foundByEmail;
     } else {
-      // Also check standard mobile_number or handle matches
       const { data: foundDirect } = await supabase
         .from('users')
         .select('*')
@@ -119,7 +142,7 @@ export const signInWithGoogle = async (webClientId = null) => {
 
     let finalHandle = existingUser?.handle;
     let finalNickname = existingUser?.nickname || displayName;
-    let finalAvatarId = existingUser?.avatar_id || photoUrl || 'avatar_rose';
+    let finalAvatarId = existingUser?.avatar_id || photoUrl || 'panda';
 
     // 3. If new user, auto-derive unique handle and upsert into Supabase
     if (!existingUser) {
@@ -154,7 +177,6 @@ export const signInWithGoogle = async (webClientId = null) => {
           token: idToken,
         });
       } catch (authErr) {
-        // Log auth warning but don't block user profile login
         console.warn('[GoogleAuth] Supabase Auth exchange notice:', authErr.message);
       }
     }
@@ -182,7 +204,10 @@ export const signInWithGoogle = async (webClientId = null) => {
       console.log('[GoogleAuth] User cancelled Google Sign-In');
       return { cancelled: true };
     }
-    console.error('[GoogleAuth] Error:', error);
-    throw error;
+    console.warn('[GoogleAuth] Native sign-in notice (falling back to account picker):', error.message || error);
+    return {
+      success: false,
+      needsAccountPicker: true,
+    };
   }
 };

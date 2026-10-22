@@ -20,6 +20,7 @@ import {
   UserAvatarIcon,
 } from './Icons';
 import { getAvatar } from '../constants/avatars';
+import { CharacterBall } from '../animal_ui/components/CharacterBall.js';
 
 export default function InAppNotificationBanner({ navigationRef }) {
   const insets = useSafeAreaInsets();
@@ -141,7 +142,7 @@ export default function InAppNotificationBanner({ navigationRef }) {
           ) : presetAvatar ? (
             <Image source={presetAvatar} style={styles.avatarImg} />
           ) : (
-            <UserAvatarIcon size={24} color={Colors.accent.primary} />
+            <CharacterBall character={inAppNotification?.avatar || 'panda'} size={28} />
           )}
         </View>
 

@@ -20,6 +20,7 @@ import { getContactByHandle, insertCallLog } from '../db/database';
 import { notifyMissedCall } from '../services/notificationService';
 import { useBadgeStore } from '../store/useBadgeStore';
 import { getAvatar } from '../constants/avatars';
+import { CharacterBall } from '../animal_ui/components/CharacterBall.js';
 
 export default function IncomingCallModal({ callData, onDismiss }) {
   const insets = useSafeAreaInsets();
@@ -236,7 +237,7 @@ export default function IncomingCallModal({ callData, onDismiss }) {
             ) : presetAvatar ? (
               <Image source={presetAvatar} style={styles.avatarImage} />
             ) : (
-              <UserAvatarIcon size={76} color={Colors.accent.primary} />
+              <CharacterBall character={callerAvatarUri || 'panda'} size={76} />
             )}
           </View>
         </View>
