@@ -452,9 +452,9 @@ export const clearAllCallLogs = async () => {
 export const getTotalUnreadMessagesCount = async () => {
   const db = await getDB();
   const row = await db.getFirstAsync(
-    `SELECT SUM(unread) as total FROM conversations`
+    `SELECT COALESCE(SUM(CASE WHEN unread > 0 THEN unread ELSE 0 END), 0) as total FROM conversations`
   );
-  return row?.total || 0;
+  return Math.max(0, Number(row?.total) || 0);
 };
 
 /**

@@ -21,6 +21,7 @@ import {
   initNotifications,
   handleNotificationClick,
   checkInitialNotification,
+  registerPushToken,
 } from '../services/notificationService';
 import { parseInviteUrl, handleIncomingInvite } from '../services/inviteService';
 
@@ -211,11 +212,12 @@ export default function AppNavigator() {
     };
   }, []);
 
-  // Initial call receiver setup & badge check when user logs in
+  // Initial call receiver setup, badge check & remote push token registration when user logs in
   useEffect(() => {
     if (isSetup && myHandle) {
       initCallReceiver(myHandle, handleIncomingCall);
       useBadgeStore.getState().refreshBadges(myHandle);
+      registerPushToken(myHandle);
 
       // Check if a call invite was sent while app was launching
       fetchPendingCallInvite(myHandle).then((pending) => {

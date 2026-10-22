@@ -18,6 +18,8 @@ import {
   deleteConversationsBatch,
   markSentMessagesRead,
   markSentMessagesDelivered,
+  markConversationRead,
+  updateConversationLastMessage,
 } from '../../db/database';
 import {
   findUserByHandle,
@@ -41,6 +43,7 @@ import {
   notifyIncomingMessage,
   notifyConnectionRequest,
   notifyRequestAccepted,
+  getActiveConversation,
 } from '../../services/notificationService';
 import { shareProfileInvite } from '../../services/inviteService';
 import { useBadgeStore } from '../../store/useBadgeStore';
@@ -151,6 +154,8 @@ export default function InboxScreen({ navigation }) {
           localMedia = await saveIncomingBase64ToVault(msg.id, msg.media_uri);
         }
 
+        const isActiveChat = getActiveConversation() === convId;
+
         await insertMessage({
           id: msg.id,
           conversationId: convId,
@@ -160,24 +165,34 @@ export default function InboxScreen({ navigation }) {
           mediaUri: localMedia,
           sentAt: msg.sent_at,
           expiresAt: msg.expires_at,
+          read: isActiveChat ? 1 : 0,
         });
 
-        await incrementConversationUnread(
-          convId,
-          msg.body || 'Photo',
-          msg.sent_at,
-          msg.sender
-        );
+        if (!isActiveChat) {
+          await incrementConversationUnread(
+            convId,
+            msg.body || 'Photo',
+            msg.sent_at,
+            msg.sender
+          );
+          notifyIncomingMessage({
+            senderNickname: contactNick,
+            senderHandle,
+            text: msg.body || 'Sent a photo 📷',
+            conversationId: convId,
+            contactAvatarId: contactAvatar,
+          });
+        } else {
+          await updateConversationLastMessage(
+            convId,
+            msg.body || 'Photo',
+            msg.sent_at,
+            msg.sender
+          );
+          await markConversationRead(convId, myHandle);
+        }
 
         markMessagesDeliveredInSupabase(convId, myHandle, msg.sender);
-
-        notifyIncomingMessage({
-          senderNickname: contactNick,
-          senderHandle,
-          text: msg.body || 'Sent a photo 📷',
-          conversationId: convId,
-          contactAvatarId: contactAvatar,
-        });
       }
       await loadConversations();
     } catch (err) {
@@ -237,6 +252,8 @@ export default function InboxScreen({ navigation }) {
           localMedia = await saveIncomingBase64ToVault(incoming.id, incoming.media_uri);
         }
 
+        const isActiveChat = getActiveConversation() === convId;
+
         await insertMessage({
           id: incoming.id,
           conversationId: convId,
@@ -246,25 +263,35 @@ export default function InboxScreen({ navigation }) {
           mediaUri: localMedia,
           sentAt: incoming.sent_at,
           expiresAt: incoming.expires_at,
+          read: isActiveChat ? 1 : 0,
         });
 
-        await incrementConversationUnread(
-          convId,
-          incoming.body || 'Photo',
-          incoming.sent_at,
-          incoming.sender
-        );
+        if (!isActiveChat) {
+          await incrementConversationUnread(
+            convId,
+            incoming.body || 'Photo',
+            incoming.sent_at,
+            incoming.sender
+          );
+          notifyIncomingMessage({
+            senderNickname: contactNick,
+            senderHandle,
+            text: incoming.body || 'Sent a photo 📷',
+            conversationId: convId,
+            contactAvatarId: contactAvatar,
+          });
+        } else {
+          await updateConversationLastMessage(
+            convId,
+            incoming.body || 'Photo',
+            incoming.sent_at,
+            incoming.sender
+          );
+          await markConversationRead(convId, myHandle);
+        }
 
         markMessagesDeliveredInSupabase(convId, myHandle, incoming.sender);
         loadConversations();
-
-        notifyIncomingMessage({
-          senderNickname: contactNick,
-          senderHandle,
-          text: incoming.body || 'Sent a photo 📷',
-          conversationId: convId,
-          contactAvatarId: contactAvatar,
-        });
       }
     },
     async (statusEvent) => {
@@ -560,6 +587,14 @@ export default function InboxScreen({ navigation }) {
           if (inSelectionMode) {
             toggleSelectConv(item.id);
           } else {
+            // Instantly zero out unread count in local state & badge store (no lag!)
+            if (item.unread > 0) {
+              setConversations((prev) =>
+                prev.map((c) => (c.id === item.id ? { ...c, unread: 0 } : c))
+              );
+              markConversationRead(item.id, myHandle);
+              useBadgeStore.getState().decrementUnread(item.unread);
+            }
             navigation.navigate('Chat', {
               conversationId: item.id,
               contactHandle: item.handle,

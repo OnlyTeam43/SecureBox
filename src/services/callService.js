@@ -1,7 +1,7 @@
 // src/services/callService.js
 // Supabase Realtime calling signaling service for SecureBox
 
-import { supabase, clearPendingCallInvite } from './supabase';
+import { supabase, clearPendingCallInvite, getUserPushToken, sendExpoPushNotification } from './supabase';
 import { notifyIncomingCall, dismissAllCallNotifications } from './notificationService';
 
 let activeCallInfo = null;
@@ -271,6 +271,31 @@ export const callService = {
       });
     } catch (dbErr) {
       console.log('Durable call invite write note:', dbErr.message);
+    }
+
+    // Remote Push Notification for incoming call: wakes device via FCM even when receiver app is completely closed
+    if (receiverClean) {
+      getUserPushToken(receiverClean)
+        .then((recipientToken) => {
+          if (recipientToken) {
+            sendExpoPushNotification({
+              toToken: recipientToken,
+              title: `Incoming ${callType === 'video' ? 'Video' : 'Voice'} Call 📞`,
+              body: `${callerNickname || ('@' + callerClean)} is calling you. Tap to answer!`,
+              channelId: 'calls_incoming_v2',
+              priority: 'high',
+              data: {
+                type: 'call',
+                callId,
+                callerHandle: callerClean,
+                callerNickname,
+                callerAvatarId: sanitizedAvatarId,
+                callType,
+              },
+            });
+          }
+        })
+        .catch(() => {});
     }
 
     // 3. Connect to the receiver's personal call inbox channel AND general user channel

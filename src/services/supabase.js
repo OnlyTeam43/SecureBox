@@ -365,7 +365,110 @@ export const sendMessageToSupabase = async ({
     }
   }
 
+  // 4. Remote Push Notification to recipient's phone via Expo/FCM
+  // Ensures recipient gets sound & notification even if their app is completely closed!
+  if (receiverClean) {
+    getUserPushToken(receiverClean)
+      .then((recipientToken) => {
+        if (recipientToken) {
+          sendExpoPushNotification({
+            toToken: recipientToken,
+            title: cleanSender,
+            body: mediaUri ? 'Sent a photo 📷' : (body ? body.substring(0, 100) : 'New message'),
+            channelId: 'messages_sound_v1',
+            priority: 'high',
+            data: {
+              type: 'chat',
+              conversationId,
+              contactHandle: cleanSender,
+            },
+          });
+        }
+      })
+      .catch(() => {});
+  }
+
   return payload;
+};
+
+/**
+ * Save user's device Expo Push Token to durable relay queue
+ */
+export const saveUserPushToken = async (handle, token) => {
+  if (!handle || !token) return;
+  const clean = handle.replace('@', '').trim().toLowerCase();
+  try {
+    await supabase.from('messages').upsert({
+      id: `push_token_${clean}`,
+      conversation_id: 'push_tokens',
+      sender: clean,
+      receiver: clean,
+      body: String(token),
+      sent_at: Date.now(),
+    });
+    console.log(`[PushToken] Saved push token for ${clean}`);
+  } catch (err) {
+    console.warn('[PushToken] Save error:', err.message);
+  }
+};
+
+/**
+ * Retrieve user's device Expo Push Token
+ */
+export const getUserPushToken = async (handle) => {
+  if (!handle) return null;
+  const clean = handle.replace('@', '').trim().toLowerCase();
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('body')
+      .eq('id', `push_token_${clean}`)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data.body;
+  } catch (_) {
+    return null;
+  }
+};
+
+/**
+ * Send an Expo Remote Push Notification via https://exp.host/--/api/v2/push/send
+ * This alerts the recipient's phone via FCM even when their app is completely closed!
+ */
+export const sendExpoPushNotification = async ({
+  toToken,
+  title,
+  body,
+  data = {},
+  channelId = 'messages_sound_v1',
+  priority = 'high',
+}) => {
+  if (!toToken || typeof toToken !== 'string' || !toToken.startsWith('ExponentPushToken[')) {
+    return;
+  }
+  try {
+    const payload = {
+      to: toToken,
+      sound: 'default',
+      title: String(title).substring(0, 40),
+      body: String(body).substring(0, 100),
+      data,
+      priority,
+      channelId,
+    };
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Accept-encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    console.log(`[PushService] Dispatched remote push notification to ${toToken}`);
+  } catch (err) {
+    console.warn('[PushService] Remote push dispatch note:', err.message);
+  }
 };
 
 /**
@@ -1039,6 +1142,26 @@ export const sendConnectionRequest = async ({ fromHandle, toHandle, fromNickname
   } catch (bErr) {
     console.log('Request broadcast notice:', bErr.message);
   }
+
+  // 3. Remote Push Notification to recipient's phone via Expo/FCM
+  getUserPushToken(cleanTo)
+    .then((token) => {
+      if (token) {
+        sendExpoPushNotification({
+          toToken: token,
+          title: 'New Connection Request 💌',
+          body: `${fromNickname || ('@' + cleanFrom)} wants to connect with you!`,
+          channelId: 'requests_sound_v1',
+          priority: 'high',
+          data: {
+            type: 'request',
+            fromHandle: cleanFrom,
+            fromNickname: fromNickname || cleanFrom,
+          },
+        });
+      }
+    })
+    .catch(() => {});
 
   return data;
 };

@@ -423,6 +423,9 @@ export default function ChatScreen({ route, navigation }) {
             expiresAt: rMsg.expires_at,
           });
         }
+        await markConversationRead(conversationId, myHandle);
+        useBadgeStore.getState().refreshBadges(myHandle);
+
         const updatedLocal = await getMessages(conversationId, 60);
         setMessages(updatedLocal.reverse());
         shouldScrollToEndRef.current = true;
@@ -456,6 +459,7 @@ export default function ChatScreen({ route, navigation }) {
             replyTo: newMsg.reply_to || null,
             sentAt: newMsg.sent_at,
             expiresAt: newMsg.expires_at,
+            read: 1, // Already viewed since chat is open
           };
           await insertMessage(storedMsg);
           await updateConversationLastMessage(
@@ -464,6 +468,8 @@ export default function ChatScreen({ route, navigation }) {
             newMsg.sent_at,
             newMsg.sender
           );
+          await markConversationRead(conversationId, myHandle);
+          useBadgeStore.getState().refreshBadges(myHandle);
           setMessages((prev) => {
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             return [...prev, storedMsg];
@@ -596,6 +602,8 @@ export default function ChatScreen({ route, navigation }) {
 
     return () => {
       setActiveConversation(null);
+      markConversationRead(conversationId, myHandle);
+      useBadgeStore.getState().refreshBadges(myHandle);
       if (unsubscribeMessages) unsubscribeMessages();
       if (unsubscribePresence) unsubscribePresence();
     };

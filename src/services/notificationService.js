@@ -5,6 +5,7 @@ import { Platform, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { navigate } from '../navigation/navigationRef';
 import { useBadgeStore } from '../store/useBadgeStore';
+import { saveUserPushToken } from './supabase';
 
 // Configure foreground notification behavior: Sound only, NO popup alert or banner
 Notifications.setNotificationHandler({
@@ -113,6 +114,38 @@ export const initNotifications = async () => {
   } catch (err) {
     console.warn('initNotifications error:', err.message);
     return false;
+  }
+};
+
+/**
+ * Register device's Expo Push Token and sync to Supabase
+ * Enables receiving messages, calls, and requests even when the app is completely closed
+ */
+export const registerPushToken = async (myHandle) => {
+  if (!myHandle) return;
+  try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      console.log('Push permissions not granted for remote tokens');
+      return;
+    }
+
+    const tokenObj = await Notifications.getExpoPushTokenAsync().catch((err) => {
+      console.log('getExpoPushTokenAsync notice:', err.message);
+      return null;
+    });
+
+    if (tokenObj && tokenObj.data) {
+      console.log(`[PushService] Acquired push token for ${myHandle}: ${tokenObj.data}`);
+      await saveUserPushToken(myHandle, tokenObj.data);
+    }
+  } catch (err) {
+    console.log('registerPushToken error:', err.message);
   }
 };
 
