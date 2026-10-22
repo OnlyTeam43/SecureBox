@@ -6,8 +6,9 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { supabase, checkHandleAvailability } from './supabase';
 import { useUserStore } from '../store/useUserStore';
 
-// Default Web Client ID (can be configured dynamically or via env)
-let currentWebClientId = '';
+// Default Web Client ID from Firebase project "Animal Smash SB" (google-services.json)
+export const DEFAULT_WEB_CLIENT_ID = '457377823284-kbak1tq6qg91rsa1g7hi7ku546nj15m6.apps.googleusercontent.com';
+let currentWebClientId = DEFAULT_WEB_CLIENT_ID;
 
 /**
  * Process a raw or mock Google profile into a standard object
@@ -24,11 +25,11 @@ export const processGoogleProfile = async ({ name, email, photo = null }) => {
 /**
  * Configure Google Sign-In with Web Client ID from Firebase / Google Cloud
  */
-export const configureGoogleSignIn = (webClientId) => {
-  currentWebClientId = webClientId;
+export const configureGoogleSignIn = (webClientId = DEFAULT_WEB_CLIENT_ID) => {
+  currentWebClientId = webClientId || DEFAULT_WEB_CLIENT_ID;
   try {
     GoogleSignin.configure({
-      webClientId: webClientId || undefined,
+      webClientId: currentWebClientId,
       offlineAccess: true,
       forceCodeForRefreshToken: true,
     });
@@ -36,6 +37,9 @@ export const configureGoogleSignIn = (webClientId) => {
     console.warn('[GoogleAuth] Configure warning:', err);
   }
 };
+
+// Initialize configuration
+configureGoogleSignIn();
 
 /**
  * Auto-generate a clean, unique @handle from an email address

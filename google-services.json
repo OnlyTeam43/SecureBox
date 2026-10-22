@@ -12,7 +12,20 @@
           "package_name": "com.securebox.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "457377823284-7158bloi3k8k21jsmna8opg2pv6u0e1f.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.securebox.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "457377823284-kbak1tq6qg91rsa1g7hi7ku546nj15m6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAJ93zksIk3ZYG6luy5JcntmsYTGs9oOJw"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "457377823284-kbak1tq6qg91rsa1g7hi7ku546nj15m6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
