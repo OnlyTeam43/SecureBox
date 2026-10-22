@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "457377823284",
+    "project_id": "animal-smash-sb",
+    "storage_bucket": "animal-smash-sb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:457377823284:android:26c4b8984a191ccc0be861",
+        "android_client_info": {
+          "package_name": "com.securebox.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAJ93zksIk3ZYG6luy5JcntmsYTGs9oOJw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

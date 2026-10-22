@@ -57,7 +57,8 @@
           "icon": "./assets/icon.png",
           "color": "#e02888"
         }
-      ]
+      ],
+      "@react-native-google-signin/google-signin"
     ],
     "extra": {
       "eas": {
