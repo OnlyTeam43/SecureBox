@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated } from 'react-native';
 import { SvgXml } from 'react-native-svg';
-import { VIEWBOX_RATIO, characterSvg } from '../characters/characters';
-import { character as timing, easing } from '../theme/motion';
+import { VIEWBOX_RATIO, characterSvg } from '../characters/characters.js';
+import { character as timing, easing } from '../theme/motion.js';
 
 export function CharacterAvatar({
   character,

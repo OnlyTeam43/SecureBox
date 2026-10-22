@@ -1,9 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-import { useColors } from '../theme/ThemeProvider';
-import { fonts, radius, spacing } from '../theme/tokens';
-import { layout } from '../theme/layout';
-import { duration, easing } from '../theme/motion';
+import { useColors } from '../theme/ThemeProvider.js';
+import { fonts, radius, spacing } from '../theme/tokens.js';
+import { layout } from '../theme/layout.js';
+import { duration, easing } from '../theme/motion.js';
 
 function Dot({ index, color }) {
   const y = useRef(new Animated.Value(0)).current;

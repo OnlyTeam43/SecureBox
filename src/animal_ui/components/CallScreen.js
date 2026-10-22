@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { CharacterAvatar } from './CharacterAvatar';
-import { IconButton } from './IconButton';
-import { useColors } from '../theme/ThemeProvider';
-import { spacing, type } from '../theme/tokens';
-import { layout } from '../theme/layout';
+import { CharacterAvatar } from './CharacterAvatar.js';
+import { IconButton } from './IconButton.js';
+import { useColors } from '../theme/ThemeProvider.js';
+import { spacing, type } from '../theme/tokens.js';
+import { layout } from '../theme/layout.js';
 
 export function callState(opts) {
   if (opts.deafened) return 'deafen';

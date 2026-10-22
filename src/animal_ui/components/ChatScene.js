@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { CharacterAvatar } from './CharacterAvatar';
-import { SpeechBubble } from './SpeechBubble';
-import { useColors } from '../theme/ThemeProvider';
-import { spacing, type } from '../theme/tokens';
-import { layout } from '../theme/layout';
-import { character as timing } from '../theme/motion';
+import { CharacterAvatar } from './CharacterAvatar.js';
+import { SpeechBubble } from './SpeechBubble.js';
+import { useColors } from '../theme/ThemeProvider.js';
+import { spacing, type } from '../theme/tokens.js';
+import { layout } from '../theme/layout.js';
+import { character as timing } from '../theme/motion.js';
 
 function useRecentlyChanged(value, ms) {
   const [active, setActive] = useState(false);

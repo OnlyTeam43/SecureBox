@@ -1,4 +1,4 @@
-import { spacing } from './tokens';
+import { spacing } from './tokens.js';
 
 export const layout = {
   screenPadding: spacing.lg, // 16

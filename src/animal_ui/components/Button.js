@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useColors } from '../theme/ThemeProvider';
-import { radius, spacing, type } from '../theme/tokens';
+import { useColors } from '../theme/ThemeProvider.js';
+import { radius, spacing, type } from '../theme/tokens.js';
 
 export function Button({
   label,

@@ -1,13 +1,13 @@
 import React from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChatScene } from './ChatScene';
-import { Composer } from './Composer';
-import { Icon } from './Icon';
-import { IconButton } from './IconButton';
-import { useColors } from '../theme/ThemeProvider';
-import { radius, spacing, type } from '../theme/tokens';
-import { layout } from '../theme/layout';
+import { ChatScene } from './ChatScene.js';
+import { Composer } from './Composer.js';
+import { Icon } from './Icon.js';
+import { IconButton } from './IconButton.js';
+import { useColors } from '../theme/ThemeProvider.js';
+import { radius, spacing, type } from '../theme/tokens.js';
+import { layout } from '../theme/layout.js';
 
 export function ChatPage(p) {
   const c = useColors();

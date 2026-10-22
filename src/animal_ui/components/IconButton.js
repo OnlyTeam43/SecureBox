@@ -1,8 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet } from 'react-native';
-import { Icon } from './Icon';
-import { useColors } from '../theme/ThemeProvider';
-import { layout } from '../theme/layout';
+import { Icon } from './Icon.js';
+import { useColors } from '../theme/ThemeProvider.js';
+import { layout } from '../theme/layout.js';
 
 export function IconButton({
   icon,

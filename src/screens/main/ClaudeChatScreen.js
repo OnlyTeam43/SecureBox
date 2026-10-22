@@ -25,7 +25,7 @@ import {
   spacing,
   radius,
   type,
-} from '../../animal_ui';
+} from '../../animal_ui/index.js';
 import { useUserStore } from '../../store/useUserStore';
 import { useBadgeStore } from '../../store/useBadgeStore';
 import {

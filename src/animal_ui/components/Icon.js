@@ -19,7 +19,7 @@ import {
   VideoOff,
   X,
 } from 'lucide-react-native';
-import { useColors } from '../theme/ThemeProvider';
+import { useColors } from '../theme/ThemeProvider.js';
 
 export const ICONS = {
   send: Send,

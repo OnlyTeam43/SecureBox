@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { Icon } from './Icon';
-import { IconButton } from './IconButton';
-import { useColors } from '../theme/ThemeProvider';
-import { radius, spacing, type } from '../theme/tokens';
-import { layout } from '../theme/layout';
+import { Icon } from './Icon.js';
+import { IconButton } from './IconButton.js';
+import { useColors } from '../theme/ThemeProvider.js';
+import { radius, spacing, type } from '../theme/tokens.js';
+import { layout } from '../theme/layout.js';
 
 export function Composer({
   onSend,
