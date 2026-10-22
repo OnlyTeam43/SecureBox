@@ -274,6 +274,26 @@ export const CallMissedIcon = ({ size = 16, color = '#ff3b30' }) => (
   </Svg>
 );
 
+export const BubbleTailOutgoing = ({ color = '#E02888' }) => (
+  <Svg width={8} height={13} viewBox="0 0 8 13" style={{ position: 'absolute', right: -7, bottom: 0 }}>
+    <Path d="M5.188 1H0v11.193l6.467-8.625C7.526 2.16 6.816 1 5.188 1z" fill={color} />
+  </Svg>
+);
+
+export const BubbleTailIncoming = ({ color = '#1a1622' }) => (
+  <Svg width={8} height={13} viewBox="0 0 8 13" style={{ position: 'absolute', left: -7, bottom: 0 }}>
+    <Path d="M2.812 1H8v11.193L1.533 3.568C.474 2.16 1.184 1 2.812 1z" fill={color} />
+  </Svg>
+);
+
+export const PanicIcon = ({ size = 20, color = '#ff3b30' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <Polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" />
+    <Line x1="12" y1="8" x2="12" y2="12" />
+    <Line x1="12" y1="16" x2="12.01" y2="16" />
+  </Svg>
+);
+
 
 
 

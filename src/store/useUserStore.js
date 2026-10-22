@@ -24,6 +24,12 @@ export const useUserStore = create(
       // Deep link pending invite handle (e.g. user clicked securebox://invite/alex)
       pendingInviteHandle: null,
 
+      // Stealth / Calculator Decoy Mode
+      isStealthModeEnabled: false,
+      stealthPin: '1357', // Default PIN for calculator unlock
+      stealthDuressPin: '9999', // Emergency duress PIN that silently nukes all data
+      isStealthUnlocked: false,
+
       // Actions
       setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null, recoveryPin = null) =>
         set({ handle, nickname, avatarId, mobileNumber, avatarUri, recoveryPin }),
@@ -39,6 +45,11 @@ export const useUserStore = create(
 
       setDefaultExpiry: (seconds) => set({ defaultExpiry: seconds }),
 
+      setStealthModeEnabled: (enabled) => set({ isStealthModeEnabled: enabled }),
+      setStealthPin: (pin) => set({ stealthPin: pin }),
+      setStealthDuressPin: (pin) => set({ stealthDuressPin: pin }),
+      setStealthUnlocked: (unlocked) => set({ isStealthUnlocked: unlocked }),
+
       completeSetup: () => set({ isSetup: true }),
 
       reset: () =>
@@ -53,6 +64,10 @@ export const useUserStore = create(
           isSetup: false,
           defaultExpiry: null,
           pendingInviteHandle: null,
+          isStealthModeEnabled: false,
+          stealthPin: '1357',
+          stealthDuressPin: '9999',
+          isStealthUnlocked: false,
         }),
     }),
     {

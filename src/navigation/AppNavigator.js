@@ -39,6 +39,7 @@ import AddContactScreen from '../screens/main/AddContactScreen';
 import CallScreen from '../screens/main/CallScreen';
 import MediaGalleryScreen from '../screens/main/MediaGalleryScreen';
 import RequestsScreen from '../screens/main/RequestsScreen';
+import CalculatorScreen from '../screens/stealth/CalculatorScreen';
 
 import { MessageTabIcon, PhoneIcon, UserAvatarIcon, UserCheckIcon } from '../components/Icons';
 
@@ -125,6 +126,10 @@ export default function AppNavigator() {
   const pendingInviteHandle = useUserStore((s) => s.pendingInviteHandle);
   const setPendingInviteHandle = useUserStore((s) => s.setPendingInviteHandle);
   const clearPendingInviteHandle = useUserStore((s) => s.clearPendingInviteHandle);
+
+  const isStealthModeEnabled = useUserStore((s) => s.isStealthModeEnabled);
+  const isStealthUnlocked = useUserStore((s) => s.isStealthUnlocked);
+  const setStealthUnlocked = useUserStore((s) => s.setStealthUnlocked);
 
   const [incomingCallData, setIncomingCallData] = useState(null);
   const [currentRouteName, setCurrentRouteName] = useState(null);
@@ -283,12 +288,21 @@ export default function AppNavigator() {
           console.log('AppNavigator: Reconstructing missed incoming call modal', reconstructed);
           handleIncomingCall(reconstructed);
         }
+      } else if (nextState === 'background' && isStealthModeEnabled) {
+        // Automatically re-lock to decoy calculator when app is minimized or phone locked
+        console.log('AppNavigator: App backgrounded — re-locking to Calculator Decoy');
+        setStealthUnlocked(false);
       }
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [isSetup, myHandle]);
+  }, [isSetup, myHandle, isStealthModeEnabled]);
+
+  // If user has Stealth / Decoy Calculator enabled and has not unlocked with PIN yet
+  if (isSetup && isStealthModeEnabled && !isStealthUnlocked) {
+    return <CalculatorScreen onUnlock={() => setStealthUnlocked(true)} />;
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg.primary }}>

@@ -55,6 +55,8 @@ import {
   ClockIcon,
   ShieldLockIcon,
   ChevronRightIcon,
+  BubbleTailOutgoing,
+  BubbleTailIncoming,
 } from '../../components/Icons';
 import {
   setActiveConversation,
@@ -941,6 +943,12 @@ export default function ChatScreen({ route, navigation }) {
           hasReply && styles.bubbleWithReply,
           isHighlighted && styles.bubbleHighlighted,
         ]}>
+          {isMe ? (
+            <BubbleTailOutgoing color={Colors.bubble.sentPink} />
+          ) : (
+            <BubbleTailIncoming color={Colors.bubble.received} />
+          )}
+
           {/* WhatsApp-Style Quoted Reply Box inside bubble — tap scrolls to original */}
           {replyData && (
             <TouchableOpacity

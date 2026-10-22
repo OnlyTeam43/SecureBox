@@ -194,3 +194,19 @@ export const requestStoragePermissionAndInit = async () => {
   await initMediaVault();
   return true;
 };
+
+/**
+ * Instant Erase: Completely destroys the hidden media vault directory and all contained photos/media.
+ */
+export const nukeMediaVault = async () => {
+  try {
+    const dirInfo = await FileSystem.getInfoAsync(VAULT_DIR);
+    if (dirInfo.exists) {
+      await FileSystem.deleteAsync(VAULT_DIR, { idempotent: true });
+    }
+    await initMediaVault();
+    console.log('Media vault nuked successfully.');
+  } catch (err) {
+    console.warn('nukeMediaVault error:', err);
+  }
+};

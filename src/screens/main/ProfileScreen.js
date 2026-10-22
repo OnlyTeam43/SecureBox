@@ -1,10 +1,10 @@
 // src/screens/main/ProfileScreen.js
 // My own profile — view handle, profile picture upload, nickname, settings
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  StatusBar, Alert, Image,
+  StatusBar, Alert, Image, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -12,14 +12,29 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
 import { EXPIRY_OPTIONS } from '../../constants/avatars';
 import { useUserStore } from '../../store/useUserStore';
-import { UserAvatarIcon, CameraIcon, ShareIcon, LinkIcon } from '../../components/Icons';
+import { UserAvatarIcon, CameraIcon, ShareIcon, LinkIcon, PanicIcon } from '../../components/Icons';
 import { updateUserAvatarInSupabase } from '../../services/supabase';
 import { updateContactAvatar } from '../../db/database';
 import { shareProfileInvite, getInviteLink } from '../../services/inviteService';
+import { instantEraseEverything } from '../../services/panicService';
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { handle, nickname, avatarId, avatarUri, mobileNumber, defaultExpiry, setAvatarUri } = useUserStore();
+  const {
+    handle,
+    nickname,
+    avatarId,
+    avatarUri,
+    mobileNumber,
+    defaultExpiry,
+    setAvatarUri,
+    isStealthModeEnabled,
+    setStealthModeEnabled,
+    stealthPin,
+    setStealthPin,
+    stealthDuressPin,
+    setStealthUnlocked,
+  } = useUserStore();
 
   const displayPhoto = avatarUri || (avatarId && (avatarId.startsWith('data:') || avatarId.startsWith('file:') || avatarId.startsWith('http')) ? avatarId : null);
 
@@ -89,6 +104,27 @@ export default function ProfileScreen({ navigation }) {
           onPress: () => {
             useUserStore.getState().reset();
             navigation.replace('Onboarding');
+          },
+        },
+      ]
+    );
+  };
+
+  const handleInstantErase = () => {
+    Alert.alert(
+      '🚨 EMERGENCY KILL-SWITCH',
+      'This will IMMEDIATELY and IRREVERSIBLY wipe all messages, vault media, call history, contacts, and account keys in <200ms.\n\nUse this if someone is demanding to inspect your phone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'ERASE EVERYTHING NOW',
+          style: 'destructive',
+          onPress: async () => {
+            await instantEraseEverything({
+              onComplete: () => {
+                navigation.replace('Welcome');
+              },
+            });
           },
         },
       ]
@@ -200,9 +236,94 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Danger Zone */}
+      {/* Stealth & Anti-Snoop ("Hidden Gem") */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: Colors.status.error }]}>Danger Zone</Text>
+        <Text style={styles.sectionTitle}>Stealth & Anti-Snoop (Hidden Gem)</Text>
+
+        <View style={styles.row}>
+          <View style={{ flex: 1, paddingRight: Spacing.sm }}>
+            <Text style={styles.rowLabel}>Calculator Decoy Mode</Text>
+            <Text style={styles.rowSub}>
+              App disguises as a working calculator. Enter your secret PIN to unlock.
+            </Text>
+          </View>
+          <Switch
+            value={isStealthModeEnabled}
+            onValueChange={(val) => {
+              setStealthModeEnabled(val);
+              if (val) {
+                Alert.alert(
+                  'Calculator Decoy Enabled 🧮',
+                  `When opening SecureBox, it will now look and compute like a normal calculator.\n\nTo unlock, type ${stealthPin}= into the calculator.`
+                );
+              }
+            }}
+            trackColor={{ false: '#3a3a44', true: Colors.accent.primary }}
+            thumbColor="#ffffff"
+          />
+        </View>
+
+        {isStealthModeEnabled ? (
+          <>
+            <TouchableOpacity
+              style={styles.row}
+              onPress={() => {
+                Alert.alert(
+                  'Secret Unlock PIN',
+                  `Your current unlock code is: ${stealthPin}=\n\nTo unlock SecureBox from the calculator, type ${stealthPin} followed by =.`
+                );
+              }}
+            >
+              <View>
+                <Text style={styles.rowLabel}>Secret Unlock PIN</Text>
+                <Text style={styles.rowSub}>Code: {stealthPin}=</Text>
+              </View>
+              <Text style={styles.rowArrow}>→</Text>
+            </TouchableOpacity>
+
+            <View style={styles.row}>
+              <View>
+                <Text style={styles.rowLabel}>Emergency Duress PIN</Text>
+                <Text style={styles.rowSub}>
+                  Code: {stealthDuressPin}= (Silently nukes all data on emergency)
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.row, { backgroundColor: 'rgba(224, 40, 136, 0.08)' }]}
+              onPress={() => {
+                setStealthUnlocked(false);
+              }}
+            >
+              <Text style={[styles.rowLabel, { color: Colors.accent.primary, fontWeight: '700' }]}>
+                🔒 Lock to Calculator Now
+              </Text>
+              <Text style={[styles.rowArrow, { color: Colors.accent.primary }]}>→</Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
+      </View>
+
+      {/* Emergency Kill-Switch / Danger Zone */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: Colors.status.error }]}>Emergency Kill-Switch</Text>
+
+        <TouchableOpacity
+          style={[styles.row, styles.panicRow]}
+          onPress={handleInstantErase}
+          activeOpacity={0.8}
+        >
+          <View style={styles.panicIconWrap}>
+            <PanicIcon size={22} color="#ffffff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.panicTitle}>Instant Erase (1-Click Kill-Switch)</Text>
+            <Text style={styles.panicSub}>
+              Instantly wipes all messages, media, call logs & keys in &lt;200ms
+            </Text>
+          </View>
+        </TouchableOpacity>
 
         <TouchableOpacity style={[styles.row, styles.dangerRow]} onPress={handleReset}>
           <Text style={styles.dangerText}>Delete all data & reset</Text>
@@ -381,6 +502,29 @@ const styles = StyleSheet.create({
     fontSize: Typography.sizes.md,
     color: Colors.status.error,
     fontWeight: '600',
+  },
+  panicRow: {
+    backgroundColor: 'rgba(255, 59, 48, 0.08)',
+    borderTopColor: 'rgba(255, 59, 48, 0.25)',
+    gap: 12,
+  },
+  panicIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  panicTitle: {
+    fontSize: Typography.sizes.md,
+    color: '#ff3b30',
+    fontWeight: '700',
+  },
+  panicSub: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.text.placeholder,
+    marginTop: 2,
   },
   footer: {
     textAlign: 'center',

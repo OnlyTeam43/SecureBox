@@ -457,3 +457,22 @@ export const getTotalUnreadMessagesCount = async () => {
   return row?.total || 0;
 };
 
+/**
+ * Instant Erase / Kill Switch: Irreversibly purges all database tables and scrubs SQLite storage
+ */
+export const nukeEntireDatabase = async () => {
+  try {
+    const db = await getDB();
+    await db.execAsync(`
+      DELETE FROM messages;
+      DELETE FROM conversations;
+      DELETE FROM contacts;
+      DELETE FROM call_logs;
+      VACUUM;
+    `);
+    console.log('Database nuked successfully.');
+  } catch (err) {
+    console.warn('nukeEntireDatabase error:', err);
+  }
+};
+
