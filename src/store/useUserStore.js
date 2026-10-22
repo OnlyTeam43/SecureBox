@@ -24,9 +24,9 @@ export const useUserStore = create(
       // Deep link pending invite handle (e.g. user clicked securebox://invite/alex)
       pendingInviteHandle: null,
 
-      // Stealth / Calculator Decoy Mode
-      isStealthModeEnabled: false,
-      stealthPin: '1357', // Default PIN for calculator unlock
+      // Stealth / Animal Game Decoy Mode
+      isStealthModeEnabled: true,
+      stealthPin: '1357', // Default PIN for game unlock
       stealthDuressPin: '9999', // Emergency duress PIN that silently nukes all data
       stealthDecoyPin: '0000', // Decoy PIN that unlocks fake innocent study chats
       isStealthUnlocked: false,

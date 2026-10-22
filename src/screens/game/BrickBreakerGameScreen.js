@@ -1,7 +1,11 @@
 // src/screens/game/BrickBreakerGameScreen.js
-// Animal Brick Breaker Game — "The Hidden Gem"
-// High-energy Breakout game where Panda, Cat & Puppy heads act as the ball hitting bricks!
-// Doubles as the innocent decoy game that unlocks SecureBox via secret PIN.
+// Ultra-Low Latency Animal Smash (Brick Breaker) Game — "The Hidden Gem"
+// High-energy Breakout where Panda, Cat & Puppy heads act as the ball!
+// Spawns falling gifts (Multi-Ball, Bonus Points, Extra Life, Wide Paddle) from broken bricks.
+// Secret 3-second hold on the top animal icon:
+//   - New User (!isSetup) -> Directly opens Google Sign-In Onboarding!
+//   - Signed-in User (isSetup) -> Prompts for Secret PIN to enter chat directly!
+// Zero visible lock buttons on screen.
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -20,11 +24,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { ArrowLeft, Lock, Play, RotateCcw, Volume2, Trophy, Heart, Pause } from 'lucide-react-native';
+import { ArrowLeft, Play, RotateCcw, Trophy, Heart, Sparkles, Zap, Gift } from 'lucide-react-native';
 
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import { useUserStore } from '../../store/useUserStore';
 import { instantEraseEverything } from '../../services/panicService';
+import GoogleOnboardingModal from '../onboarding/GoogleOnboardingModal';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -33,14 +38,16 @@ const BOARD_PADDING = 16;
 const BOARD_WIDTH = SCREEN_WIDTH - BOARD_PADDING * 2;
 const BALL_SIZE = 34;
 const PADDLE_HEIGHT = 14;
-const PADDLE_WIDTH = 92;
+const BASE_PADDLE_WIDTH = 92;
+const WIDE_PADDLE_WIDTH = 132;
 const BRICK_ROWS = 5;
 const BRICK_COLS = 5;
 const BRICK_GAP = 6;
-const BRICK_HEIGHT = 24;
+const BRICK_HEIGHT = 22;
 const BRICK_WIDTH = (BOARD_WIDTH - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS;
+const GIFT_SIZE = 26;
 
-// Claude-inspired Brick Color Palette
+// Claude Brick Colors
 const ROW_COLORS = [
   { color: '#D97757', border: '#B85D3F', points: 50 }, // Terracotta
   { color: '#E28743', border: '#C06B2B', points: 40 }, // Amber
@@ -49,10 +56,19 @@ const ROW_COLORS = [
   { color: '#B37D80', border: '#946164', points: 10 }, // Soft Rose Clay
 ];
 
+// Distinct level patterns
+const LEVEL_PATTERNS = {
+  1: (r, c) => true, // Full grid
+  2: (r, c) => r + c >= 2 && c - r <= 2, // Pyramid formation
+  3: (r, c) => (r + c) % 2 === 0, // Checkerboard fortress
+  4: (r, c) => r === 0 || r === 4 || c === 0 || c === 4 || (r === 2 && c === 2), // Ring maze
+};
+
 export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) {
   const insets = useSafeAreaInsets();
 
-  // User store & stealth pins
+  // User state
+  const isSetup = useUserStore((s) => s.isSetup);
   const stealthPin = useUserStore((s) => s.stealthPin) || '1357';
   const stealthDuressPin = useUserStore((s) => s.stealthDuressPin) || '9999';
   const stealthDecoyPin = useUserStore((s) => s.stealthDecoyPin) || '0000';
@@ -62,47 +78,63 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const setGameHighScore = useUserStore((s) => s.setGameHighScore);
   const myCharacter = useUserStore((s) => s.myCharacter) || 'panda';
 
-  // Game configuration & board layout
-  const boardHeight = Math.min(SCREEN_HEIGHT - insets.top - insets.bottom - 160, 520);
-  const paddleY = boardHeight - 40;
+  const boardHeight = Math.min(SCREEN_HEIGHT - insets.top - insets.bottom - 150, 530);
+  const paddleY = boardHeight - 38;
 
-  // Selected character ball
+  // Selected companion persona
   const [character, setCharacter] = useState(myCharacter);
 
-  // Game state
+  // Game stats
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
   const [level, setLevel] = useState(1);
-  const [gameState, setGameState] = useState('ready'); // 'ready' | 'playing' | 'paused' | 'over' | 'cleared'
+  const [gameState, setGameState] = useState('ready'); // 'ready' | 'playing' | 'cleared' | 'over'
+  const [activeBanner, setActiveBanner] = useState(null); // e.g. "🐾 MULTI-BALL!"
+
+  // Bricks state
   const [bricks, setBricks] = useState([]);
-
-  // Ball & Paddle coordinates in JS refs for 60fps loop
-  const ballPosRef = useRef({ x: BOARD_WIDTH / 2 - BALL_SIZE / 2, y: paddleY - BALL_SIZE - 2 });
-  const ballVelRef = useRef({ vx: 4, vy: -5 });
-  const paddleXRef = useRef(BOARD_WIDTH / 2 - PADDLE_WIDTH / 2);
-  const scoreRef = useRef(0);
   const bricksRef = useRef([]);
-  const animFrameRef = useRef(null);
-  const gameStateRef = useRef('ready');
 
-  // React state for rendering
-  const [ballDisplay, setBallDisplay] = useState({ x: BOARD_WIDTH / 2 - BALL_SIZE / 2, y: paddleY - BALL_SIZE - 2 });
-  const [paddleX, setPaddleX] = useState(BOARD_WIDTH / 2 - PADDLE_WIDTH / 2);
-  const [particles, setParticles] = useState([]); // Floating +points popups
+  // Paddle state & Native Animated value for ZERO LATENCY touch response
+  const paddleXRef = useRef(BOARD_WIDTH / 2 - BASE_PADDLE_WIDTH / 2);
+  const paddleWidthRef = useRef(BASE_PADDLE_WIDTH);
+  const [paddleRenderWidth, setPaddleRenderWidth] = useState(BASE_PADDLE_WIDTH);
+  const paddleAnimX = useRef(new Animated.Value(BOARD_WIDTH / 2 - BASE_PADDLE_WIDTH / 2)).current;
 
-  // Stealth PIN unlock modal state
+  // Multi-Ball Support: Array of active balls
+  // Each ball: { id, x, y, vx, vy, character }
+  const ballsRef = useRef([]);
+  const [ballsDisplay, setBallsDisplay] = useState([]);
+
+  // Falling Gifts / Power-ups: Array of active falling items
+  // Each gift: { id, type, x, y, vy, emoji, label }
+  const giftsRef = useRef([]);
+  const [giftsDisplay, setGiftsDisplay] = useState([]);
+
+  // Floating score text
+  const [particles, setParticles] = useState([]);
+
+  // Modals
   const [showPinModal, setShowPinModal] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
-  const secretTapCountRef = useRef(0);
-  const secretTapTimerRef = useRef(null);
+  const [showGoogleOnboarding, setShowGoogleOnboarding] = useState(false);
+  const [showLevelPicker, setShowLevelPicker] = useState(false);
 
-  // Initialize Bricks Grid
+  // 3-Second Hold on Top Animal Icon state
+  const holdTimerRef = useRef(null);
+  const holdStartRef = useRef(0);
+  const holdProgressAnim = useRef(new Animated.Value(0)).current;
+  const [isHolding, setIsHolding] = useState(false);
+
+  // Generate Bricks for selected level
   const generateBricks = useCallback((lvl = 1) => {
+    const patternFn = LEVEL_PATTERNS[lvl] || LEVEL_PATTERNS[1];
     const newBricks = [];
-    const topOffset = 20;
+    const topOffset = 22;
 
     for (let r = 0; r < BRICK_ROWS; r++) {
       for (let c = 0; c < BRICK_COLS; c++) {
+        if (!patternFn(r, c)) continue;
         const rowStyle = ROW_COLORS[r % ROW_COLORS.length];
         newBricks.push({
           id: `b_${r}_${c}`,
@@ -121,54 +153,120 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     setBricks(newBricks);
   }, []);
 
-  // Set up board initially
-  useEffect(() => {
-    generateBricks(1);
-    resetBallToPaddle();
-  }, [generateBricks]);
-
   // Reset ball on top of paddle
-  const resetBallToPaddle = () => {
-    const initX = paddleXRef.current + PADDLE_WIDTH / 2 - BALL_SIZE / 2;
+  const resetBallToPaddle = useCallback(() => {
+    const initX = paddleXRef.current + paddleWidthRef.current / 2 - BALL_SIZE / 2;
     const initY = paddleY - BALL_SIZE - 2;
-    ballPosRef.current = { x: initX, y: initY };
-    const baseSpeed = 4 + (level - 1) * 0.5;
-    ballVelRef.current = { vx: (Math.random() > 0.5 ? 1 : -1) * baseSpeed, vy: -baseSpeed };
-    setBallDisplay({ x: initX, y: initY });
-  };
+    const baseSpeed = 5.8 + (level - 1) * 0.5;
 
-  // Paddle Drag PanResponder
+    const mainBall = {
+      id: 1,
+      x: initX,
+      y: initY,
+      vx: (Math.random() > 0.5 ? 1 : -1) * (baseSpeed * 0.7),
+      vy: -baseSpeed,
+      character: character,
+    };
+
+    ballsRef.current = [mainBall];
+    setBallsDisplay([{ id: mainBall.id, x: initX, y: initY, character: mainBall.character }]);
+    giftsRef.current = [];
+    setGiftsDisplay([]);
+  }, [character, level, paddleY]);
+
+  // Initial Setup
+  useEffect(() => {
+    generateBricks(level);
+    resetBallToPaddle();
+  }, [level, generateBricks, resetBallToPaddle]);
+
+  // PanResponder for ZERO-LATENCY Paddle Movement
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderMove: (_, gestureState) => {
-        let newX = gestureState.moveX - BOARD_PADDING - PADDLE_WIDTH / 2;
+        let newX = gestureState.moveX - BOARD_PADDING - paddleWidthRef.current / 2;
         if (newX < 0) newX = 0;
-        if (newX > BOARD_WIDTH - PADDLE_WIDTH) newX = BOARD_WIDTH - PADDLE_WIDTH;
+        if (newX > BOARD_WIDTH - paddleWidthRef.current) newX = BOARD_WIDTH - paddleWidthRef.current;
 
         paddleXRef.current = newX;
-        setPaddleX(newX);
+        paddleAnimX.setValue(newX); // Instantaneous native update with zero React state overhead
 
         if (gameStateRef.current === 'ready') {
-          const ballX = newX + PADDLE_WIDTH / 2 - BALL_SIZE / 2;
+          const ballX = newX + paddleWidthRef.current / 2 - BALL_SIZE / 2;
           const ballY = paddleY - BALL_SIZE - 2;
-          ballPosRef.current = { x: ballX, y: ballY };
-          setBallDisplay({ x: ballX, y: ballY });
+          if (ballsRef.current[0]) {
+            ballsRef.current[0].x = ballX;
+            ballsRef.current[0].y = ballY;
+            setBallsDisplay([{ ...ballsRef.current[0], x: ballX, y: ballY }]);
+          }
         }
       },
     })
   ).current;
 
-  // Launch Ball
+  // Game state ref for 60fps loop
+  const gameStateRef = useRef('ready');
+  const animFrameRef = useRef(null);
+  const scoreRef = useRef(0);
+
+  // Launch ball
   const launchBall = () => {
-    if (gameStateRef.current === 'ready' || gameStateRef.current === 'paused') {
+    if (gameStateRef.current === 'ready') {
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } catch (_) {}
       gameStateRef.current = 'playing';
       setGameState('playing');
     }
+  };
+
+  // Spawn Multi-Ball helper
+  const spawnMultiBall = () => {
+    const chars = ['cat', 'puppy', 'panda'];
+    const pX = paddleXRef.current;
+    const baseSpeed = 5.8 + (level - 1) * 0.5;
+
+    const newBalls = [
+      {
+        id: Date.now() + 1,
+        x: pX + 10,
+        y: paddleY - BALL_SIZE - 4,
+        vx: -baseSpeed * 0.8,
+        vy: -baseSpeed,
+        character: chars[Math.floor(Math.random() * chars.length)],
+      },
+      {
+        id: Date.now() + 2,
+        x: pX + paddleWidthRef.current - BALL_SIZE - 10,
+        y: paddleY - BALL_SIZE - 4,
+        vx: baseSpeed * 0.8,
+        vy: -baseSpeed,
+        character: chars[Math.floor(Math.random() * chars.length)],
+      },
+    ];
+
+    ballsRef.current = [...ballsRef.current, ...newBalls];
+    showBanner('🐾 MULTI-BALL ACTIVATED!');
+  };
+
+  // Expand Paddle helper
+  const expandPaddle = () => {
+    paddleWidthRef.current = WIDE_PADDLE_WIDTH;
+    setPaddleRenderWidth(WIDE_PADDLE_WIDTH);
+    showBanner('⚡ WIDE PADDLE!');
+
+    setTimeout(() => {
+      paddleWidthRef.current = BASE_PADDLE_WIDTH;
+      setPaddleRenderWidth(BASE_PADDLE_WIDTH);
+    }, 12000);
+  };
+
+  // Show floating power-up banner
+  const showBanner = (msg) => {
+    setActiveBanner(msg);
+    setTimeout(() => setActiveBanner(null), 2500);
   };
 
   // Main 60 FPS Game Loop
@@ -178,121 +276,119 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     const loop = () => {
       if (gameStateRef.current === 'playing') {
         const now = Date.now();
-        const dt = Math.min((now - lastTime) / 16.67, 2); // Normalized time step
+        const dt = Math.min((now - lastTime) / 16.67, 1.8);
         lastTime = now;
 
-        let { x, y } = ballPosRef.current;
-        let { vx, vy } = ballVelRef.current;
-
-        x += vx * dt;
-        y += vy * dt;
-
-        // 1. Wall Collisions
-        if (x <= 0) {
-          x = 0;
-          vx = Math.abs(vx);
-          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_) {}
-        } else if (x + BALL_SIZE >= BOARD_WIDTH) {
-          x = BOARD_WIDTH - BALL_SIZE;
-          vx = -Math.abs(vx);
-          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_) {}
-        }
-
-        if (y <= 0) {
-          y = 0;
-          vy = Math.abs(vy);
-          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_) {}
-        }
-
-        // 2. Paddle Collision
         const pX = paddleXRef.current;
-        if (
-          y + BALL_SIZE >= paddleY &&
-          y + BALL_SIZE <= paddleY + PADDLE_HEIGHT + 6 &&
-          x + BALL_SIZE >= pX - 4 &&
-          x <= pX + PADDLE_WIDTH + 4 &&
-          vy > 0
-        ) {
-          // Calculate deflection angle based on hit spot
-          const paddleCenter = pX + PADDLE_WIDTH / 2;
-          const ballCenter = x + BALL_SIZE / 2;
-          const hitFactor = (ballCenter - paddleCenter) / (PADDLE_WIDTH / 2); // -1 to 1
-
-          const speed = Math.sqrt(vx * vx + vy * vy);
-          const maxAngle = Math.PI / 3; // 60 degrees max
-          const angle = hitFactor * maxAngle;
-
-          vx = speed * Math.sin(angle);
-          vy = -speed * Math.cos(angle);
-          y = paddleY - BALL_SIZE;
-
-          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (_) {}
-        }
-
-        // 3. Brick Collisions
-        let hitBrick = false;
+        const pWidth = paddleWidthRef.current;
+        let balls = ballsRef.current;
         const currentBricks = bricksRef.current;
-        for (let i = 0; i < currentBricks.length; i++) {
-          const b = currentBricks[i];
-          if (!b.active) continue;
+        let bricksModified = false;
 
-          // AABB collision detection
+        // ── 1. Update Each Ball ──
+        for (let i = balls.length - 1; i >= 0; i--) {
+          const ball = balls[i];
+          ball.x += ball.vx * dt;
+          ball.y += ball.vy * dt;
+
+          // Wall Collisions
+          if (ball.x <= 0) {
+            ball.x = 0;
+            ball.vx = Math.abs(ball.vx);
+          } else if (ball.x + BALL_SIZE >= BOARD_WIDTH) {
+            ball.x = BOARD_WIDTH - BALL_SIZE;
+            ball.vx = -Math.abs(ball.vx);
+          }
+
+          if (ball.y <= 0) {
+            ball.y = 0;
+            ball.vy = Math.abs(ball.vy);
+          }
+
+          // Paddle Collision
           if (
-            x + BALL_SIZE > b.x &&
-            x < b.x + b.width &&
-            y + BALL_SIZE > b.y &&
-            y < b.y + b.height
+            ball.y + BALL_SIZE >= paddleY &&
+            ball.y + BALL_SIZE <= paddleY + PADDLE_HEIGHT + 8 &&
+            ball.x + BALL_SIZE >= pX - 4 &&
+            ball.x <= pX + pWidth + 4 &&
+            ball.vy > 0
           ) {
-            b.active = false;
-            hitBrick = true;
+            const paddleCenter = pX + pWidth / 2;
+            const ballCenter = ball.x + BALL_SIZE / 2;
+            const hitFactor = (ballCenter - paddleCenter) / (pWidth / 2); // -1 to 1
 
-            // Bounce logic
-            const prevX = ballPosRef.current.x;
-            const prevY = ballPosRef.current.y;
-            if (prevX + BALL_SIZE <= b.x || prevX >= b.x + b.width) {
-              vx = -vx;
-            } else {
-              vy = -vy;
+            const currentSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+            const angle = hitFactor * (Math.PI / 3); // Max 60 deg
+
+            ball.vx = currentSpeed * Math.sin(angle);
+            ball.vy = -Math.abs(currentSpeed * Math.cos(angle));
+            ball.y = paddleY - BALL_SIZE;
+
+            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_) {}
+          }
+
+          // Brick Collisions
+          for (let j = 0; j < currentBricks.length; j++) {
+            const b = currentBricks[j];
+            if (!b.active) continue;
+
+            if (
+              ball.x + BALL_SIZE > b.x &&
+              ball.x < b.x + b.width &&
+              ball.y + BALL_SIZE > b.y &&
+              ball.y < b.y + b.height
+            ) {
+              b.active = false;
+              bricksModified = true;
+
+              // Simple bounce
+              const prevX = ball.x - ball.vx * dt;
+              if (prevX + BALL_SIZE <= b.x || prevX >= b.x + b.width) {
+                ball.vx = -ball.vx;
+              } else {
+                ball.vy = -ball.vy;
+              }
+
+              // Update Score
+              scoreRef.current += b.points;
+              setScore(scoreRef.current);
+              setGameHighScore(scoreRef.current);
+
+              // 35% chance to drop a Gift Power-up!
+              if (Math.random() < 0.35) {
+                const types = [
+                  { type: 'multiball', emoji: '🐾', label: 'Multi-Ball' },
+                  { type: 'points', emoji: '🎁', label: '+100 pts' },
+                  { type: 'heart', emoji: '❤️', label: '+1 Life' },
+                  { type: 'wide', emoji: '⚡', label: 'Wide Paddle' },
+                ];
+                const picked = types[Math.floor(Math.random() * types.length)];
+                giftsRef.current.push({
+                  id: Date.now() + Math.random(),
+                  x: b.x + b.width / 2 - GIFT_SIZE / 2,
+                  y: b.y + b.height,
+                  vy: 2.6,
+                  ...picked,
+                });
+              }
+
+              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (_) {}
+              break;
             }
+          }
 
-            // Update score
-            scoreRef.current += b.points;
-            setScore(scoreRef.current);
-            setGameHighScore(scoreRef.current);
-
-            // Pop score particle
-            setParticles((prev) => [
-              ...prev.slice(-4),
-              { id: Date.now() + Math.random(), text: `+${b.points}`, x: b.x + 8, y: b.y },
-            ]);
-
-            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch (_) {}
-            break;
+          // Ball Fell Off Bottom
+          if (ball.y > boardHeight) {
+            balls.splice(i, 1);
           }
         }
 
-        if (hitBrick) {
-          setBricks([...currentBricks]);
-
-          // Check if all bricks cleared!
-          const remaining = currentBricks.filter((b) => b.active);
-          if (remaining.length === 0) {
-            gameStateRef.current = 'cleared';
-            setGameState('cleared');
-            scoreRef.current += 200;
-            setScore(scoreRef.current);
-            setGameHighScore(scoreRef.current);
-            try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch (_) {}
-            return;
-          }
-        }
-
-        // 4. Fall past paddle (Lose a life)
-        if (y > boardHeight) {
+        // If ALL balls fell off bottom -> lose life
+        if (balls.length === 0) {
           try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); } catch (_) {}
-          setLives((prevLives) => {
-            const nextLives = prevLives - 1;
-            if (nextLives <= 0) {
+          setLives((prev) => {
+            const next = prev - 1;
+            if (next <= 0) {
               gameStateRef.current = 'over';
               setGameState('over');
             } else {
@@ -300,14 +396,67 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
               setGameState('ready');
               resetBallToPaddle();
             }
-            return nextLives;
+            return next;
           });
-          return;
         }
 
-        ballPosRef.current = { x, y };
-        ballVelRef.current = { vx, vy };
-        setBallDisplay({ x, y });
+        // ── 2. Update Falling Gifts ──
+        let gifts = giftsRef.current;
+        for (let k = gifts.length - 1; k >= 0; k--) {
+          const g = gifts[k];
+          g.y += g.vy * dt;
+
+          // Catch gift with paddle!
+          if (
+            g.y + GIFT_SIZE >= paddleY &&
+            g.y <= paddleY + PADDLE_HEIGHT &&
+            g.x + GIFT_SIZE >= pX &&
+            g.x <= pX + pWidth
+          ) {
+            // Apply Power-up!
+            if (g.type === 'multiball') {
+              spawnMultiBall();
+            } else if (g.type === 'points') {
+              scoreRef.current += 100;
+              setScore(scoreRef.current);
+              setGameHighScore(scoreRef.current);
+              showBanner('🎁 +100 BONUS POINTS!');
+            } else if (g.type === 'heart') {
+              setLives((l) => Math.min(l + 1, 5));
+              showBanner('❤️ +1 EXTRA LIFE!');
+            } else if (g.type === 'wide') {
+              expandPaddle();
+            }
+
+            try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch (_) {}
+            gifts.splice(k, 1);
+            continue;
+          }
+
+          // Gift fell past screen
+          if (g.y > boardHeight) {
+            gifts.splice(k, 1);
+          }
+        }
+
+        // ── 3. Check Level Cleared ──
+        if (bricksModified) {
+          setBricks([...currentBricks]);
+          const remaining = currentBricks.filter((b) => b.active);
+          if (remaining.length === 0) {
+            gameStateRef.current = 'cleared';
+            setGameState('cleared');
+            scoreRef.current += 200 * level;
+            setScore(scoreRef.current);
+            setGameHighScore(scoreRef.current);
+            try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch (_) {}
+            return;
+          }
+        }
+
+        // Fast React sync for balls and gifts
+        setBallsDisplay(balls.map((b) => ({ id: b.id, x: b.x, y: b.y, character: b.character })));
+        setGiftsDisplay([...gifts]);
       }
 
       animFrameRef.current = requestAnimationFrame(loop);
@@ -317,11 +466,11 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [boardHeight, setGameHighScore]);
+  }, [boardHeight, level, paddleY, resetBallToPaddle, setGameHighScore]);
 
-  // Next Level Handler
+  // Next level handler
   const handleNextLevel = () => {
-    const nextLvl = level + 1;
+    const nextLvl = (level % 4) + 1;
     setLevel(nextLvl);
     generateBricks(nextLvl);
     resetBallToPaddle();
@@ -329,7 +478,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     setGameState('ready');
   };
 
-  // Restart Game Handler
+  // Restart game handler
   const handleRestart = () => {
     setScore(0);
     scoreRef.current = 0;
@@ -341,21 +490,69 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     setGameState('ready');
   };
 
-  // Secret 4-Tap on Title / Logo to open Stealth Vault Unlock PIN
-  const handleSecretTap = () => {
-    secretTapCountRef.current += 1;
-    if (secretTapTimerRef.current) clearTimeout(secretTapTimerRef.current);
+  // ─── 3-SECOND LONG PRESS ON TOP ANIMAL ICON ──────────────────────────────
+  const handleAnimalPressIn = () => {
+    holdStartRef.current = Date.now();
+    setIsHolding(true);
+    holdProgressAnim.setValue(0);
 
-    if (secretTapCountRef.current >= 4) {
-      secretTapCountRef.current = 0;
-      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (_) {}
-      setShowPinModal(true);
-      return;
+    // Smooth 3000ms animation
+    Animated.timing(holdProgressAnim, {
+      toValue: 1,
+      duration: 3000,
+      useNativeDriver: false,
+    }).start();
+
+    // Haptics at 1s & 2s
+    setTimeout(() => {
+      if (holdStartRef.current) {
+        try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_) {}
+      }
+    }, 1000);
+
+    setTimeout(() => {
+      if (holdStartRef.current) {
+        try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (_) {}
+      }
+    }, 2000);
+
+    // 3 Second Completion Trigger!
+    holdTimerRef.current = setTimeout(() => {
+      holdStartRef.current = 0;
+      setIsHolding(false);
+      holdProgressAnim.setValue(0);
+
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (_) {}
+
+      // Check User Setup Status:
+      if (!isSetup) {
+        // NEW USER: DO NOT ASK FOR PIN! Directly open Google Sign-In Onboarding!
+        setShowGoogleOnboarding(true);
+      } else {
+        // SIGNED-IN USER: Prompt for Secret PIN and send directly to chat interface!
+        setShowPinModal(true);
+      }
+    }, 3000);
+  };
+
+  const handleAnimalPressOut = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
     }
+    const elapsed = Date.now() - holdStartRef.current;
+    holdStartRef.current = 0;
+    setIsHolding(false);
+    holdProgressAnim.setValue(0);
 
-    secretTapTimerRef.current = setTimeout(() => {
-      secretTapCountRef.current = 0;
-    }, 1200);
+    // If released before 3 seconds, perform standard character toggle
+    if (elapsed < 1200) {
+      const next = character === 'panda' ? 'cat' : character === 'cat' ? 'puppy' : 'panda';
+      setCharacter(next);
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_) {}
+    }
   };
 
   // Stealth PIN Verification
@@ -363,16 +560,15 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     const cleanPin = (pin || enteredPin).trim();
     if (!cleanPin) return;
 
-    // 1. Silent Duress Kill-Switch
+    // Silent Duress
     if (cleanPin === stealthDuressPin) {
       setShowPinModal(false);
       setEnteredPin('');
-      console.log('[BrickBreaker] DURESS PIN ENTERED — SILENT EMERGENCY KILL-SWITCH ACTIVATING');
       await instantEraseEverything({ silent: true });
       return;
     }
 
-    // 2. Decoy Study Connect Unlock
+    // Decoy Vault
     if (cleanPin === stealthDecoyPin) {
       setShowPinModal(false);
       setEnteredPin('');
@@ -383,7 +579,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       return;
     }
 
-    // 3. Vault PIN Unlock
+    // Secret Vault Unlock PIN -> Direct to Chat Interface!
     if (cleanPin === stealthPin) {
       setShowPinModal(false);
       setEnteredPin('');
@@ -395,7 +591,6 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       return;
     }
 
-    // Incorrect PIN
     try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } catch (_) {}
     Alert.alert('Incorrect PIN', 'Please try again.');
     setEnteredPin('');
@@ -407,7 +602,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FAF9F5" />
 
-      {/* Top Header Bar */}
+      {/* Top Header Bar (Zero Lock Icons!) */}
       <View style={styles.header}>
         {canGoBack ? (
           <TouchableOpacity
@@ -421,37 +616,47 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           <View style={{ width: 36 }} />
         )}
 
-        {/* Secret Tap Title */}
+        {/* Center: Secret 3-Second Animal Companion Icon */}
         <TouchableOpacity
-          onPress={handleSecretTap}
-          activeOpacity={0.9}
-          style={styles.titleWrap}
+          onPressIn={handleAnimalPressIn}
+          onPressOut={handleAnimalPressOut}
+          activeOpacity={0.8}
+          style={styles.animalCenterWrap}
         >
-          <Text style={styles.gameTitle}>🐾 Animal Smash</Text>
-          <Text style={styles.levelBadge}>LVL {level}</Text>
+          {isHolding && (
+            <Animated.View
+              style={[
+                styles.holdingHalo,
+                {
+                  transform: [
+                    {
+                      scale: holdProgressAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.35],
+                      }),
+                    },
+                  ],
+                  opacity: holdProgressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.3, 0.9],
+                  }),
+                },
+              ]}
+            />
+          )}
+          <View style={styles.animalIconBox}>
+            <CharacterBall character={character} size={38} />
+          </View>
         </TouchableOpacity>
 
-        {/* Character Switcher & Secret Padlock */}
-        <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={styles.charSwitchBtn}
-            onPress={() => {
-              const next = character === 'panda' ? 'cat' : character === 'cat' ? 'puppy' : 'panda';
-              setCharacter(next);
-              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_) {}
-            }}
-          >
-            <CharacterBall character={character} size={24} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.stealthLockBtn}
-            onPress={() => setShowPinModal(true)}
-            activeOpacity={0.6}
-          >
-            <Lock size={15} color="rgba(20,20,19,0.35)" />
-          </TouchableOpacity>
-        </View>
+        {/* Right: Level Switcher Pill */}
+        <TouchableOpacity
+          style={styles.levelPill}
+          onPress={() => setShowLevelPicker(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.levelPillText}>LVL {level}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Score & Lives HUD */}
@@ -485,7 +690,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         </View>
       </View>
 
-      {/* Main Game Board Canvas */}
+      {/* Main Game Board Canvas with Zero-Latency Pan */}
       <View
         style={[styles.board, { height: boardHeight }]}
         {...panResponder.panHandlers}
@@ -513,42 +718,62 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           );
         })}
 
-        {/* Floating Point Particles */}
-        {particles.map((p) => (
-          <Text key={p.id} style={[styles.particleText, { left: p.x, top: p.y }]}>
-            {p.text}
-          </Text>
+        {/* Falling Gifts / Power-ups */}
+        {giftsDisplay.map((g) => (
+          <View
+            key={g.id}
+            style={[
+              styles.giftItem,
+              {
+                left: g.x,
+                top: g.y,
+              },
+            ]}
+          >
+            <Text style={styles.giftEmoji}>{g.emoji}</Text>
+          </View>
         ))}
 
-        {/* Paddle */}
-        <View
+        {/* Active Power-up Floating Banner */}
+        {activeBanner && (
+          <View style={styles.powerupBanner}>
+            <Sparkles size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+            <Text style={styles.powerupBannerText}>{activeBanner}</Text>
+          </View>
+        )}
+
+        {/* Native-Animated Zero Latency Paddle */}
+        <Animated.View
           style={[
             styles.paddle,
             {
-              left: paddleX,
+              left: paddleAnimX,
               top: paddleY,
-              width: PADDLE_WIDTH,
+              width: paddleRenderWidth,
               height: PADDLE_HEIGHT,
             },
           ]}
         >
           <View style={styles.paddleAccent} />
-        </View>
+        </Animated.View>
 
-        {/* Animal Character Head Ball */}
-        <View
-          style={[
-            styles.ballWrap,
-            {
-              left: ballDisplay.x,
-              top: ballDisplay.y,
-              width: BALL_SIZE,
-              height: BALL_SIZE,
-            },
-          ]}
-        >
-          <CharacterBall character={character} size={BALL_SIZE} />
-        </View>
+        {/* Multi-Ball Rendering */}
+        {ballsDisplay.map((ball) => (
+          <View
+            key={ball.id}
+            style={[
+              styles.ballWrap,
+              {
+                left: ball.x,
+                top: ball.y,
+                width: BALL_SIZE,
+                height: BALL_SIZE,
+              },
+            ]}
+          >
+            <CharacterBall character={ball.character || character} size={BALL_SIZE} />
+          </View>
+        ))}
 
         {/* Tap to Serve Banner */}
         {gameState === 'ready' && (
@@ -557,17 +782,17 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             onPress={launchBall}
             activeOpacity={0.8}
           >
-            <Play size={20} color="#FAF9F5" fill="#FAF9F5" />
-            <Text style={styles.serveText}>Tap screen to launch {character === 'panda' ? '🐼' : character === 'cat' ? '🐱' : '🐶'}</Text>
+            <Play size={18} color="#FAF9F5" fill="#FAF9F5" />
+            <Text style={styles.serveText}>Tap screen to smash bricks!</Text>
           </TouchableOpacity>
         )}
 
-        {/* Level Cleared Banner */}
+        {/* Level Cleared Overlay */}
         {gameState === 'cleared' && (
           <View style={styles.overlayCard}>
             <Text style={styles.overlayEmoji}>🎉</Text>
             <Text style={styles.overlayTitle}>Level {level} Cleared!</Text>
-            <Text style={styles.overlaySub}>+200 Bonus Points Awarded</Text>
+            <Text style={styles.overlaySub}>+{200 * level} Bonus Points</Text>
             <TouchableOpacity
               style={styles.primaryActionBtn}
               onPress={handleNextLevel}
@@ -578,10 +803,10 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           </View>
         )}
 
-        {/* Game Over Banner */}
+        {/* Game Over Overlay */}
         {gameState === 'over' && (
           <View style={styles.overlayCard}>
-            <Text style={styles.overlayEmoji}>😿</Text>
+            <Text style={styles.overlayEmoji}>🐾</Text>
             <Text style={styles.overlayTitle}>Game Over!</Text>
             <Text style={styles.overlaySub}>Final Score: {score}</Text>
             <TouchableOpacity
@@ -596,9 +821,11 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         )}
       </View>
 
-      {/* Bottom Character Selector */}
+      {/* Footer Tip */}
       <View style={styles.footer}>
-        <Text style={styles.footerTip}>Drag paddle with finger to smash bricks</Text>
+        <Text style={styles.footerTip}>
+          {isHolding ? 'Hold 3s to unlock...' : 'Smash bricks & catch falling power-up gifts!'}
+        </Text>
       </View>
 
       {/* Secret Stealth Vault PIN Modal */}
@@ -613,16 +840,13 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           activeOpacity={1}
           onPress={() => setShowPinModal(false)}
         >
-          <View
-            style={styles.pinCard}
-            onStartShouldSetResponder={() => true}
-          >
+          <View style={styles.pinCard} onStartShouldSetResponder={() => true}>
             <View style={styles.pinIconCircle}>
-              <Lock size={22} color="#D97757" />
+              <CharacterBall character={character} size={36} />
             </View>
             <Text style={styles.pinTitle}>Enter Secret Vault PIN</Text>
             <Text style={styles.pinSubtitle}>
-              Discreet access to SecureBox chat vault
+              Direct access to end-to-end encrypted chats
             </Text>
 
             <TextInput
@@ -663,6 +887,52 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Google Sign-In Onboarding Modal for New Users */}
+      <GoogleOnboardingModal
+        visible={showGoogleOnboarding}
+        onClose={() => setShowGoogleOnboarding(false)}
+        onComplete={() => {
+          setShowGoogleOnboarding(false);
+          if (onUnlock) onUnlock();
+        }}
+      />
+
+      {/* Level Select Modal */}
+      <Modal
+        visible={showLevelPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLevelPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowLevelPicker(false)}
+        >
+          <View style={styles.levelCard} onStartShouldSetResponder={() => true}>
+            <Text style={styles.levelCardTitle}>Select Level</Text>
+            <View style={styles.levelBtnGrid}>
+              {[1, 2, 3, 4].map((lvl) => (
+                <TouchableOpacity
+                  key={lvl}
+                  style={[styles.levelSelectBtn, level === lvl && styles.levelSelectBtnActive]}
+                  onPress={() => {
+                    setShowLevelPicker(false);
+                    setLevel(lvl);
+                    generateBricks(lvl);
+                    resetBallToPaddle();
+                  }}
+                >
+                  <Text style={[styles.levelSelectText, level === lvl && styles.levelSelectTextActive]}>
+                    Level {lvl}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -677,9 +947,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: BOARD_PADDING,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(20,20,19,0.08)',
+    paddingVertical: 8,
   },
   backBtn: {
     width: 36,
@@ -691,50 +959,53 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  titleWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  gameTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#141413',
-    letterSpacing: -0.3,
-  },
-  levelBadge: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#D97757',
-    backgroundColor: 'rgba(217,119,87,0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    marginLeft: 8,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  charSwitchBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(20,20,19,0.1)',
+  animalCenterWrap: {
+    position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
   },
-  stealthLockBtn: {
-    padding: 6,
+  holdingHalo: {
+    position: 'absolute',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 3,
+    borderColor: '#D97757',
+  },
+  animalIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: 'rgba(20,20,19,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  levelPill: {
+    backgroundColor: 'rgba(217,119,87,0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(217,119,87,0.25)',
+  },
+  levelPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#D97757',
   },
   hud: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: BOARD_PADDING,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   hudCard: {
     backgroundColor: '#FFFFFF',
@@ -770,7 +1041,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: '#87867F',
-    marginTop: 4,
+    marginTop: 3,
     letterSpacing: 0.5,
   },
   board: {
@@ -821,15 +1092,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  particleText: {
+  giftItem: {
     position: 'absolute',
-    fontSize: 11,
+    width: GIFT_SIZE,
+    height: GIFT_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: GIFT_SIZE / 2,
+    borderWidth: 1,
+    borderColor: '#D97757',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  giftEmoji: {
+    fontSize: 14,
+  },
+  powerupBanner: {
+    position: 'absolute',
+    top: 10,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D97757',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 4,
+  },
+  powerupBannerText: {
+    color: '#FFFFFF',
     fontWeight: '800',
-    color: '#D97757',
+    fontSize: 12,
+    letterSpacing: 0.5,
   },
   serveOverlay: {
     position: 'absolute',
-    bottom: 90,
+    bottom: 80,
     alignSelf: 'center',
     backgroundColor: '#141413',
     paddingHorizontal: 16,
@@ -895,7 +1199,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   footer: {
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: 'center',
   },
   footerTip: {
@@ -921,9 +1225,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(20,20,19,0.15)',
   },
   pinIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: 'rgba(217,119,87,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -984,5 +1288,47 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  levelCard: {
+    width: '100%',
+    maxWidth: 300,
+    backgroundColor: '#FAF9F5',
+    borderRadius: 24,
+    padding: 20,
+    alignItems: 'center',
+  },
+  levelCardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#141413',
+    marginBottom: 16,
+  },
+  levelBtnGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'center',
+  },
+  levelSelectBtn: {
+    width: 100,
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: 'rgba(20,20,19,0.12)',
+    alignItems: 'center',
+  },
+  levelSelectBtnActive: {
+    borderColor: '#D97757',
+    backgroundColor: 'rgba(217,119,87,0.1)',
+  },
+  levelSelectText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#5E5D59',
+  },
+  levelSelectTextActive: {
+    color: '#D97757',
+    fontWeight: '800',
   },
 });

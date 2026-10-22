@@ -295,9 +295,9 @@ export default function AppNavigator() {
           console.log('AppNavigator: Reconstructing missed incoming call modal', reconstructed);
           handleIncomingCall(reconstructed);
         }
-      } else if (nextState === 'background' && isStealthModeEnabled) {
-        // Automatically re-lock to decoy calculator when app is minimized or phone locked
-        console.log('AppNavigator: App backgrounded — re-locking to Calculator Decoy');
+      } else if (nextState === 'background') {
+        // Automatically re-lock to decoy Animal Smash game when app is minimized or phone locked
+        console.log('AppNavigator: App backgrounded — re-locking to Animal Game Decoy');
         setStealthUnlocked(false);
         setDecoyUnlocked(false);
       }
@@ -305,15 +305,10 @@ export default function AppNavigator() {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [isSetup, myHandle, isStealthModeEnabled]);
+  }, [isSetup, myHandle]);
 
-  // If user has Stealth / Decoy Animal Brick Breaker Game enabled and has not unlocked with PIN yet
-  if (isSetup && isStealthModeEnabled && !isStealthUnlocked) {
-    return <BrickBreakerGameScreen onUnlock={() => setStealthUnlocked(true)} />;
-  }
-
-  // If Decoy PIN was entered (e.g. 0000=), show innocent Decoy Study Connect screen
-  if (isSetup && isStealthModeEnabled && isDecoyUnlocked) {
+  // If Decoy PIN was entered (e.g. 0000), show innocent Decoy Study Connect screen
+  if (isDecoyUnlocked) {
     return (
       <DecoyInboxScreen
         onLock={() => {
@@ -322,6 +317,11 @@ export default function AppNavigator() {
         }}
       />
     );
+  }
+
+  // Front-door Animal Brick Breaker Game until unlocked with PIN (or via Google Sign-In for new users)
+  if (!isStealthUnlocked) {
+    return <BrickBreakerGameScreen onUnlock={() => setStealthUnlocked(true)} />;
   }
 
   return (
