@@ -4,9 +4,9 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getContactByHandle } from '../db/database';
 
-export const SUPABASE_URL = 'https://yuxivpghynubmuqwqrhr.supabase.co';
+export const SUPABASE_URL = 'https://mhqtqcjceklbtnfaqhqj.supabase.co';
 export const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1eGl2cGdoeW51Ym11cXdxcmhyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIyNDgyNDEsImV4cCI6MjEwNzgyNDI0MX0.r_DxN6RXt84PzFXcWzD5S9X_qo9_utTmR0c3BmOMYvU';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ocXRxY2pjZWtsYnRuZmFxaHFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2NzAyNTQsImV4cCI6MjEwODI0NjI1NH0.0ycACugh0_7kboYOAz5pXfNUxKnIt9FSlDgDVK5rvgA';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
