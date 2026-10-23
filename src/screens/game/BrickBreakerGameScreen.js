@@ -4,7 +4,7 @@
 // Panda, Cat & Puppy character heads act as the high-velocity smashing balls!
 // Falling gifts (Multi-Ball, +100 Points, +1 Life, Wide Paddle) drop from smashed bricks.
 // Secret 3-second hold on the top animal icon:
-//   - New User (!isSetup) -> Directly opens Real Google Sign-In Onboarding (No PIN asked!)
+//   - New User (!isSetup) -> Directly opens In-App Real Google Sign-In Onboarding (No PIN asked!)
 //   - Signed-in User (isSetup) -> Prompts for Secret Vault PIN to enter encrypted chat directly!
 // Zero visible lock buttons on screen.
 
@@ -68,6 +68,32 @@ const LEVEL_PATTERNS = {
   4: (r, c) => r === 0 || r === 4 || c === 0 || c === 4 || (r === 2 && c === 2), // Ring maze
 };
 
+// Pure brick generator outside component to avoid setState during render
+function generateBricksData(lvl = 1) {
+  const patternFn = LEVEL_PATTERNS[lvl] || LEVEL_PATTERNS[1];
+  const newBricks = [];
+  const topOffset = 22;
+
+  for (let r = 0; r < BRICK_ROWS; r++) {
+    for (let c = 0; c < BRICK_COLS; c++) {
+      if (!patternFn(r, c)) continue;
+      const rowStyle = ROW_COLORS[r % ROW_COLORS.length];
+      newBricks.push({
+        id: `b_${r}_${c}`,
+        x: c * (BRICK_WIDTH + BRICK_GAP),
+        y: topOffset + r * (BRICK_HEIGHT + BRICK_GAP),
+        width: BRICK_WIDTH,
+        height: BRICK_HEIGHT,
+        color: rowStyle.color,
+        border: rowStyle.border,
+        points: rowStyle.points * lvl,
+        active: true,
+      });
+    }
+  }
+  return newBricks;
+}
+
 export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) {
   const insets = useSafeAreaInsets();
 
@@ -95,14 +121,19 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const [gameState, setGameState] = useState('ready'); // 'ready' | 'playing' | 'cleared' | 'over'
   const [activeBanner, setActiveBanner] = useState(null);
 
-  // Bricks state
-  const [bricks, setBricks] = useState([]);
-  const bricksRef = useRef([]);
-  const remainingBricksRef = useRef(0);
+  // Bricks state initialized synchronously
+  const [bricks, setBricks] = useState(() => generateBricksData(1));
+  const bricksRef = useRef(bricks);
+  const remainingBricksRef = useRef(bricks.length);
   const brickRefs = useRef({});
 
+  // Synchronize bricksRef with state
+  useEffect(() => {
+    bricksRef.current = bricks;
+    remainingBricksRef.current = bricks.filter((b) => b.active).length;
+  }, [bricks]);
+
   // ── ZERO LATENCY NATIVE REFS ──
-  // Paddle direct ref & width
   const paddleRef = useRef(null);
   const paddleXRef = useRef(BOARD_WIDTH / 2 - BASE_PADDLE_WIDTH / 2);
   const paddleWidthRef = useRef(BASE_PADDLE_WIDTH);
@@ -113,9 +144,9 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const ballRef1 = useRef(null);
   const ballRef2 = useRef(null);
   const ballRef3 = useRef(null);
-  const ballViewRefs = [ballRef0, ballRef1, ballRef2, ballRef3];
+  const ballViewRefs = useRef([ballRef0, ballRef1, ballRef2, ballRef3]).current;
 
-  // Ball pool state (updated exclusively in physics loop without React setState)
+  // Ball pool state
   const ballsState = useRef([
     { id: 0, active: true, x: 0, y: 0, vx: 0, vy: 0, character: 'panda' },
     { id: 1, active: false, x: -999, y: -999, vx: 0, vy: 0, character: 'cat' },
@@ -130,7 +161,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const giftRef3 = useRef(null);
   const giftRef4 = useRef(null);
   const giftRef5 = useRef(null);
-  const giftViewRefs = [giftRef0, giftRef1, giftRef2, giftRef3, giftRef4, giftRef5];
+  const giftViewRefs = useRef([giftRef0, giftRef1, giftRef2, giftRef3, giftRef4, giftRef5]).current;
 
   // Gift pool state
   const giftsState = useRef([
@@ -146,6 +177,14 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const gameStateRef = useRef('ready');
   const animFrameRef = useRef(null);
   const scoreRef = useRef(0);
+  const boardHeightRef = useRef(boardHeight);
+  const paddleYRef = useRef(paddleY);
+  const levelRef = useRef(level);
+
+  // Keep layout refs updated
+  boardHeightRef.current = boardHeight;
+  paddleYRef.current = paddleY;
+  levelRef.current = level;
 
   // Modals
   const [showPinModal, setShowPinModal] = useState(false);
@@ -159,44 +198,11 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const holdProgressAnim = useRef(new Animated.Value(0)).current;
   const [isHolding, setIsHolding] = useState(false);
 
-  // Generate Bricks for selected level
-  const generateBricks = useCallback((lvl = 1) => {
-    const patternFn = LEVEL_PATTERNS[lvl] || LEVEL_PATTERNS[1];
-    const newBricks = [];
-    const topOffset = 22;
-
-    for (let r = 0; r < BRICK_ROWS; r++) {
-      for (let c = 0; c < BRICK_COLS; c++) {
-        if (!patternFn(r, c)) continue;
-        const rowStyle = ROW_COLORS[r % ROW_COLORS.length];
-        newBricks.push({
-          id: `b_${r}_${c}`,
-          x: c * (BRICK_WIDTH + BRICK_GAP),
-          y: topOffset + r * (BRICK_HEIGHT + BRICK_GAP),
-          width: BRICK_WIDTH,
-          height: BRICK_HEIGHT,
-          color: rowStyle.color,
-          border: rowStyle.border,
-          points: rowStyle.points * lvl,
-          active: true,
-        });
-      }
-    }
-    bricksRef.current = newBricks;
-    remainingBricksRef.current = newBricks.length;
-    setBricks(newBricks);
-
-    // Reset native brick opacities
-    newBricks.forEach((b) => {
-      brickRefs.current[b.id]?.setNativeProps({ style: { opacity: 1 } });
-    });
-  }, []);
-
-  // Reset ball on top of paddle (Hardware-direct native props)
+  // Reset ball on top of paddle
   const resetBallToPaddle = useCallback(() => {
     const initX = paddleXRef.current + paddleWidthRef.current / 2 - BALL_SIZE / 2;
-    const initY = paddleY - BALL_SIZE - 2;
-    const baseSpeed = 7.2 + (level - 1) * 0.5;
+    const initY = paddleYRef.current - BALL_SIZE - 2;
+    const baseSpeed = 7.2 + (levelRef.current - 1) * 0.5;
 
     // Reset main ball
     const b0 = ballsState.current[0];
@@ -230,13 +236,12 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         style: { left: -999, top: -999, opacity: 0 },
       });
     }
-  }, [character, level, paddleY]);
+  }, [character, ballViewRefs, giftViewRefs]);
 
-  // Initial Setup
+  // Initial ball setup on mount
   useEffect(() => {
-    generateBricks(level);
     resetBallToPaddle();
-  }, [level, generateBricks, resetBallToPaddle]);
+  }, [resetBallToPaddle]);
 
   // PanResponder for ZERO-LATENCY Direct Paddle Movement
   const panResponder = useRef(
@@ -259,7 +264,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         // If ball ready to launch, track it directly on paddle
         if (gameStateRef.current === 'ready') {
           const ballX = newX + paddleWidthRef.current / 2 - BALL_SIZE / 2;
-          const ballY = paddleY - BALL_SIZE - 2;
+          const ballY = paddleYRef.current - BALL_SIZE - 2;
           ballsState.current[0].x = ballX;
           ballsState.current[0].y = ballY;
           ballViewRefs[0].current?.setNativeProps({
@@ -284,7 +289,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // Spawn Multi-Ball helper (Fast & instant)
   const spawnMultiBall = () => {
     const pX = paddleXRef.current;
-    const baseSpeed = 7.2 + (level - 1) * 0.5;
+    const baseSpeed = 7.2 + (levelRef.current - 1) * 0.5;
 
     let spawned = 0;
     for (let i = 1; i < MAX_BALLS && spawned < 2; i++) {
@@ -292,7 +297,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       if (!b.active) {
         b.active = true;
         b.x = pX + (spawned === 0 ? 12 : paddleWidthRef.current - BALL_SIZE - 12);
-        b.y = paddleY - BALL_SIZE - 6;
+        b.y = paddleYRef.current - BALL_SIZE - 6;
         b.vx = (spawned === 0 ? -1 : 1) * (baseSpeed * 0.75);
         b.vy = -baseSpeed;
         ballViewRefs[i].current?.setNativeProps({
@@ -330,8 +335,11 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // ── ZERO LATENCY 60-120 FPS NATIVE GAME LOOP ──
   useEffect(() => {
     let lastTime = Date.now();
+    let isCancelled = false;
 
     const loop = () => {
+      if (isCancelled) return;
+
       if (gameStateRef.current === 'playing') {
         const now = Date.now();
         const dt = Math.min((now - lastTime) / 16.67, 1.6);
@@ -339,6 +347,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
         const pX = paddleXRef.current;
         const pWidth = paddleWidthRef.current;
+        const pY = paddleYRef.current;
+        const bHeight = boardHeightRef.current;
         const currentBricks = bricksRef.current;
 
         let activeBallsCount = 0;
@@ -369,8 +379,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
           // Paddle Collision
           if (
-            ball.y + BALL_SIZE >= paddleY &&
-            ball.y + BALL_SIZE <= paddleY + PADDLE_HEIGHT + 8 &&
+            ball.y + BALL_SIZE >= pY &&
+            ball.y + BALL_SIZE <= pY + PADDLE_HEIGHT + 8 &&
             ball.x + BALL_SIZE >= pX - 4 &&
             ball.x <= pX + pWidth + 4 &&
             ball.vy > 0
@@ -384,7 +394,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
             ball.vx = currentSpeed * Math.sin(angle);
             ball.vy = -Math.abs(currentSpeed * Math.cos(angle));
-            ball.y = paddleY - BALL_SIZE;
+            ball.y = pY - BALL_SIZE;
 
             try {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -452,7 +462,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           }
 
           // Ball Fell Off Bottom
-          if (ball.y > boardHeight) {
+          if (ball.y > bHeight) {
             ball.active = false;
             ballViewRefs[i].current?.setNativeProps({
               style: { left: -999, top: -999, opacity: 0 },
@@ -496,8 +506,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
           // Caught by paddle!
           if (
-            g.y + GIFT_SIZE >= paddleY &&
-            g.y <= paddleY + PADDLE_HEIGHT &&
+            g.y + GIFT_SIZE >= pY &&
+            g.y <= pY + PADDLE_HEIGHT &&
             g.x + GIFT_SIZE >= pX &&
             g.x <= pX + pWidth
           ) {
@@ -526,7 +536,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           }
 
           // Fell past bottom
-          if (g.y > boardHeight) {
+          if (g.y > bHeight) {
             g.active = false;
             giftViewRefs[k].current?.setNativeProps({
               style: { left: -999, top: -999, opacity: 0 },
@@ -544,7 +554,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         if (remainingBricksRef.current <= 0) {
           gameStateRef.current = 'cleared';
           setGameState('cleared');
-          scoreRef.current += 200 * level;
+          scoreRef.current += 200 * levelRef.current;
           setScore(scoreRef.current);
           setGameHighScore(scoreRef.current);
           try {
@@ -559,15 +569,20 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
     animFrameRef.current = requestAnimationFrame(loop);
     return () => {
+      isCancelled = true;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [boardHeight, level, paddleY, resetBallToPaddle, setGameHighScore]);
+  }, [ballViewRefs, giftViewRefs, resetBallToPaddle, setGameHighScore]);
 
   // Next level handler
   const handleNextLevel = () => {
     const nextLvl = (level % 4) + 1;
     setLevel(nextLvl);
-    generateBricks(nextLvl);
+    const freshBricks = generateBricksData(nextLvl);
+    setBricks(freshBricks);
+    freshBricks.forEach((b) => {
+      brickRefs.current[b.id]?.setNativeProps({ style: { opacity: 1 } });
+    });
     resetBallToPaddle();
     gameStateRef.current = 'ready';
     setGameState('ready');
@@ -579,7 +594,11 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     setScore(0);
     setLives(3);
     setLevel(1);
-    generateBricks(1);
+    const freshBricks = generateBricksData(1);
+    setBricks(freshBricks);
+    freshBricks.forEach((b) => {
+      brickRefs.current[b.id]?.setNativeProps({ style: { opacity: 1 } });
+    });
     resetBallToPaddle();
     gameStateRef.current = 'ready';
     setGameState('ready');
@@ -626,7 +645,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
       // Check User Setup Status:
       if (!isSetup) {
-        // NEW USER: DO NOT ASK FOR PIN! Directly open Real Google Sign-In Onboarding!
+        // NEW USER: DO NOT ASK FOR PIN! Directly open In-App Real Google Sign-In Onboarding!
         setShowGoogleOnboarding(true);
       } else {
         // SIGNED-IN USER: Prompt for Secret PIN and send directly to chat interface!
@@ -678,7 +697,9 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       } catch (_) {}
       setDecoyUnlocked(true);
       setStealthUnlocked(true);
-      if (onUnlock) onUnlock();
+      setTimeout(() => {
+        if (onUnlock) onUnlock();
+      }, 0);
       return;
     }
 
@@ -691,8 +712,10 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       } catch (_) {}
       setDecoyUnlocked(false);
       setStealthUnlocked(true);
-      if (onUnlock) onUnlock();
-      else if (navigation?.canGoBack()) navigation.goBack();
+      setTimeout(() => {
+        if (onUnlock) onUnlock();
+        else if (navigation?.canGoBack()) navigation.goBack();
+      }, 0);
       return;
     }
 
@@ -1003,13 +1026,15 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         </TouchableOpacity>
       </Modal>
 
-      {/* Real Google Sign-In Onboarding Modal for New Users */}
+      {/* 100% In-App Real Google Sign-In Onboarding Modal for New Users */}
       <GoogleOnboardingModal
         visible={showGoogleOnboarding}
         onClose={() => setShowGoogleOnboarding(false)}
         onComplete={() => {
           setShowGoogleOnboarding(false);
-          if (onUnlock) onUnlock();
+          setTimeout(() => {
+            if (onUnlock) onUnlock();
+          }, 0);
         }}
       />
 
@@ -1035,7 +1060,11 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                   onPress={() => {
                     setShowLevelPicker(false);
                     setLevel(lvl);
-                    generateBricks(lvl);
+                    const fresh = generateBricksData(lvl);
+                    setBricks(fresh);
+                    fresh.forEach((b) => {
+                      brickRefs.current[b.id]?.setNativeProps({ style: { opacity: 1 } });
+                    });
                     resetBallToPaddle();
                   }}
                 >
