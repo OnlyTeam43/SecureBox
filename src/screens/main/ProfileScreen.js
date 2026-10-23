@@ -42,6 +42,9 @@ export default function ProfileScreen({ navigation }) {
     setMyCharacter,
   } = useUserStore();
 
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState(stealthPin || '1357');
+
   const expiryLabel =
     EXPIRY_OPTIONS.find((o) => o.value === defaultExpiry)?.label || 'Never';
 
@@ -296,15 +299,13 @@ export default function ProfileScreen({ navigation }) {
             <TouchableOpacity
               style={styles.row}
               onPress={() => {
-                Alert.alert(
-                  'Secret Unlock PIN',
-                  `Your current unlock PIN is: ${stealthPin}\n\nTo unlock SecureBox from the game, tap the title 4 times or tap the lock icon and enter ${stealthPin}.`
-                );
+                setPinInput(stealthPin || '1357');
+                setShowPinModal(true);
               }}
             >
               <View>
                 <Text style={styles.rowLabel}>Secret Unlock PIN</Text>
-                <Text style={styles.rowSub}>PIN: {stealthPin} (Reveals real SecureBox)</Text>
+                <Text style={styles.rowSub}>PIN: {stealthPin} (Tap to view or change)</Text>
               </View>
               <Text style={styles.rowArrow}>→</Text>
             </TouchableOpacity>
@@ -396,6 +397,63 @@ export default function ProfileScreen({ navigation }) {
       </View>
 
       <Text style={styles.footer}>SecureBox · Private & Intimate messaging</Text>
+
+      {/* Change Secret PIN Modal */}
+      <Modal
+        visible={showPinModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPinModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowPinModal(false)}
+        >
+          <View style={styles.pinCard} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>Secret Unlock PIN</Text>
+            <Text style={styles.modalSub}>
+              Enter a 4-digit PIN used to reveal SecureBox from the disguise game screen.
+            </Text>
+
+            <TextInput
+              style={styles.pinInput}
+              value={pinInput}
+              onChangeText={(t) => setPinInput(t.replace(/[^0-9]/g, '').slice(0, 4))}
+              placeholder="1357"
+              placeholderTextColor="#87867F"
+              keyboardType="number-pad"
+              maxLength={4}
+              autoFocus
+            />
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setShowPinModal(false)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalSaveBtn}
+                onPress={() => {
+                  const clean = pinInput.trim();
+                  if (clean.length !== 4) {
+                    Alert.alert('Invalid PIN', 'Please enter exactly 4 numeric digits.');
+                    return;
+                  }
+                  setStealthPin(clean);
+                  setShowPinModal(false);
+                  Alert.alert('PIN Updated', `Your secret unlock PIN is now: ${clean}`);
+                }}
+              >
+                <Text style={styles.modalSaveText}>Save PIN</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }
