@@ -1,12 +1,13 @@
 // src/screens/onboarding/WelcomeScreen.js
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, StatusBar,
+  View, Text, StyleSheet, TouchableOpacity, StatusBar, ActivityIndicator, Alert,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import * as Haptics from 'expo-haptics';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
 import { CharacterAvatar } from '../../animal_ui/components/CharacterAvatar.js';
-import GoogleOnboardingModal from './GoogleOnboardingModal';
+import { executeOneTapGoogleSignIn } from '../../services/googleAuthService';
 
 // Official Google G SVG Icon
 function GoogleIcon({ size = 20 }) {
@@ -33,7 +34,42 @@ function GoogleIcon({ size = 20 }) {
 }
 
 export default function WelcomeScreen({ navigation }) {
-  const [googleModalVisible, setGoogleModalVisible] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  // 1-Tap Real Google Sign-In
+  const handleGoogleSignInPress = async () => {
+    setGoogleLoading(true);
+    try {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch (_) {}
+
+      const res = await executeOneTapGoogleSignIn();
+
+      if (res.success) {
+        try {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (_) {}
+
+        navigation.replace('MainTabs');
+        return;
+      }
+
+      if (res.cancelled) {
+        // User closed the Google account selector sheet
+        return;
+      }
+
+      if (res.error) {
+        Alert.alert('Google Sign-In', res.error);
+      }
+    } catch (err) {
+      console.error('[WelcomeScreen] Google Sign-In error:', err);
+      Alert.alert('Google Sign-In Error', err.message || 'Unable to connect to Google Play Services.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -53,12 +89,19 @@ export default function WelcomeScreen({ navigation }) {
 
       <View style={styles.actions}>
         <TouchableOpacity
-          style={styles.googleBtn}
-          onPress={() => setGoogleModalVisible(true)}
+          style={[styles.googleBtn, googleLoading && { opacity: 0.8 }]}
+          onPress={handleGoogleSignInPress}
+          disabled={googleLoading}
           activeOpacity={0.85}
         >
-          <GoogleIcon size={20} />
-          <Text style={styles.googleBtnText}>Continue with Google</Text>
+          {googleLoading ? (
+            <ActivityIndicator color="#1f1f1f" />
+          ) : (
+            <>
+              <GoogleIcon size={20} />
+              <Text style={styles.googleBtnText}>Continue with Google</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -71,16 +114,6 @@ export default function WelcomeScreen({ navigation }) {
       </View>
 
       <Text style={styles.note}>1-Tap Google Verification · Zero Typing Setup</Text>
-
-      {/* 1-Tap Google Onboarding Modal */}
-      <GoogleOnboardingModal
-        visible={googleModalVisible}
-        onClose={() => setGoogleModalVisible(false)}
-        onComplete={() => {
-          setGoogleModalVisible(false);
-          navigation.replace('MainTabs');
-        }}
-      />
     </View>
   );
 }

@@ -86,6 +86,7 @@ export const generateUniqueHandle = async (name) => {
  * mobile_number stores `${cleanPhone}#${recoveryPin}` for instant recovery
  */
 export const registerUserInSupabase = async ({
+  id,
   handle,
   nickname,
   avatarId,
@@ -97,23 +98,41 @@ export const registerUserInSupabase = async ({
 
   let mobilePayload = null;
   if (mobileNumber && mobileNumber.trim()) {
-    const cleanPhone = mobileNumber.replace(/[^0-9+]/g, '');
-    mobilePayload = recoveryPin ? `${cleanPhone}#${recoveryPin}` : cleanPhone;
+    if (mobileNumber.includes('@')) {
+      mobilePayload = recoveryPin ? `${mobileNumber.trim()}#${recoveryPin}` : mobileNumber.trim();
+    } else {
+      const cleanPhone = mobileNumber.replace(/[^0-9+]/g, '');
+      mobilePayload = recoveryPin ? `${cleanPhone}#${recoveryPin}` : cleanPhone;
+    }
+  }
+
+  // Auto-detect authenticated Supabase Auth user ID if not provided
+  let authUserId = id;
+  if (!authUserId) {
+    try {
+      const { data: authUserRes } = await supabase.auth.getUser();
+      if (authUserRes?.user?.id) {
+        authUserId = authUserRes.user.id;
+      }
+    } catch (_) {}
+  }
+
+  const payload = {
+    handle: cleanHandle,
+    nickname: nickname.trim(),
+    avatar_id: avatarId || 'avatar_rose',
+    mobile_number: mobilePayload,
+    password: password,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (authUserId) {
+    payload.id = authUserId;
   }
 
   const { data, error } = await supabase
     .from('users')
-    .upsert(
-      {
-        handle: cleanHandle,
-        nickname: nickname.trim(),
-        avatar_id: avatarId || 'avatar_rose',
-        mobile_number: mobilePayload,
-        password: password,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'handle' }
-    )
+    .upsert(payload, { onConflict: 'handle' })
     .select()
     .single();
 

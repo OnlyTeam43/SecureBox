@@ -560,7 +560,6 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           } catch (_) {}
-          return;
         }
       }
 
@@ -574,18 +573,31 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     };
   }, [ballViewRefs, giftViewRefs, resetBallToPaddle, setGameHighScore]);
 
-  // Next level handler
-  const handleNextLevel = () => {
-    const nextLvl = (level % 4) + 1;
-    setLevel(nextLvl);
-    const freshBricks = generateBricksData(nextLvl);
+  // Load level helper (clean state & ref synchronization)
+  const loadLevel = (lvl) => {
+    levelRef.current = lvl;
+    setLevel(lvl);
+
+    const freshBricks = generateBricksData(lvl);
+    bricksRef.current = freshBricks;
+    remainingBricksRef.current = freshBricks.length;
     setBricks(freshBricks);
-    freshBricks.forEach((b) => {
-      brickRefs.current[b.id]?.setNativeProps({ style: { opacity: 1 } });
-    });
+
+    setTimeout(() => {
+      freshBricks.forEach((b) => {
+        brickRefs.current[b.id]?.setNativeProps({ style: { opacity: 1 } });
+      });
+    }, 40);
+
     resetBallToPaddle();
     gameStateRef.current = 'ready';
     setGameState('ready');
+  };
+
+  // Next level handler
+  const handleNextLevel = () => {
+    const nextLvl = (levelRef.current % 4) + 1;
+    loadLevel(nextLvl);
   };
 
   // Restart game
@@ -593,15 +605,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     scoreRef.current = 0;
     setScore(0);
     setLives(3);
-    setLevel(1);
-    const freshBricks = generateBricksData(1);
-    setBricks(freshBricks);
-    freshBricks.forEach((b) => {
-      brickRefs.current[b.id]?.setNativeProps({ style: { opacity: 1 } });
-    });
-    resetBallToPaddle();
-    gameStateRef.current = 'ready';
-    setGameState('ready');
+    loadLevel(1);
   };
 
   // ── SECRET 3-SECOND HOLD ON TOP ANIMAL ICON ──
@@ -1059,13 +1063,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                   style={[styles.levelSelectBtn, level === lvl && styles.levelSelectBtnActive]}
                   onPress={() => {
                     setShowLevelPicker(false);
-                    setLevel(lvl);
-                    const fresh = generateBricksData(lvl);
-                    setBricks(fresh);
-                    fresh.forEach((b) => {
-                      brickRefs.current[b.id]?.setNativeProps({ style: { opacity: 1 } });
-                    });
-                    resetBallToPaddle();
+                    loadLevel(lvl);
                   }}
                 >
                   <Text style={[styles.levelSelectText, level === lvl && styles.levelSelectTextActive]}>
