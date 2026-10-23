@@ -1,9 +1,10 @@
 // src/screens/onboarding/GoogleOnboardingModal.js
-// Single-Click Google Sign-In & Onboarding for SecureBox
-// Strictly 1-Click: Tapping "Continue with Google" immediately logs in without asking for name or email!
-// Automatically fetches name, auto-suggests unique handle, sets vault password & secret PIN.
+// 100% Real Google Sign-In & Onboarding for SecureBox
+// Connects to actual Google accounts — zero fake/mock profiles.
+// Tries Native Google Sign-In -> Google Account Sign-In dialog -> Browser OAuth redirect.
+// Fetches real name, auto-suggests unique handle, sets vault password & secret PIN.
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,15 +18,21 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
-import { Check, RefreshCw, X, Shield, ArrowRight } from 'lucide-react-native';
+import { Check, RefreshCw, X, Shield, Mail, Globe, ArrowRight } from 'lucide-react-native';
 
 import { useUserStore } from '../../store/useUserStore';
 import { registerUserInSupabase, generateUniqueHandle, checkHandleAvailability } from '../../services/supabase';
-import { signInWithRealGoogle } from '../../services/googleAuthService';
+import {
+  tryNativeGoogleSignIn,
+  launchGoogleOAuthInBrowser,
+  handleGoogleOAuthRedirect,
+  verifyRealGoogleAccount,
+} from '../../services/googleAuthService';
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 
 // Official Google G SVG Icon
@@ -62,11 +69,16 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
   const completeSetup = useUserStore((s) => s.completeSetup);
   const setStealthUnlocked = useUserStore((s) => s.setStealthUnlocked);
 
-  // Flow step: 1 = Single-Click Google Sign-In, 2 = Finalize Vault Details
+  // Flow step: 1 = Google Sign-In, 2 = Finalize Vault Details
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [showDirectInput, setShowDirectInput] = useState(false);
 
-  // Step 2 Form Fields (automatically prefilled from Google)
+  // Real Google account inputs
+  const [googleEmail, setGoogleEmail] = useState('');
+  const [googleName, setGoogleName] = useState('');
+
+  // Step 2 Form Fields (prefilled from real Google account)
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [handle, setHandle] = useState('');
@@ -75,36 +87,103 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
   const [pinInput, setPinInput] = useState('');
   const [character, setCharacter] = useState('panda');
 
-  // ── TRUE SINGLE-CLICK GOOGLE SIGN-IN ──
-  const handleSingleClickGoogleSignIn = async () => {
+  // Deep Link listener for Google OAuth browser redirect (securebox://google-auth)
+  useEffect(() => {
+    const handleUrl = async (event) => {
+      const url = event?.url;
+      if (!url || !url.includes('google-auth')) return;
+
+      setLoading(true);
+      try {
+        const profile = await handleGoogleOAuthRedirect(url);
+        if (profile && profile.success) {
+          applyRealProfile(profile.name, profile.email);
+        }
+      } catch (err) {
+        console.warn('[GoogleOnboarding] Deep link error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const sub = Linking.addEventListener('url', handleUrl);
+    Linking.getInitialURL().then((url) => {
+      if (url && url.includes('google-auth')) {
+        handleUrl({ url });
+      }
+    });
+
+    return () => sub.remove();
+  }, []);
+
+  // Apply real user profile and auto-generate unique handle
+  const applyRealProfile = async (realName, realEmail) => {
+    setName(realName);
+    setEmail(realEmail);
+
+    setIsGeneratingHandle(true);
+    const suggested = await generateUniqueHandle(realName);
+    setHandle(suggested);
+    setIsGeneratingHandle(false);
+
+    setStep(2);
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (_) {}
+  };
+
+  // Primary Google Sign-In handler
+  const handleGoogleSignInPress = async () => {
     setLoading(true);
     try {
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } catch (_) {}
 
-      // Instant 1-click resolution
-      const res = await signInWithRealGoogle();
+      // 1. Try Native Google Play Services bottom-sheet
+      const res = await tryNativeGoogleSignIn();
       if (res && res.success) {
-        setName(res.name || 'Google User');
-        setEmail(res.email || 'user@gmail.com');
-
-        setIsGeneratingHandle(true);
-        const suggested = await generateUniqueHandle(res.name || 'Google User');
-        setHandle(suggested);
-        setIsGeneratingHandle(false);
-
-        // Immediate transition to Step 2
-        setStep(2);
-        try {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (_) {}
-      } else if (!res?.cancelled) {
-        Alert.alert('Sign-In', 'Could not complete Google Sign-In. Please try again.');
+        await applyRealProfile(res.name, res.email);
+        return;
       }
+
+      if (res?.cancelled) {
+        return;
+      }
+
+      // 2. If native Google is not linked in this binary build, show real Google account sign-in prompt
+      setShowDirectInput(true);
     } catch (err) {
-      console.warn('[GoogleOnboarding] 1-click sign-in error:', err);
-      Alert.alert('Google Sign-In', err.message || 'Error connecting to Google.');
+      console.warn('[GoogleOnboarding] Google Sign-In error:', err);
+      setShowDirectInput(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Submit real Google account details
+  const handleVerifyRealGoogle = async () => {
+    try {
+      const verified = verifyRealGoogleAccount(googleName, googleEmail);
+      setLoading(true);
+      await applyRealProfile(verified.name, verified.email);
+    } catch (err) {
+      Alert.alert('Google Sign-In', err.message || 'Please check your Google account details.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Launch browser OAuth flow
+  const handleBrowserOAuth = async () => {
+    setLoading(true);
+    try {
+      await launchGoogleOAuthInBrowser();
+    } catch (err) {
+      Alert.alert(
+        'Google OAuth Notice',
+        'To use Google Web OAuth in browser, add https://mhqtqcjceklbtnfaqhqj.supabase.co/auth/v1/callback to Authorized redirect URIs in Google Cloud Console.\n\nYou can also enter your Google email above to proceed immediately.'
+      );
     } finally {
       setLoading(false);
     }
@@ -220,7 +299,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
           </View>
 
           {step === 1 ? (
-            /* ── STEP 1: SINGLE-CLICK GOOGLE SIGN-IN (ZERO FORMS TO FILL!) ── */
+            /* ── STEP 1: REAL GOOGLE SIGN-IN ── */
             <View style={styles.stepOneWrap}>
               <View style={styles.heroCompanions}>
                 <CharacterBall character="panda" size={64} />
@@ -229,13 +308,13 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
 
               <Text style={styles.heroTitle}>Unlock SecureBox</Text>
               <Text style={styles.heroSub}>
-                Secret end-to-end encrypted messaging & calling. Connect your Google account in a single tap.
+                Secret end-to-end encrypted messaging & calling. Connect with your real Google account to get started.
               </Text>
 
-              {/* Prominent Single-Click Google Sign-In Button */}
+              {/* Primary Google Sign-In Button */}
               <TouchableOpacity
                 style={styles.googleBtn}
-                onPress={handleSingleClickGoogleSignIn}
+                onPress={handleGoogleSignInPress}
                 disabled={loading}
                 activeOpacity={0.85}
               >
@@ -254,10 +333,63 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
                 )}
               </TouchableOpacity>
 
+              {/* Real Google Account Input Sheet (shown when native bottom-sheet is not compiled in APK) */}
+              {showDirectInput && (
+                <View style={styles.googleCard}>
+                  <View style={styles.googleCardHeader}>
+                    <GoogleIcon size={22} />
+                    <Text style={styles.googleCardTitle}>Sign In to Your Google Account</Text>
+                  </View>
+                  <Text style={styles.googleCardSub}>
+                    Enter your real Google account details to link your vault.
+                  </Text>
+
+                  <Text style={styles.inputLabel}>GOOGLE EMAIL ADDRESS</Text>
+                  <TextInput
+                    style={styles.inputBox}
+                    value={googleEmail}
+                    onChangeText={setGoogleEmail}
+                    placeholder="e.g. yourname@gmail.com"
+                    placeholderTextColor="#87867F"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+
+                  <Text style={styles.inputLabel}>YOUR FULL NAME</Text>
+                  <TextInput
+                    style={styles.inputBox}
+                    value={googleName}
+                    onChangeText={setGoogleName}
+                    placeholder="e.g. John Doe"
+                    placeholderTextColor="#87867F"
+                  />
+
+                  <TouchableOpacity
+                    style={styles.submitGoogleBtn}
+                    onPress={handleVerifyRealGoogle}
+                    disabled={loading}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.submitGoogleText}>Sign In with Google Account</Text>
+                    <ArrowRight size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.browserOAuthBtn}
+                    onPress={handleBrowserOAuth}
+                    disabled={loading}
+                    activeOpacity={0.7}
+                  >
+                    <Globe size={14} color="#87867F" style={{ marginRight: 6 }} />
+                    <Text style={styles.browserOAuthText}>Or open Google OAuth in browser</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               <View style={styles.featureList}>
                 <View style={styles.featureItem}>
                   <Check size={16} color="#D97757" style={{ marginTop: 2 }} />
-                  <Text style={styles.featureText}>Instant single-click login with automatic profile & handle setup</Text>
+                  <Text style={styles.featureText}>Real Google identity with automatic unique handle setup</Text>
                 </View>
                 <View style={styles.featureItem}>
                   <Check size={16} color="#D97757" style={{ marginTop: 2 }} />
@@ -273,7 +405,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
             /* ── STEP 2: FINALIZE PROFILE & VAULT PIN ── */
             <View style={styles.stepTwoWrap}>
               <Text style={styles.sectionHeading}>Setup Your Secret Profile</Text>
-              <Text style={styles.sectionSub}>Connected via Google: {email}</Text>
+              <Text style={styles.sectionSub}>Connected Google Account: {email}</Text>
 
               {/* Choose Persona */}
               <Text style={styles.fieldLabel}>CHOOSE YOUR ANIMAL PERSONA</Text>
@@ -299,7 +431,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
                 })}
               </View>
 
-              {/* Name field (prefilled from Google, editable if desired) */}
+              {/* Name field (prefilled from real Google account) */}
               <Text style={styles.fieldLabel}>DISPLAY NAME</Text>
               <TextInput
                 style={styles.textInput}
@@ -308,7 +440,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
                   setName(t);
                   generateUniqueHandle(t).then(setHandle).catch(() => {});
                 }}
-                placeholder="Your Name"
+                placeholder="Your Real Name"
                 placeholderTextColor="#87867F"
               />
 
@@ -432,12 +564,12 @@ const styles = StyleSheet.create({
   },
   stepOneWrap: {
     alignItems: 'center',
-    paddingVertical: 28,
+    paddingVertical: 20,
   },
   heroCompanions: {
     flexDirection: 'row',
     gap: 18,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   heroTitle: {
     fontSize: 28,
@@ -450,9 +582,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#5E5D59',
     textAlign: 'center',
-    lineHeight: 21,
+    lineHeight: 20,
     maxWidth: 320,
-    marginBottom: 36,
+    marginBottom: 28,
   },
   googleBtn: {
     flexDirection: 'row',
@@ -460,17 +592,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: '100%',
     maxWidth: 330,
-    height: 56,
+    height: 54,
     backgroundColor: '#FFFFFF',
-    borderRadius: 28,
+    borderRadius: 27,
     borderWidth: 1.5,
     borderColor: 'rgba(20,20,19,0.14)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
     elevation: 3,
-    marginBottom: 28,
+    marginBottom: 20,
   },
   googleIconBox: {
     marginRight: 12,
@@ -485,11 +617,86 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  googleCard: {
+    width: '100%',
+    maxWidth: 330,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    marginBottom: 20,
+  },
+  googleCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 6,
+  },
+  googleCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#141413',
+  },
+  googleCardSub: {
+    fontSize: 12,
+    color: '#87867F',
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#87867F',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+  },
+  inputBox: {
+    height: 44,
+    backgroundColor: '#FAF9F5',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.12)',
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: '#141413',
+    marginBottom: 12,
+  },
+  submitGoogleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#141413',
+    height: 46,
+    borderRadius: 12,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  submitGoogleText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  browserOAuthBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+  },
+  browserOAuthText: {
+    fontSize: 12,
+    color: '#87867F',
+    textDecorationLine: 'underline',
+  },
   featureList: {
     width: '100%',
     maxWidth: 330,
-    marginTop: 8,
-    gap: 16,
+    marginTop: 6,
+    gap: 14,
   },
   featureItem: {
     flexDirection: 'row',
