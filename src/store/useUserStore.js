@@ -26,9 +26,6 @@ export const useUserStore = create(
 
       // Stealth / Animal Game Decoy Mode
       isStealthModeEnabled: true,
-      stealthPin: null, // User must explicitly choose their secret PIN
-      stealthDuressPin: '9999', // Emergency duress PIN that silently nukes all data
-      stealthDecoyPin: '0000', // Decoy PIN that unlocks fake innocent study chats
       isStealthUnlocked: false,
       isDecoyUnlocked: false,
       isStealthNotificationsEnabled: false, // Disguises lock screen push notifications
@@ -61,9 +58,6 @@ export const useUserStore = create(
       setDefaultExpiry: (seconds) => set({ defaultExpiry: seconds }),
 
       setStealthModeEnabled: (enabled) => set({ isStealthModeEnabled: enabled }),
-      setStealthPin: (pin) => set({ stealthPin: pin }),
-      setStealthDuressPin: (pin) => set({ stealthDuressPin: pin }),
-      setStealthDecoyPin: (pin) => set({ stealthDecoyPin: pin }),
       setStealthUnlocked: (unlocked) => set({ isStealthUnlocked: unlocked }),
       setDecoyUnlocked: (unlocked) => set({ isDecoyUnlocked: unlocked }),
       setStealthNotificationsEnabled: (enabled) => set({ isStealthNotificationsEnabled: enabled }),
@@ -83,9 +77,6 @@ export const useUserStore = create(
           defaultExpiry: null,
           pendingInviteHandle: null,
           isStealthModeEnabled: false,
-          stealthPin: null,
-          stealthDuressPin: '9999',
-          stealthDecoyPin: '0000',
           isStealthUnlocked: false,
           isDecoyUnlocked: false,
           isStealthNotificationsEnabled: false,

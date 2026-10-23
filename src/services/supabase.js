@@ -249,7 +249,7 @@ export const findUserByHandle = async (handle) => {
   const cleanHandle = handle.replace('@', '').trim().toLowerCase();
   const { data, error } = await supabase
     .from('users')
-    .select('id, handle, nickname, avatar_id')
+    .select('handle, nickname, avatar_id')
     .eq('handle', cleanHandle)
     .maybeSingle();
 

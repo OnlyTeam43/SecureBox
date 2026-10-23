@@ -30,20 +30,12 @@ export default function ProfileScreen({ navigation }) {
     setAvatarUri,
     isStealthModeEnabled,
     setStealthModeEnabled,
-    stealthPin,
-    setStealthPin,
-    stealthDuressPin,
-    stealthDecoyPin,
-    setStealthDecoyPin,
     isStealthNotificationsEnabled,
     setStealthNotificationsEnabled,
     setStealthUnlocked,
     myCharacter,
     setMyCharacter,
   } = useUserStore();
-
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState(stealthPin || '');
 
   const expiryLabel =
     EXPIRY_OPTIONS.find((o) => o.value === defaultExpiry)?.label || 'Never';
@@ -275,7 +267,7 @@ export default function ProfileScreen({ navigation }) {
           <View style={{ flex: 1, paddingRight: Spacing.sm }}>
             <Text style={styles.rowLabel}>Animal Game Decoy Mode</Text>
             <Text style={styles.rowSub}>
-              Disguises app as Animal Smash brick breaker game on phone lock. Enter secret PIN or 4-tap title to unlock.
+              Disguises app as Animal Smash brick breaker game on phone lock. Hold the center companion character for 3 seconds to unlock.
             </Text>
           </View>
           <Switch
@@ -285,7 +277,7 @@ export default function ProfileScreen({ navigation }) {
               if (val) {
                 Alert.alert(
                   'Animal Game Decoy Enabled 🎮',
-                  `When opening SecureBox, it will disguise as the Animal Smash brick breaker game.\n\nTo unlock, tap the title 4 times or tap the secret lock icon and enter PIN: ${stealthPin}.`
+                  'When opening SecureBox, it will disguise as the Animal Smash brick breaker game.\n\nTo unlock, hold the center animal companion icon for 3 seconds.'
                 );
               }
             }}
@@ -295,58 +287,17 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         {isStealthModeEnabled ? (
-          <>
-            <TouchableOpacity
-              style={styles.row}
-              onPress={() => {
-                setPinInput(stealthPin || '');
-                setShowPinModal(true);
-              }}
-            >
-              <View>
-                <Text style={styles.rowLabel}>Secret Unlock PIN</Text>
-                <Text style={styles.rowSub}>PIN: {stealthPin || 'Not set'} (Tap to view or change)</Text>
-              </View>
-              <Text style={styles.rowArrow}>→</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.row}
-              onPress={() => {
-                Alert.alert(
-                  'Decoy School Chat PIN',
-                  `Your current decoy PIN is: ${stealthDecoyPin}\n\nIf forced to unlock your phone, enter ${stealthDecoyPin}. It opens a fake 'Study Connect' app with innocent homework and teacher messages.`
-                );
-              }}
-            >
-              <View>
-                <Text style={styles.rowLabel}>Decoy Vault PIN (Study Connect)</Text>
-                <Text style={styles.rowSub}>PIN: {stealthDecoyPin} (Plausible deniability)</Text>
-              </View>
-              <Text style={styles.rowArrow}>→</Text>
-            </TouchableOpacity>
-
-            <View style={styles.row}>
-              <View>
-                <Text style={styles.rowLabel}>Emergency Duress PIN</Text>
-                <Text style={styles.rowSub}>
-                  PIN: {stealthDuressPin} (Silently nukes all data on emergency)
-                </Text>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.row, { backgroundColor: 'rgba(217,119,87,0.1)' }]}
-              onPress={() => {
-                setStealthUnlocked(false);
-              }}
-            >
-              <Text style={[styles.rowLabel, { color: '#D97757', fontWeight: '700' }]}>
-                🔒 Lock to Animal Game Now
-              </Text>
-              <Text style={[styles.rowArrow, { color: '#D97757' }]}>→</Text>
-            </TouchableOpacity>
-          </>
+          <TouchableOpacity
+            style={[styles.row, { backgroundColor: 'rgba(217,119,87,0.1)' }]}
+            onPress={() => {
+              setStealthUnlocked(false);
+            }}
+          >
+            <Text style={[styles.rowLabel, { color: '#D97757', fontWeight: '700' }]}>
+              🔒 Lock to Animal Game Now
+            </Text>
+            <Text style={[styles.rowArrow, { color: '#D97757' }]}>→</Text>
+          </TouchableOpacity>
         ) : null}
 
         {/* Discreet Push Notifications */}
@@ -397,63 +348,6 @@ export default function ProfileScreen({ navigation }) {
       </View>
 
       <Text style={styles.footer}>SecureBox · Private & Intimate messaging</Text>
-
-      {/* Change Secret PIN Modal */}
-      <Modal
-        visible={showPinModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPinModal(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setShowPinModal(false)}
-        >
-          <View style={styles.pinCard} onStartShouldSetResponder={() => true}>
-            <Text style={styles.modalTitle}>Secret Unlock PIN</Text>
-            <Text style={styles.modalSub}>
-              Enter a 4-digit PIN used to reveal SecureBox from the disguise game screen.
-            </Text>
-
-            <TextInput
-              style={styles.pinInput}
-              value={pinInput}
-              onChangeText={(t) => setPinInput(t.replace(/[^0-9]/g, '').slice(0, 4))}
-              placeholder="••••"
-              placeholderTextColor="#87867F"
-              keyboardType="number-pad"
-              maxLength={4}
-              autoFocus
-            />
-
-            <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={styles.modalCancelBtn}
-                onPress={() => setShowPinModal(false)}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.modalSaveBtn}
-                onPress={() => {
-                  const clean = pinInput.trim();
-                  if (clean.length !== 4) {
-                    Alert.alert('Invalid PIN', 'Please enter exactly 4 numeric digits.');
-                    return;
-                  }
-                  setStealthPin(clean);
-                  setShowPinModal(false);
-                  Alert.alert('PIN Updated', `Your secret unlock PIN is now: ${clean}`);
-                }}
-              >
-                <Text style={styles.modalSaveText}>Save PIN</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
     </ScrollView>
   );
 }
