@@ -222,6 +222,7 @@ export default function GoogleOnboardingModal({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
+          style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -436,20 +437,23 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(20, 20, 19, 0.65)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  },
+  scrollView: {
+    flex: 1,
+    width: '100%',
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    width: '100%',
+    paddingHorizontal: 20,
+    paddingVertical: 24,
   },
   card: {
     backgroundColor: '#FAF9F5',
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 380,
+    alignSelf: 'center',
     borderRadius: 24,
     padding: 24,
     borderWidth: 1,

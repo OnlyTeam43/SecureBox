@@ -63,7 +63,9 @@ const BRICK_ROWS = 8;
 const BRICK_COLS = 8;
 const BRICK_GAP = 4;
 const BRICK_HEIGHT = 16;
-const BRICK_WIDTH = (BOARD_WIDTH - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS;
+const BRICK_WIDTH = Math.floor((BOARD_WIDTH - 2 - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS);
+const TOTAL_GRID_WIDTH = BRICK_COLS * BRICK_WIDTH + (BRICK_COLS - 1) * BRICK_GAP;
+const GRID_OFFSET_X = Math.max(0, Math.floor((BOARD_WIDTH - 2 - TOTAL_GRID_WIDTH) / 2));
 const GIFT_SIZE = 26;
 
 // Pool capacities
@@ -216,7 +218,7 @@ function generateBricksData(lvl = 1) {
 
       newBricks.push({
         id: `b_${r}_${c}`,
-        x: c * (BRICK_WIDTH + BRICK_GAP),
+        x: 1 + GRID_OFFSET_X + c * (BRICK_WIDTH + BRICK_GAP),
         y: topOffset + r * (BRICK_HEIGHT + BRICK_GAP),
         width: BRICK_WIDTH,
         height: BRICK_HEIGHT,
@@ -1033,7 +1035,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       {/* Top Header Bar */}
       <View style={styles.header}>
         {/* Left: Claude-Style Hamburger Menu Button (and back button if available) */}
-        <View style={styles.headerLeftRow}>
+        <View style={styles.headerLeftRow} pointerEvents="box-none">
           <TouchableOpacity
             style={styles.menuBtn}
             onPress={() => setShowDrawer(true)}
@@ -1052,41 +1054,43 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           )}
         </View>
 
-        {/* Center: Secret 3-Second Animal Companion Icon */}
-        <TouchableOpacity
-          onPressIn={handleAnimalPressIn}
-          onPressOut={handleAnimalPressOut}
-          activeOpacity={0.8}
-          style={styles.animalCenterWrap}
-        >
-          {isHolding && (
-            <Animated.View
-              style={[
-                styles.holdingHalo,
-                {
-                  transform: [
-                    {
-                      scale: holdProgressAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 1.35],
-                      }),
-                    },
-                  ],
-                  opacity: holdProgressAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.3, 0.9],
-                  }),
-                },
-              ]}
-            />
-          )}
-          <View style={styles.animalIconBox}>
-            <CharacterBall character={character} size={38} />
-          </View>
-        </TouchableOpacity>
+        {/* Center: Secret 3-Second Animal Companion Icon (Mathematically Centered Across All Screens) */}
+        <View style={styles.headerCenterAbsolute} pointerEvents="box-none">
+          <TouchableOpacity
+            onPressIn={handleAnimalPressIn}
+            onPressOut={handleAnimalPressOut}
+            activeOpacity={0.8}
+            style={styles.animalCenterWrap}
+          >
+            {isHolding && (
+              <Animated.View
+                style={[
+                  styles.holdingHalo,
+                  {
+                    transform: [
+                      {
+                        scale: holdProgressAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 1.35],
+                        }),
+                      },
+                    ],
+                    opacity: holdProgressAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.3, 0.9],
+                    }),
+                  },
+                ]}
+              />
+            )}
+            <View style={styles.animalIconBox}>
+              <CharacterBall character={character} size={38} />
+            </View>
+          </TouchableOpacity>
+        </View>
 
         {/* Right: Sound Toggle & Level Switcher Pill */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={styles.headerRightRow} pointerEvents="box-none">
           <TouchableOpacity
             style={styles.soundBtn}
             onPress={handleToggleSound}
@@ -1697,16 +1701,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAF9F5',
   },
   header: {
+    position: 'relative',
+    height: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: BOARD_PADDING,
-    paddingVertical: 8,
   },
   headerLeftRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    zIndex: 2,
+    minWidth: 80,
+  },
+  headerCenterAbsolute: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+    pointerEvents: 'box-none',
+  },
+  headerRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    zIndex: 2,
+    minWidth: 80,
   },
   menuBtn: {
     width: 36,
@@ -1785,19 +1811,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: BOARD_PADDING,
     paddingVertical: 10,
+    width: '100%',
+    alignSelf: 'center',
   },
   hudCard: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: 'rgba(20,20,19,0.08)',
     borderRadius: 14,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    minWidth: 80,
+    width: 88,
     alignItems: 'center',
   },
   hudCardCenter: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   hudLabel: {
     fontSize: 10,
@@ -1825,6 +1855,8 @@ const styles = StyleSheet.create({
   },
   board: {
     marginHorizontal: BOARD_PADDING,
+    width: BOARD_WIDTH,
+    alignSelf: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1,
@@ -2018,6 +2050,7 @@ const styles = StyleSheet.create({
   pinCard: {
     width: '100%',
     maxWidth: 320,
+    alignSelf: 'center',
     backgroundColor: '#FAF9F5',
     borderRadius: 24,
     padding: 24,
@@ -2139,6 +2172,7 @@ const styles = StyleSheet.create({
   levelCard: {
     width: '100%',
     maxWidth: 340,
+    alignSelf: 'center',
     backgroundColor: '#FAF9F5',
     borderRadius: 24,
     padding: 18,
