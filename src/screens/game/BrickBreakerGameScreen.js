@@ -26,14 +26,28 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { ArrowLeft, Play, RotateCcw, Trophy, Heart, Sparkles, X, Shield, Volume2, VolumeX } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  Play,
+  RotateCcw,
+  Trophy,
+  Heart,
+  Sparkles,
+  X,
+  Shield,
+  Volume2,
+  VolumeX,
+  Menu,
+  LogOut,
+  Lock,
+} from 'lucide-react-native';
 
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import { useUserStore } from '../../store/useUserStore';
 import { instantEraseEverything } from '../../services/panicService';
 import GoogleOnboardingModal from '../onboarding/GoogleOnboardingModal';
 import GoogleIcon from '../../components/GoogleIcon';
-import { initiateGoogleAuth } from '../../services/googleAuthService';
+import { initiateGoogleAuth, signOutGoogle } from '../../services/googleAuthService';
 import gameAudioService from '../../services/gameAudioService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -136,11 +150,22 @@ const LEVEL_PATTERNS = [
   (r, c) => r <= (c % 2 === 0 ? 6 : 3), // 25: Cavern Stalactites
 ];
 
+// Progressive difficulty velocity scaling (visibly faster as levels rise)
+export const getLevelSpeed = (lvl) => 7.0 + Math.min((lvl - 1) * 0.12, 5.5);
+
+// Progressive paddle width shrinking (demands sharper precision at high levels)
+export const getLevelPaddleWidth = (lvl) => Math.max(96 - (lvl - 1) * 0.5, 62);
+
 // Determine if a brick at (r, c) is an unbreakable steel brick
-// Level 1: 0 steel bricks (always breakable)
-// Level 2+: Strategic bumper and barrier positions
+// Level 1: 0 steel bricks (always breakable tutorial)
+// Level 2: 2 gentle corner steel bumpers
+// Level 3: 2 center shield steel bumpers
+// Level 4+: Progressively denser obstacle bumpers & labyrinths
 function isSteelCandidate(r, c, lvl) {
   if (lvl <= 1) return false;
+  if (lvl === 2) return r === 1 && (c === 2 || c === 5);
+  if (lvl === 3) return r === 3 && (c === 3 || c === 4);
+
   const tier = Math.floor((lvl - 1) / 25);
   const mode = lvl % 10;
 
@@ -156,10 +181,21 @@ function isSteelCandidate(r, c, lvl) {
   else if (mode === 8) match = (r === 3 && (c === 0 || c === 7)) || (r === 4 && (c === 0 || c === 7));
   else if (mode === 9) match = (r === 3 && (c === 2 || c === 5)) || (r === 2 && (c === 3 || c === 4));
 
-  if (!match && tier >= 2) {
-    // Advanced tiers (lvl > 50): extra strategic bumper anchors
-    if ((r === 1 || r === 6) && (c === 0 || c === 7)) match = true;
+  // Medium tier escalation (Level 15+): add mid-wall bumpers
+  if (!match && lvl >= 15 && (r === 2 && (c === 0 || c === 7))) {
+    match = true;
   }
+
+  // Advanced tier escalation (Level 35+): add corner bumpers
+  if (!match && lvl >= 35 && ((r === 1 || r === 6) && (c === 0 || c === 7))) {
+    match = true;
+  }
+
+  // Master tier escalation (Level 70+): center core barrier
+  if (!match && lvl >= 70 && (r === 4 && (c === 3 || c === 4))) {
+    match = true;
+  }
+
   return match;
 }
 
@@ -209,6 +245,12 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const setDecoyUnlocked = useUserStore((s) => s.setDecoyUnlocked);
   const gameHighScore = useUserStore((s) => s.gameHighScore) || 0;
   const setGameHighScore = useUserStore((s) => s.setGameHighScore);
+  const gameMaxUnlockedLevel = useUserStore((s) => s.gameMaxUnlockedLevel) || 3;
+  const setGameMaxUnlockedLevel = useUserStore((s) => s.setGameMaxUnlockedLevel);
+  const nickname = useUserStore((s) => s.nickname);
+  const handle = useUserStore((s) => s.handle);
+  const mobileNumber = useUserStore((s) => s.mobileNumber);
+  const avatarUri = useUserStore((s) => s.avatarUri);
   const myCharacter = useUserStore((s) => s.myCharacter) || 'panda';
 
   const boardHeight = Math.min(SCREEN_HEIGHT - insets.top - insets.bottom - 150, 530);
@@ -297,6 +339,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const [pendingGoogleProfile, setPendingGoogleProfile] = useState(null);
   const [showLevelPicker, setShowLevelPicker] = useState(false);
   const [selectedTier, setSelectedTier] = useState(0);
+  const [showDrawer, setShowDrawer] = useState(false);
 
   // 3-Second Hold on Top Animal Icon state
   const holdTimerRef = useRef(null);
@@ -322,11 +365,42 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     } catch (_) {}
   };
 
-  // Reset ball on top of paddle
+  // Logout from Google Account via Claude Hamburger Drawer
+  const handleLogoutPress = () => {
+    Alert.alert(
+      'Log Out Account',
+      'Are you sure you want to log out of your Google account? Your credentials on this device will be cleared.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: async () => {
+            setShowDrawer(false);
+            try {
+              await signOutGoogle();
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert('Logged Out', 'You have been successfully logged out.');
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Logout failed.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Reset ball on top of paddle (adaptive paddle width & progressive velocity)
   const resetBallToPaddle = useCallback(() => {
-    const initX = paddleXRef.current + paddleWidthRef.current / 2 - BALL_SIZE / 2;
+    const curWidth = getLevelPaddleWidth(levelRef.current);
+    paddleWidthRef.current = curWidth;
+    paddleRef.current?.setNativeProps({
+      style: { width: curWidth },
+    });
+
+    const initX = paddleXRef.current + curWidth / 2 - BALL_SIZE / 2;
     const initY = paddleYRef.current - BALL_SIZE - 2;
-    const baseSpeed = 7.0 + Math.min((levelRef.current - 1) * 0.04, 3.8);
+    const baseSpeed = getLevelSpeed(levelRef.current);
 
     // Reset main ball
     const b0 = ballsState.current[0];
@@ -413,7 +487,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // Spawn Multi-Ball helper (Fast & instant)
   const spawnMultiBall = () => {
     const pX = paddleXRef.current;
-    const baseSpeed = 7.0 + Math.min((levelRef.current - 1) * 0.04, 3.8);
+    const baseSpeed = getLevelSpeed(levelRef.current);
 
     let spawned = 0;
     for (let i = 1; i < MAX_BALLS && spawned < 2; i++) {
@@ -433,19 +507,22 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     showBanner('🐾 MULTI-BALL ACTIVATED!');
   };
 
-  // Expand Paddle helper
+  // Expand Paddle helper (dynamic ratio relative to current paddle width)
   const expandPaddle = () => {
-    paddleWidthRef.current = WIDE_PADDLE_WIDTH;
+    const baseW = getLevelPaddleWidth(levelRef.current);
+    const wideW = Math.min(baseW * 1.45, 140);
+    paddleWidthRef.current = wideW;
     paddleRef.current?.setNativeProps({
-      style: { width: WIDE_PADDLE_WIDTH },
+      style: { width: wideW },
     });
     showBanner('⚡ WIDE PADDLE!');
 
     if (widePaddleTimerRef.current) clearTimeout(widePaddleTimerRef.current);
     widePaddleTimerRef.current = setTimeout(() => {
-      paddleWidthRef.current = BASE_PADDLE_WIDTH;
+      const normalW = getLevelPaddleWidth(levelRef.current);
+      paddleWidthRef.current = normalW;
       paddleRef.current?.setNativeProps({
-        style: { width: BASE_PADDLE_WIDTH },
+        style: { width: normalW },
       });
     }, 12000);
   };
@@ -600,7 +677,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                   giftSlot.active = true;
                   giftSlot.x = b.x + b.width / 2 - GIFT_SIZE / 2;
                   giftSlot.y = b.y + b.height;
-                  giftSlot.vy = 3.2;
+                  giftSlot.vy = 3.2 + Math.min((levelRef.current - 1) * 0.05, 2.5);
                   giftSlot.type = picked.type;
                   giftSlot.emoji = picked.emoji;
                 }
@@ -712,6 +789,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           scoreRef.current += 200 * levelRef.current;
           setScore(scoreRef.current);
           setGameHighScore(scoreRef.current);
+          setGameMaxUnlockedLevel(levelRef.current + 1); // Unlock next level immediately!
           gameAudioService.playLevelWin();
           try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -727,7 +805,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       isCancelled = true;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [ballViewRefs, giftViewRefs, resetBallToPaddle, setGameHighScore]);
+  }, [ballViewRefs, giftViewRefs, resetBallToPaddle, setGameHighScore, setGameMaxUnlockedLevel]);
 
   // Load level helper (clean state & ref synchronization)
   const loadLevel = (lvl) => {
@@ -753,6 +831,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // Next level handler (sequential progression 1 -> 2 -> ... -> 200+)
   const handleNextLevel = () => {
     const nextLvl = levelRef.current + 1;
+    setGameMaxUnlockedLevel(nextLvl);
     loadLevel(nextLvl);
   };
 
@@ -951,19 +1030,27 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FAF9F5" />
 
-      {/* Top Header Bar (Zero Lock Icons!) */}
+      {/* Top Header Bar */}
       <View style={styles.header}>
-        {canGoBack ? (
+        {/* Left: Claude-Style Hamburger Menu Button (and back button if available) */}
+        <View style={styles.headerLeftRow}>
           <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => navigation.goBack()}
+            style={styles.menuBtn}
+            onPress={() => setShowDrawer(true)}
             activeOpacity={0.7}
           >
-            <ArrowLeft size={20} color="#141413" />
+            <Menu size={20} color="#141413" />
           </TouchableOpacity>
-        ) : (
-          <View style={{ width: 36 }} />
-        )}
+          {canGoBack && (
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.7}
+            >
+              <ArrowLeft size={18} color="#141413" />
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* Center: Secret 3-Second Animal Companion Icon */}
         <TouchableOpacity
@@ -1376,21 +1463,46 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                 (_, i) => TIERS[selectedTier].start + i
               ).map((lvl) => {
                 const isCurrent = level === lvl;
+                const isUnlocked = lvl <= gameMaxUnlockedLevel;
                 return (
                   <TouchableOpacity
                     key={lvl}
-                    style={[styles.levelCell, isCurrent && styles.levelCellActive]}
+                    style={[
+                      styles.levelCell,
+                      isCurrent && styles.levelCellActive,
+                      !isUnlocked && styles.levelCellLocked,
+                    ]}
                     onPress={() => {
+                      if (!isUnlocked) {
+                        try {
+                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                        } catch (_) {}
+                        Alert.alert(
+                          'Level Locked',
+                          `Complete Level ${lvl - 1} to unlock Level ${lvl}!`
+                        );
+                        return;
+                      }
                       setShowLevelPicker(false);
                       loadLevel(lvl);
                     }}
-                    activeOpacity={0.7}
+                    activeOpacity={isUnlocked ? 0.7 : 0.9}
                   >
-                    <Text
-                      style={[styles.levelCellText, isCurrent && styles.levelCellTextActive]}
-                    >
-                      {lvl}
-                    </Text>
+                    {isUnlocked ? (
+                      <Text
+                        style={[
+                          styles.levelCellText,
+                          isCurrent && styles.levelCellTextActive,
+                        ]}
+                      >
+                        {lvl}
+                      </Text>
+                    ) : (
+                      <View style={styles.lockedCellContent}>
+                        <Lock size={11} color="#87867F" />
+                        <Text style={styles.lockedCellText}>{lvl}</Text>
+                      </View>
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -1400,8 +1512,177 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             <View style={styles.levelModalFooter}>
               <Shield size={13} color="#87867F" style={{ marginRight: 6 }} />
               <Text style={styles.levelModalFooterText}>
-                {level === 1 ? 'Level 1: Tutorial (0 steel bricks)' : `Level ${level}: Steel bumpers active`}
+                {level === 1
+                  ? 'Level 1: Tutorial (0 steel bricks)'
+                  : `Level ${level}: ${gameMaxUnlockedLevel >= level ? 'Unlocked' : 'Locked'}`}
               </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Claude-Style Left Side Hamburger Menu Drawer Modal */}
+      <Modal
+        visible={showDrawer}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDrawer(false)}
+      >
+        <TouchableOpacity
+          style={styles.drawerBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowDrawer(false)}
+        >
+          <View
+            style={[styles.drawerContent, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}
+            onStartShouldSetResponder={() => true}
+          >
+            {/* Drawer Top Header */}
+            <View style={styles.drawerHeader}>
+              <View style={styles.drawerTitleRow}>
+                <CharacterBall character={character} size={30} />
+                <View style={{ marginLeft: 10 }}>
+                  <Text style={styles.drawerTitle}>Animal Smash</Text>
+                  <Text style={styles.drawerSubtitle}>Classic Arcade Vault</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.drawerCloseBtn}
+                onPress={() => setShowDrawer(false)}
+                activeOpacity={0.7}
+              >
+                <X size={18} color="#5E5D59" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Profile Info Card */}
+            <View style={styles.drawerProfileCard}>
+              <View style={styles.drawerAvatarWrap}>
+                <CharacterBall character={character} size={42} />
+              </View>
+              <View style={styles.drawerProfileInfo}>
+                <Text style={styles.drawerProfileName} numberOfLines={1}>
+                  {nickname || 'Arcade Champion'}
+                </Text>
+                <Text style={styles.drawerProfileHandle} numberOfLines={1}>
+                  {handle ? `@${handle}` : mobileNumber ? mobileNumber.split('#')[0] : 'Guest Player'}
+                </Text>
+                <View style={styles.drawerBadgeRow}>
+                  <View style={styles.drawerBadge}>
+                    <Trophy size={10} color="#D97757" style={{ marginRight: 3 }} />
+                    <Text style={styles.drawerBadgeText}>BEST {gameHighScore}</Text>
+                  </View>
+                  <View style={[styles.drawerBadge, { backgroundColor: 'rgba(94,148,115,0.12)' }]}>
+                    <Shield size={10} color="#5E9473" style={{ marginRight: 3 }} />
+                    <Text style={[styles.drawerBadgeText, { color: '#5E9473' }]}>
+                      LVL {gameMaxUnlockedLevel}/200
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {/* Menu Options Section */}
+            <View style={styles.drawerSection}>
+              <Text style={styles.drawerSectionLabel}>SETTINGS & AUDIO</Text>
+
+              {/* Sound FX Toggle Row */}
+              <TouchableOpacity
+                style={styles.drawerMenuItem}
+                onPress={handleToggleSound}
+                activeOpacity={0.7}
+              >
+                <View style={styles.drawerMenuLeft}>
+                  <View style={[styles.drawerIconBox, isMuted && styles.drawerIconBoxMuted]}>
+                    {isMuted ? (
+                      <VolumeX size={18} color="#87867F" />
+                    ) : (
+                      <Volume2 size={18} color="#D97757" />
+                    )}
+                  </View>
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={styles.drawerMenuLabel}>Game Sound Effects</Text>
+                    <Text style={styles.drawerMenuSub}>
+                      {isMuted ? 'Muted (Silent)' : 'Arcade SFX Active'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.drawerTogglePill, !isMuted && styles.drawerTogglePillActive]}>
+                  <Text style={[styles.drawerTogglePillText, !isMuted && styles.drawerTogglePillTextActive]}>
+                    {isMuted ? 'OFF' : 'ON'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Level Selector Shortcut */}
+              <TouchableOpacity
+                style={styles.drawerMenuItem}
+                onPress={() => {
+                  setShowDrawer(false);
+                  setTimeout(() => handleOpenLevelPicker(), 200);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.drawerMenuLeft}>
+                  <View style={styles.drawerIconBox}>
+                    <Shield size={18} color="#D97757" />
+                  </View>
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={styles.drawerMenuLabel}>Select Level</Text>
+                    <Text style={styles.drawerMenuSub}>
+                      {gameMaxUnlockedLevel} of 200 unlocked
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.drawerMenuArrow}>→</Text>
+              </TouchableOpacity>
+
+              {/* Restart Game */}
+              <TouchableOpacity
+                style={styles.drawerMenuItem}
+                onPress={() => {
+                  setShowDrawer(false);
+                  handleRestart();
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.drawerMenuLeft}>
+                  <View style={styles.drawerIconBox}>
+                    <RotateCcw size={18} color="#5E5D59" />
+                  </View>
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={styles.drawerMenuLabel}>Restart Game</Text>
+                    <Text style={styles.drawerMenuSub}>Play again from Level 1</Text>
+                  </View>
+                </View>
+                <Text style={styles.drawerMenuArrow}>↺</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Account / Logout Section */}
+            <View style={[styles.drawerSection, { marginTop: 'auto' }]}>
+              {isSetup ? (
+                <TouchableOpacity
+                  style={styles.drawerLogoutBtn}
+                  onPress={handleLogoutPress}
+                  activeOpacity={0.75}
+                >
+                  <LogOut size={18} color="#C95D4A" style={{ marginRight: 10 }} />
+                  <Text style={styles.drawerLogoutText}>Log Out Google Account</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.drawerGoogleLoginBtn}
+                  onPress={() => {
+                    setShowDrawer(false);
+                    setTimeout(() => setShowGoogleOnboarding(true), 200);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <GoogleIcon size={18} />
+                  <Text style={styles.drawerGoogleLoginText}>Connect Google Account</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </TouchableOpacity>
@@ -1421,6 +1702,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: BOARD_PADDING,
     paddingVertical: 8,
+  },
+  headerLeftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  menuBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   backBtn: {
     width: 36,
@@ -1927,6 +2223,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#D97757',
     borderColor: '#D97757',
   },
+  levelCellLocked: {
+    backgroundColor: '#F3F2EC',
+    borderColor: 'rgba(20,20,19,0.06)',
+    opacity: 0.65,
+  },
+  lockedCellContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockedCellText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#87867F',
+    marginTop: 1,
+  },
   levelCellText: {
     fontSize: 13,
     fontWeight: '700',
@@ -1949,5 +2260,197 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#87867F',
+  },
+  // Claude Hamburger Drawer Styles
+  drawerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  },
+  drawerContent: {
+    width: '82%',
+    maxWidth: 320,
+    height: '100%',
+    backgroundColor: '#FAF9F5',
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 4, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  drawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(20,20,19,0.08)',
+  },
+  drawerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  drawerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#141413',
+  },
+  drawerSubtitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#87867F',
+  },
+  drawerCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#EBE9DF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  drawerProfileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 14,
+    marginVertical: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.08)',
+  },
+  drawerAvatarWrap: {
+    marginRight: 12,
+  },
+  drawerProfileInfo: {
+    flex: 1,
+  },
+  drawerProfileName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#141413',
+  },
+  drawerProfileHandle: {
+    fontSize: 12,
+    color: '#87867F',
+    marginTop: 1,
+  },
+  drawerBadgeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 6,
+  },
+  drawerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(217,119,87,0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  drawerBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#D97757',
+  },
+  drawerSection: {
+    marginVertical: 8,
+  },
+  drawerSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#87867F',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  drawerMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.08)',
+    marginBottom: 8,
+  },
+  drawerMenuLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  drawerIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(217,119,87,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  drawerIconBoxMuted: {
+    backgroundColor: 'rgba(20,20,19,0.06)',
+  },
+  drawerMenuLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#141413',
+  },
+  drawerMenuSub: {
+    fontSize: 11,
+    color: '#87867F',
+    marginTop: 1,
+  },
+  drawerTogglePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#EBE9DF',
+  },
+  drawerTogglePillActive: {
+    backgroundColor: '#D97757',
+  },
+  drawerTogglePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#87867F',
+  },
+  drawerTogglePillTextActive: {
+    color: '#FFFFFF',
+  },
+  drawerMenuArrow: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#87867F',
+  },
+  drawerLogoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(201,93,74,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(201,93,74,0.2)',
+    paddingVertical: 12,
+    borderRadius: 16,
+  },
+  drawerLogoutText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#C95D4A',
+  },
+  drawerGoogleLoginBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.12)',
+    paddingVertical: 12,
+    borderRadius: 16,
+    gap: 8,
+  },
+  drawerGoogleLoginText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#141413',
   },
 });

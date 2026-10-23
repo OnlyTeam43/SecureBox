@@ -37,6 +37,7 @@ export const useUserStore = create(
       chatViewMode: 'claude', // 'claude'
       myCharacter: 'panda', // 'panda' | 'cat' | 'puppy'
       gameHighScore: 0, // Brick Breaker game high score
+      gameMaxUnlockedLevel: 3, // Levels 1, 2, 3 unlocked by default, higher levels unlock on level up
 
       // Actions
       setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null, recoveryPin = null) =>
@@ -48,6 +49,8 @@ export const useUserStore = create(
       setChatViewMode: (chatViewMode) => set({ chatViewMode }),
       setMyCharacter: (myCharacter) => set({ myCharacter }),
       setGameHighScore: (score) => set((state) => ({ gameHighScore: Math.max(state.gameHighScore || 0, score) })),
+      setGameMaxUnlockedLevel: (level) =>
+        set((state) => ({ gameMaxUnlockedLevel: Math.max(state.gameMaxUnlockedLevel || 3, level) })),
 
       setRecoveryPin: (recoveryPin) => set({ recoveryPin }),
 
@@ -89,6 +92,7 @@ export const useUserStore = create(
           chatViewMode: 'claude',
           myCharacter: 'panda',
           gameHighScore: 0,
+          gameMaxUnlockedLevel: 3,
         }),
     }),
     {

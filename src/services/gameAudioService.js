@@ -1,17 +1,18 @@
 // src/services/gameAudioService.js
 // Ultra-Low Latency Sound Effects Engine for Animal Smash Brick Breaker
-// Zero-latency playback via pre-loaded Audio.Sound pool
+// Bundled WAV assets for 100% Android APK & iOS production compatibility
 
 import { Audio } from 'expo-av';
-import {
-  getGamePaddleToneUri,
-  getGameBrickToneUri,
-  getGameSteelToneUri,
-  getGameWallToneUri,
-  getGameGiftToneUri,
-  getGameLostToneUri,
-  getGameWinToneUri,
-} from './soundGenerator';
+
+const SOUND_ASSETS = {
+  paddle: require('../../assets/sounds/paddle.wav'),
+  brick: require('../../assets/sounds/brick.wav'),
+  steel: require('../../assets/sounds/steel.wav'),
+  wall: require('../../assets/sounds/wall.wav'),
+  gift: require('../../assets/sounds/gift.wav'),
+  lost: require('../../assets/sounds/lost.wav'),
+  win: require('../../assets/sounds/win.wav'),
+};
 
 class GameAudioService {
   constructor() {
@@ -31,7 +32,7 @@ class GameAudioService {
   }
 
   /**
-   * Pre-load all game SFX into memory for instant zero-latency triggers
+   * Pre-load bundled audio assets into memory for instant zero-latency triggers
    */
   async init() {
     if (this.isInitialized || this.isLoading) return;
@@ -39,23 +40,24 @@ class GameAudioService {
 
     try {
       await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
+        shouldDuckAndroid: false,
         staysActiveInBackground: false,
         playThroughEarpieceAndroid: false,
       });
 
-      // Pre-load sound objects concurrently
+      // Pre-load bundled native audio assets concurrently
       const [paddle, b1, b2, b3, steel, wall, gift, lost, win] = await Promise.all([
-        Audio.Sound.createAsync({ uri: getGamePaddleToneUri() }, { volume: 0.65 }),
-        Audio.Sound.createAsync({ uri: getGameBrickToneUri() }, { volume: 0.75 }),
-        Audio.Sound.createAsync({ uri: getGameBrickToneUri() }, { volume: 0.75 }),
-        Audio.Sound.createAsync({ uri: getGameBrickToneUri() }, { volume: 0.75 }),
-        Audio.Sound.createAsync({ uri: getGameSteelToneUri() }, { volume: 0.85 }),
-        Audio.Sound.createAsync({ uri: getGameWallToneUri() }, { volume: 0.35 }),
-        Audio.Sound.createAsync({ uri: getGameGiftToneUri() }, { volume: 0.8 }),
-        Audio.Sound.createAsync({ uri: getGameLostToneUri() }, { volume: 0.75 }),
-        Audio.Sound.createAsync({ uri: getGameWinToneUri() }, { volume: 0.85 }),
+        Audio.Sound.createAsync(SOUND_ASSETS.paddle, { volume: 0.7, shouldPlay: false }),
+        Audio.Sound.createAsync(SOUND_ASSETS.brick, { volume: 0.8, shouldPlay: false }),
+        Audio.Sound.createAsync(SOUND_ASSETS.brick, { volume: 0.8, shouldPlay: false }),
+        Audio.Sound.createAsync(SOUND_ASSETS.brick, { volume: 0.8, shouldPlay: false }),
+        Audio.Sound.createAsync(SOUND_ASSETS.steel, { volume: 0.9, shouldPlay: false }),
+        Audio.Sound.createAsync(SOUND_ASSETS.wall, { volume: 0.45, shouldPlay: false }),
+        Audio.Sound.createAsync(SOUND_ASSETS.gift, { volume: 0.85, shouldPlay: false }),
+        Audio.Sound.createAsync(SOUND_ASSETS.lost, { volume: 0.8, shouldPlay: false }),
+        Audio.Sound.createAsync(SOUND_ASSETS.win, { volume: 0.9, shouldPlay: false }),
       ]);
 
       this.sounds.paddle = paddle.sound;

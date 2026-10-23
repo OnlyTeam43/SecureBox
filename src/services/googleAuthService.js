@@ -383,3 +383,21 @@ export const processGoogleProfile = async (profile) => ({
   email: profile?.email || '',
   photo: profile?.photo || null,
 });
+
+/**
+ * Sign Out from Google and reset local authentication state
+ */
+export const signOutGoogle = async () => {
+  try {
+    if (GoogleSignin) {
+      await GoogleSignin.signOut();
+    }
+  } catch (err) {
+    console.warn('[GoogleAuth] Google signOut notice:', err.message);
+  }
+  try {
+    await supabase.auth.signOut();
+  } catch (_) {}
+  useUserStore.getState().reset();
+  return { success: true };
+};
