@@ -21,10 +21,11 @@ import {
   Alert,
   StatusBar,
   Animated,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { ArrowLeft, Play, RotateCcw, Trophy, Heart, Sparkles } from 'lucide-react-native';
+import { ArrowLeft, Play, RotateCcw, Trophy, Heart, Sparkles, X, Shield } from 'lucide-react-native';
 
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import { useUserStore } from '../../store/useUserStore';
@@ -33,60 +34,156 @@ import GoogleOnboardingModal from '../onboarding/GoogleOnboardingModal';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Game Board Dimensions
+// Game Board Dimensions (High-Density 8x8 Arcade Grid)
 const BOARD_PADDING = 16;
 const BOARD_WIDTH = SCREEN_WIDTH - BOARD_PADDING * 2;
-const BALL_SIZE = 34;
+const BALL_SIZE = 32;
 const PADDLE_HEIGHT = 14;
 const BASE_PADDLE_WIDTH = 96;
 const WIDE_PADDLE_WIDTH = 138;
-const BRICK_ROWS = 5;
-const BRICK_COLS = 5;
-const BRICK_GAP = 6;
-const BRICK_HEIGHT = 22;
+const BRICK_ROWS = 8;
+const BRICK_COLS = 8;
+const BRICK_GAP = 4;
+const BRICK_HEIGHT = 16;
 const BRICK_WIDTH = (BOARD_WIDTH - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS;
-const GIFT_SIZE = 28;
+const GIFT_SIZE = 26;
 
 // Pool capacities
 const MAX_BALLS = 4;
 const MAX_GIFTS = 6;
 
-// Claude Brick Colors
+// Claude Brick Colors (8-tier warm earth gradient)
 const ROW_COLORS = [
-  { color: '#D97757', border: '#B85D3F', points: 50 }, // Terracotta
-  { color: '#E28743', border: '#C06B2B', points: 40 }, // Amber
-  { color: '#6E8879', border: '#536D5E', points: 30 }, // Earthy Sage
-  { color: '#5B7C99', border: '#43617A', points: 20 }, // Slate Blue
-  { color: '#B37D80', border: '#946164', points: 10 }, // Soft Rose Clay
+  { color: '#D97757', border: '#B85D3F', points: 60 }, // Row 0: Terracotta Red
+  { color: '#E28743', border: '#C06B2B', points: 50 }, // Row 1: Amber Coral
+  { color: '#D4A346', border: '#B5872A', points: 40 }, // Row 2: Gold Ocre
+  { color: '#5E9473', border: '#467558', points: 35 }, // Row 3: Emerald Sage
+  { color: '#4A8B88', border: '#336B68', points: 30 }, // Row 4: Earthy Teal
+  { color: '#5B7C99', border: '#43617A', points: 25 }, // Row 5: Slate Blue
+  { color: '#7E6B8F', border: '#625073', points: 20 }, // Row 6: Muted Violet
+  { color: '#B37D80', border: '#946164', points: 15 }, // Row 7: Soft Rose Clay
 ];
 
-// Distinct level patterns
-const LEVEL_PATTERNS = {
-  1: (r, c) => true, // Full 5x5 grid
-  2: (r, c) => r + c >= 2 && c - r <= 2, // Pyramid
-  3: (r, c) => (r + c) % 2 === 0, // Checkerboard fortress
-  4: (r, c) => r === 0 || r === 4 || c === 0 || c === 4 || (r === 2 && c === 2), // Ring maze
+// Unbreakable Steel Brick Style
+const STEEL_BRICK = {
+  color: '#343330',
+  border: '#1E1D1B',
+  points: 0,
 };
+
+// 150+ Level Tier Groups (up to 200 levels!)
+const TIERS = [
+  { label: '1–25', start: 1, end: 25 },
+  { label: '26–50', start: 26, end: 50 },
+  { label: '51–75', start: 51, end: 75 },
+  { label: '76–100', start: 76, end: 100 },
+  { label: '101–125', start: 101, end: 125 },
+  { label: '126–150', start: 126, end: 150 },
+  { label: '151–175', start: 151, end: 175 },
+  { label: '176–200', start: 176, end: 200 },
+];
+
+// 25 Distinct Geometric Archetypes for 150+ Levels
+const LEVEL_PATTERNS = [
+  (r, c) => true, // 1: Classic Full Matrix
+  (r, c) => c >= 3 - Math.floor(r * 0.5) && c <= 4 + Math.floor(r * 0.5), // 2: Grand Pyramid
+  (r, c) => c >= Math.floor(r * 0.5) && c <= 7 - Math.floor(r * 0.5), // 3: Inverted Pyramid
+  (r, c) => Math.abs(c - 3.5) + Math.abs(r - 3.5) <= 4.2, // 4: Royal Diamond
+  (r, c) => (r + c) % 2 === 0, // 5: Checkerboard Bastion
+  (r, c) => r >= 2 || (r === 0 && c % 2 === 0) || (r === 1 && c % 2 === 0), // 6: Castle Ramparts
+  (r, c) => c < 3 || c > 4, // 7: Twin Watchtowers
+  (r, c) => r >= 1 && r <= 6 && c >= 1 && c <= 6, // 8: Fortress Citadel
+  (r, c) => r % 2 === 0, // 9: Venetian Blinds
+  (r, c) => c % 2 === 0, // 10: Iron Gates
+  (r, c) => { // 11: Space Invader
+    const inv = [
+      [0,1,0,0,0,0,1,0],
+      [0,0,1,1,1,1,0,0],
+      [0,1,1,1,1,1,1,0],
+      [1,1,0,1,1,0,1,1],
+      [1,1,1,1,1,1,1,1],
+      [0,1,0,1,1,0,1,0],
+      [1,0,1,0,0,1,0,1],
+      [0,0,1,0,0,1,0,0]
+    ];
+    return inv[r][c] === 1;
+  },
+  (r, c) => (r >= 3 && r <= 4) || (c >= 3 && c <= 4), // 12: Grand Cross
+  (r, c) => Math.abs(r - c) <= 1 || Math.abs((7 - r) - c) <= 1, // 13: X-Nexus
+  (r, c) => (r === 0 || r === 7 || c === 0 || c === 7) || (r >= 3 && r <= 4 && c >= 3 && c <= 4), // 14: Moat & Keep
+  (r, c) => r === 0 || r === 7 || c === 0 || c === 7 || (r >= 2 && r <= 5 && c >= 2 && c <= 5 && !(r >= 3 && r <= 4 && c >= 3 && c <= 4)), // 15: Concentric Rings
+  (r, c) => Math.abs(c - 3.5) <= r + 0.5 && r <= 5, // 16: Falcon Wings
+  (r, c) => c === Math.round(3.5 + 2.5 * Math.sin(r * 0.9)) || c === Math.round(3.5 - 2.5 * Math.sin(r * 0.9)) || r % 2 === 0, // 17: DNA Helix
+  (r, c) => (r % 2 === 0 && (r % 4 === 0 ? c < 6 : c > 1)) || (r % 2 === 1 && (c === 0 || c === 7)), // 18: Labyrinth Slits
+  (r, c) => r >= 4 || (r === 2 && (c === 0 || c === 3 || c === 4 || c === 7)) || (r === 3 && (c <= 1 || c >= 6 || c === 3 || c === 4)), // 19: King's Crown
+  (r, c) => { // 20: Heart
+    if (r === 0) return c === 1 || c === 2 || c === 5 || c === 6;
+    if (r === 1) return c !== 3 && c !== 4;
+    if (r === 2 || r === 3) return true;
+    if (r === 4) return c >= 1 && c <= 6;
+    if (r === 5) return c >= 2 && c <= 5;
+    if (r === 6) return c === 3 || c === 4;
+    return false;
+  },
+  (r, c) => ((r % 2 === 0 && c % 2 === 0) || (r % 2 === 1 && c % 2 === 1)) && r < 7, // 21: Honeycomb
+  (r, c) => c >= Math.max(0, r - 3) && c <= Math.min(7, 10 - r), // 22: Shield of Valor
+  (r, c) => Math.abs(c - 3.5) <= r && r <= 6, // 23: Arrowhead
+  (r, c) => (r <= 3 && (c >= r && c <= 7 - r)) || (r >= 4 && (c >= 7 - r && c <= r)), // 24: Chrono Hourglass
+  (r, c) => r <= (c % 2 === 0 ? 6 : 3), // 25: Cavern Stalactites
+];
+
+// Determine if a brick at (r, c) is an unbreakable steel brick
+// Level 1: 0 steel bricks (always breakable)
+// Level 2+: Strategic bumper and barrier positions
+function isSteelCandidate(r, c, lvl) {
+  if (lvl <= 1) return false;
+  const tier = Math.floor((lvl - 1) / 25);
+  const mode = lvl % 10;
+
+  let match = false;
+  if (mode === 0) match = (r === 3 || r === 4) && (c === 3 || c === 4);
+  else if (mode === 1) match = (r === 1 || r === 5) && (c === 1 || c === 6);
+  else if (mode === 2) match = r === 3 && (c === 2 || c === 5);
+  else if (mode === 3) match = (r === 2 || r === 4) && (c === 1 || c === 6);
+  else if (mode === 4) match = (r === 2 || r === 5) && (c === 3 || c === 4);
+  else if (mode === 5) match = (r === 1 && (c === 3 || c === 4)) || (r === 6 && (c === 3 || c === 4));
+  else if (mode === 6) match = r === 4 && (c === 2 || c === 3 || c === 4 || c === 5);
+  else if (mode === 7) match = (r === 2 && (c === 2 || c === 5)) || (r === 4 && (c === 1 || c === 6));
+  else if (mode === 8) match = (r === 3 && (c === 0 || c === 7)) || (r === 4 && (c === 0 || c === 7));
+  else if (mode === 9) match = (r === 3 && (c === 2 || c === 5)) || (r === 2 && (c === 3 || c === 4));
+
+  if (!match && tier >= 2) {
+    // Advanced tiers (lvl > 50): extra strategic bumper anchors
+    if ((r === 1 || r === 6) && (c === 0 || c === 7)) match = true;
+  }
+  return match;
+}
 
 // Pure brick generator outside component to avoid setState during render
 function generateBricksData(lvl = 1) {
-  const patternFn = LEVEL_PATTERNS[lvl] || LEVEL_PATTERNS[1];
+  const pIdx = (lvl - 1) % LEVEL_PATTERNS.length;
+  const patternFn = LEVEL_PATTERNS[pIdx] || LEVEL_PATTERNS[0];
   const newBricks = [];
-  const topOffset = 22;
+  const topOffset = 18;
+  const tier = Math.floor((lvl - 1) / 25);
 
   for (let r = 0; r < BRICK_ROWS; r++) {
     for (let c = 0; c < BRICK_COLS; c++) {
       if (!patternFn(r, c)) continue;
-      const rowStyle = ROW_COLORS[r % ROW_COLORS.length];
+      const unbreakable = isSteelCandidate(r, c, lvl);
+      const colorRow = (r + tier) % ROW_COLORS.length;
+      const rowStyle = ROW_COLORS[colorRow];
+
       newBricks.push({
         id: `b_${r}_${c}`,
         x: c * (BRICK_WIDTH + BRICK_GAP),
         y: topOffset + r * (BRICK_HEIGHT + BRICK_GAP),
         width: BRICK_WIDTH,
         height: BRICK_HEIGHT,
-        color: rowStyle.color,
-        border: rowStyle.border,
-        points: rowStyle.points * lvl,
+        unbreakable,
+        color: unbreakable ? STEEL_BRICK.color : rowStyle.color,
+        border: unbreakable ? STEEL_BRICK.border : rowStyle.border,
+        points: unbreakable ? 0 : rowStyle.points * Math.min(lvl, 10),
         active: true,
       });
     }
@@ -124,13 +221,13 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // Bricks state initialized synchronously
   const [bricks, setBricks] = useState(() => generateBricksData(1));
   const bricksRef = useRef(bricks);
-  const remainingBricksRef = useRef(bricks.length);
+  const remainingBricksRef = useRef(bricks.filter((b) => !b.unbreakable).length);
   const brickRefs = useRef({});
 
-  // Synchronize bricksRef with state
+  // Synchronize bricksRef with state (counting only destructible bricks)
   useEffect(() => {
     bricksRef.current = bricks;
-    remainingBricksRef.current = bricks.filter((b) => b.active).length;
+    remainingBricksRef.current = bricks.filter((b) => b.active && !b.unbreakable).length;
   }, [bricks]);
 
   // ── ZERO LATENCY NATIVE REFS ──
@@ -191,6 +288,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const [enteredPin, setEnteredPin] = useState('');
   const [showGoogleOnboarding, setShowGoogleOnboarding] = useState(false);
   const [showLevelPicker, setShowLevelPicker] = useState(false);
+  const [selectedTier, setSelectedTier] = useState(0);
 
   // 3-Second Hold on Top Animal Icon state
   const holdTimerRef = useRef(null);
@@ -202,7 +300,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const resetBallToPaddle = useCallback(() => {
     const initX = paddleXRef.current + paddleWidthRef.current / 2 - BALL_SIZE / 2;
     const initY = paddleYRef.current - BALL_SIZE - 2;
-    const baseSpeed = 7.2 + (levelRef.current - 1) * 0.5;
+    const baseSpeed = 7.0 + Math.min((levelRef.current - 1) * 0.04, 3.8);
 
     // Reset main ball
     const b0 = ballsState.current[0];
@@ -289,7 +387,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // Spawn Multi-Ball helper (Fast & instant)
   const spawnMultiBall = () => {
     const pX = paddleXRef.current;
-    const baseSpeed = 7.2 + (levelRef.current - 1) * 0.5;
+    const baseSpeed = 7.0 + Math.min((levelRef.current - 1) * 0.04, 3.8);
 
     let spawned = 0;
     for (let i = 1; i < MAX_BALLS && spawned < 2; i++) {
@@ -412,6 +510,29 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
               ball.y + BALL_SIZE > b.y &&
               ball.y < b.y + b.height
             ) {
+              if (b.unbreakable) {
+                // Steel Brick bounce & ricochet physics
+                const prevX = ball.x - ball.vx * dt;
+                if (prevX + BALL_SIZE <= b.x) {
+                  ball.x = b.x - BALL_SIZE;
+                  ball.vx = -Math.abs(ball.vx);
+                } else if (prevX >= b.x + b.width) {
+                  ball.x = b.x + b.width;
+                  ball.vx = Math.abs(ball.vx);
+                } else if (ball.vy > 0) {
+                  ball.y = b.y - BALL_SIZE;
+                  ball.vy = -Math.abs(ball.vy);
+                } else {
+                  ball.y = b.y + b.height;
+                  ball.vy = Math.abs(ball.vy);
+                }
+
+                try {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                } catch (_) {}
+                break;
+              }
+
               b.active = false;
               remainingBricksRef.current -= 1;
 
@@ -580,7 +701,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
     const freshBricks = generateBricksData(lvl);
     bricksRef.current = freshBricks;
-    remainingBricksRef.current = freshBricks.length;
+    remainingBricksRef.current = freshBricks.filter((b) => !b.unbreakable).length;
     setBricks(freshBricks);
 
     setTimeout(() => {
@@ -594,10 +715,16 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     setGameState('ready');
   };
 
-  // Next level handler
+  // Next level handler (sequential progression 1 -> 2 -> ... -> 200+)
   const handleNextLevel = () => {
-    const nextLvl = (levelRef.current % 4) + 1;
+    const nextLvl = levelRef.current + 1;
     loadLevel(nextLvl);
+  };
+
+  // Open level picker synced to current tier
+  const handleOpenLevelPicker = () => {
+    setSelectedTier(Math.min(Math.floor((levelRef.current - 1) / 25), TIERS.length - 1));
+    setShowLevelPicker(true);
   };
 
   // Restart game
@@ -786,7 +913,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         {/* Right: Level Switcher Pill */}
         <TouchableOpacity
           style={styles.levelPill}
-          onPress={() => setShowLevelPicker(true)}
+          onPress={handleOpenLevelPicker}
           activeOpacity={0.7}
         >
           <Text style={styles.levelPillText}>LVL {level}</Text>
@@ -848,7 +975,15 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
               },
             ]}
           >
-            <View style={styles.brickShine} />
+            {b.unbreakable ? (
+              <View style={styles.steelPlate}>
+                <View style={styles.steelRivet} />
+                <View style={styles.steelCenterLine} />
+                <View style={styles.steelRivet} />
+              </View>
+            ) : (
+              <View style={styles.brickShine} />
+            )}
           </View>
         ))}
 
@@ -1042,7 +1177,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         }}
       />
 
-      {/* Level Select Modal */}
+      {/* 150+ Level Select Modal */}
       <Modal
         visible={showLevelPicker}
         transparent
@@ -1055,22 +1190,80 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           onPress={() => setShowLevelPicker(false)}
         >
           <View style={styles.levelCard} onStartShouldSetResponder={() => true}>
-            <Text style={styles.levelCardTitle}>Select Level</Text>
-            <View style={styles.levelBtnGrid}>
-              {[1, 2, 3, 4].map((lvl) => (
-                <TouchableOpacity
-                  key={lvl}
-                  style={[styles.levelSelectBtn, level === lvl && styles.levelSelectBtnActive]}
-                  onPress={() => {
-                    setShowLevelPicker(false);
-                    loadLevel(lvl);
-                  }}
-                >
-                  <Text style={[styles.levelSelectText, level === lvl && styles.levelSelectTextActive]}>
-                    Level {lvl}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.levelCardHeader}>
+              <View>
+                <Text style={styles.levelCardTitle}>Select Level</Text>
+                <Text style={styles.levelCardSub}>200 levels with steel bumpers</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.levelCloseBtn}
+                onPress={() => setShowLevelPicker(false)}
+                activeOpacity={0.7}
+              >
+                <X size={16} color="#5E5D59" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Tier Tabs (Horizontal Scroll) */}
+            <View style={styles.tierScrollContainer}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.tierScrollContent}
+              >
+                {TIERS.map((tier, idx) => {
+                  const isSelected = selectedTier === idx;
+                  return (
+                    <TouchableOpacity
+                      key={tier.label}
+                      style={[styles.tierTab, isSelected && styles.tierTabActive]}
+                      onPress={() => setSelectedTier(idx)}
+                      activeOpacity={0.75}
+                    >
+                      <Text
+                        style={[styles.tierTabText, isSelected && styles.tierTabTextActive]}
+                      >
+                        {tier.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* 5x5 Level Grid for Selected Tier */}
+            <View style={styles.levelGridContainer}>
+              {Array.from(
+                { length: TIERS[selectedTier].end - TIERS[selectedTier].start + 1 },
+                (_, i) => TIERS[selectedTier].start + i
+              ).map((lvl) => {
+                const isCurrent = level === lvl;
+                return (
+                  <TouchableOpacity
+                    key={lvl}
+                    style={[styles.levelCell, isCurrent && styles.levelCellActive]}
+                    onPress={() => {
+                      setShowLevelPicker(false);
+                      loadLevel(lvl);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[styles.levelCellText, isCurrent && styles.levelCellTextActive]}
+                    >
+                      {lvl}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Level Info Footer */}
+            <View style={styles.levelModalFooter}>
+              <Shield size={13} color="#87867F" style={{ marginRight: 6 }} />
+              <Text style={styles.levelModalFooterText}>
+                {level === 1 ? 'Level 1: Tutorial (0 steel bricks)' : `Level ${level}: Steel bumpers active`}
+              </Text>
             </View>
           </View>
         </TouchableOpacity>
@@ -1197,7 +1390,7 @@ const styles = StyleSheet.create({
   },
   brick: {
     position: 'absolute',
-    borderRadius: 5,
+    borderRadius: 3,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -1206,8 +1399,28 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 4,
+    height: 3,
     backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  steelPlate: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 3,
+    backgroundColor: '#343330',
+  },
+  steelRivet: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#8E8D88',
+  },
+  steelCenterLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    marginHorizontal: 3,
   },
   paddle: {
     position: 'absolute',
@@ -1435,44 +1648,112 @@ const styles = StyleSheet.create({
   },
   levelCard: {
     width: '100%',
-    maxWidth: 300,
+    maxWidth: 340,
     backgroundColor: '#FAF9F5',
     borderRadius: 24,
-    padding: 20,
-    alignItems: 'center',
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  levelCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
   },
   levelCardTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
     color: '#141413',
-    marginBottom: 16,
   },
-  levelBtnGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+  levelCardSub: {
+    fontSize: 12,
+    color: '#87867F',
+    marginTop: 2,
+  },
+  levelCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#EBE9DF',
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  levelSelectBtn: {
-    width: 100,
-    paddingVertical: 12,
-    borderRadius: 16,
+  tierScrollContainer: {
+    marginBottom: 12,
+  },
+  tierScrollContent: {
+    paddingVertical: 4,
+  },
+  tierTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: 'rgba(20,20,19,0.12)',
-    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.1)',
+    marginRight: 6,
   },
-  levelSelectBtnActive: {
+  tierTabActive: {
+    backgroundColor: '#D97757',
     borderColor: '#D97757',
-    backgroundColor: 'rgba(217,119,87,0.1)',
   },
-  levelSelectText: {
-    fontSize: 13,
+  tierTabText: {
+    fontSize: 12,
     fontWeight: '600',
     color: '#5E5D59',
   },
-  levelSelectTextActive: {
-    color: '#D97757',
+  tierTabTextActive: {
+    color: '#FFFFFF',
     fontWeight: '800',
+  },
+  levelGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  levelCell: {
+    width: 52,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  levelCellActive: {
+    backgroundColor: '#D97757',
+    borderColor: '#D97757',
+  },
+  levelCellText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#141413',
+  },
+  levelCellTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  levelModalFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(20,20,19,0.06)',
+  },
+  levelModalFooterText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#87867F',
   },
 });

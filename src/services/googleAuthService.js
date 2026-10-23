@@ -1,9 +1,9 @@
 // src/services/googleAuthService.js
-// 100% Real, Zero-Typing Google Authentication Service for SecureBox
-// Auto-fetches real user identity from Google (Name, Email, Profile Picture)
-// Auto-derives unique @handle and auto-provisions Supabase encrypted vault.
+// 100% Real, Verified Google Authentication Service for SecureBox
+// Fetches real user identity from Google (Name, Email, Profile Picture)
+// Allows user to customize @handle and choose their own 4-digit secret PIN.
 
-import { supabase, registerUserInSupabase, generateUniqueHandle } from './supabase';
+import { supabase, registerUserInSupabase, generateUniqueHandle, checkHandleAvailability } from './supabase';
 import { useUserStore } from '../store/useUserStore';
 
 // Safe require for @react-native-google-signin/google-signin
@@ -57,14 +57,15 @@ export const isNativeGoogleSignInAvailable = () => {
 };
 
 /**
- * Execute 1-Tap Real Google Sign-In
- * - Opens the official Android Google Play Services account picker
- * - Auto-fetches real Name, Email, and Photo
- * - Exchanges token with Supabase Auth
- * - Auto-generates unique @handle and registers/restores profile
- * - Returns { success: true, user } or { cancelled: true } or { success: false, error }
+ * Step 1: Initiate Google Sign-In
+ * - Pops up the official Android Google Play Services account picker
+ * - Fetches real Name, Email, Photo from Google
+ * - Exchanges ID Token with Supabase Auth
+ * - Checks if user already exists:
+ *   - If EXISTS: restores profile and completes setup immediately. Returns { exists: true, user }
+ *   - If NEW: returns { exists: false, profile: { name, email, photo, suggestedHandle, authUserId } }
  */
-export const executeOneTapGoogleSignIn = async () => {
+export const initiateGoogleAuth = async () => {
   if (!GoogleSignin) {
     return {
       success: false,
@@ -76,32 +77,28 @@ export const executeOneTapGoogleSignIn = async () => {
     configureGoogleSignIn();
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
-    // 1. Native Google One-Tap Account Picker
     const response = await GoogleSignin.signIn();
     const gUser = response.data?.user || response.user;
     const idToken = response.data?.idToken || response.idToken;
 
     if (!gUser || !gUser.email) {
-      return { success: false, error: 'No Google account selected or returned.' };
+      return { success: false, error: 'No Google account selected.' };
     }
 
     const realEmail = gUser.email.toLowerCase().trim();
     const realName = (gUser.name || gUser.givenName || realEmail.split('@')[0]).trim();
     const realPhoto = gUser.photo || null;
 
-    // 2. Exchange ID Token with Supabase Auth (if available)
+    // Exchange ID Token with Supabase Auth
     let authUserId = null;
     if (idToken) {
       try {
-        const { data: authData, error: authErr } = await supabase.auth.signInWithIdToken({
+        const { data: authData } = await supabase.auth.signInWithIdToken({
           provider: 'google',
           token: idToken,
         });
         if (authData?.user?.id) {
           authUserId = authData.user.id;
-        }
-        if (authErr) {
-          console.warn('[GoogleAuth] signInWithIdToken notice:', authErr.message);
         }
       } catch (authErr) {
         console.warn('[GoogleAuth] Supabase ID token exchange notice:', authErr.message);
@@ -117,10 +114,9 @@ export const executeOneTapGoogleSignIn = async () => {
       } catch (_) {}
     }
 
-    // 3. Check if user already exists in Supabase 'users' table
+    // Check if user already exists in Supabase 'users' table
     let existingUser = null;
 
-    // Check by auth id first
     if (authUserId) {
       const { data: byId } = await supabase
         .from('users')
@@ -130,108 +126,65 @@ export const executeOneTapGoogleSignIn = async () => {
       if (byId) existingUser = byId;
     }
 
-    // Check by email stored in mobile_number column (pattern: email#pin or plain email)
     if (!existingUser) {
       const { data: byEmailPrefix } = await supabase
         .from('users')
         .select('*')
         .ilike('mobile_number', `${realEmail}%`)
         .maybeSingle();
-
-      if (byEmailPrefix) {
-        existingUser = byEmailPrefix;
-      } else {
-        // Fallback check by handle derived from email prefix
-        const handleBase = realEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_.]/g, '');
-        const { data: byHandle } = await supabase
-          .from('users')
-          .select('*')
-          .eq('handle', handleBase)
-          .maybeSingle();
-        if (byHandle) existingUser = byHandle;
-      }
+      if (byEmailPrefix) existingUser = byEmailPrefix;
     }
 
-    let finalHandle = '';
-    let finalNickname = realName;
-    let finalAvatarId = 'panda';
-    let finalPassword = '';
-    let finalPin = '0000';
-    let isNewUser = false;
-
+    // CASE A: User is an existing registered user -> Restore and enter immediately!
     if (existingUser) {
-      // Restore existing user profile
-      finalHandle = existingUser.handle;
-      finalNickname = existingUser.nickname || realName;
-      finalAvatarId = existingUser.avatar_id || 'panda';
-      finalPassword = existingUser.password || 'Google_Vault_Secured';
+      const finalHandle = existingUser.handle;
+      const finalNickname = existingUser.nickname || realName;
+      const finalAvatarId = existingUser.avatar_id || 'panda';
+      const finalPassword = existingUser.password || 'Google_Vault_Secured';
       const storedMobile = existingUser.mobile_number || '';
-      finalPin = storedMobile.includes('#') ? storedMobile.split('#')[1] : '0000';
-    } else {
-      // New user: auto-derive unique handle (min 6 chars) and credentials
-      isNewUser = true;
-      const cleanPrefix = realEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_.]/g, '');
-      finalHandle = await generateUniqueHandle(cleanPrefix.length >= 4 ? cleanPrefix : realName);
+      const finalPin = storedMobile.includes('#') ? storedMobile.split('#')[1] : '1357';
 
-      // Auto-generate strong secure vault credentials
-      finalPassword = `G_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      finalPin = Math.floor(1000 + Math.random() * 9000).toString();
+      const store = useUserStore.getState();
+      store.setProfile(finalHandle, finalNickname, finalAvatarId, realEmail, realPhoto, finalPin);
+      store.setPassword(finalPassword);
+      store.setStealthPin(finalPin);
+      store.setMyCharacter('panda');
+      store.completeSetup();
+      store.setStealthUnlocked(true);
 
-      try {
-        await registerUserInSupabase({
-          id: authUserId,
+      return {
+        success: true,
+        exists: true,
+        user: {
           handle: finalHandle,
-          nickname: realName,
-          avatarId: realPhoto || 'panda',
-          mobileNumber: `${realEmail}#${finalPin}`,
-          password: finalPassword,
-          recoveryPin: finalPin,
-        });
-      } catch (regErr) {
-        console.warn('[GoogleAuth] registerUserInSupabase error:', regErr.message);
-        // If RLS blocked, try direct insert with auth id
-        try {
-          const fallbackPayload = {
-            handle: finalHandle,
-            nickname: realName,
-            avatar_id: realPhoto || 'panda',
-            mobile_number: `${realEmail}#${finalPin}`,
-            password: finalPassword,
-            updated_at: new Date().toISOString(),
-          };
-          if (authUserId) fallbackPayload.id = authUserId;
-          await supabase.from('users').insert(fallbackPayload);
-        } catch (fbErr) {
-          console.warn('[GoogleAuth] Fallback insert also failed:', fbErr.message);
-        }
-      }
+          name: finalNickname,
+          email: realEmail,
+          photo: realPhoto,
+          pin: finalPin,
+        },
+      };
     }
 
-    // 4. Update local Zustand state & unlock app
-    const store = useUserStore.getState();
-    store.setProfile(finalHandle, finalNickname, finalAvatarId, realEmail, realPhoto, finalPin);
-    store.setPassword(finalPassword);
-    store.setStealthPin(finalPin);
-    store.setMyCharacter('panda');
-    store.completeSetup();
-    store.setStealthUnlocked(true);
+    // CASE B: User is new -> Auto-suggest unique handle and return to let user confirm/choose handle and PIN
+    const cleanPrefix = realEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_.]/g, '');
+    const suggestedHandle = await generateUniqueHandle(cleanPrefix.length >= 4 ? cleanPrefix : realName);
 
     return {
       success: true,
-      isNewUser,
-      user: {
+      exists: false,
+      profile: {
+        authUserId,
         name: realName,
         email: realEmail,
-        handle: finalHandle,
         photo: realPhoto,
-        pin: finalPin,
+        suggestedHandle,
       },
     };
   } catch (err) {
     if (err.code === 'SIGN_IN_CANCELLED') {
       return { success: false, cancelled: true };
     }
-    console.error('[GoogleAuth] Native Sign-In error:', err);
+    console.error('[GoogleAuth] Error:', err);
     return {
       success: false,
       error: err.message || 'Google Sign-In failed. Please check Google Play Services.',
@@ -239,7 +192,104 @@ export const executeOneTapGoogleSignIn = async () => {
   }
 };
 
-// Aliases for compatibility
+/**
+ * Step 2: Complete New Google User Registration with their chosen Handle and 4-Digit PIN
+ */
+export const completeGoogleRegistration = async ({
+  authUserId,
+  name,
+  email,
+  photo,
+  handle,
+  pin,
+}) => {
+  const cleanHandle = (handle || '').trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
+  if (!cleanHandle || cleanHandle.length < 3) {
+    throw new Error('Please choose a handle with at least 3 characters.');
+  }
+
+  const cleanPin = (pin || '').trim().replace(/[^0-9]/g, '');
+  if (cleanPin.length !== 4) {
+    throw new Error('Please set a 4-digit secret PIN to unlock your vault.');
+  }
+
+  // Check handle availability
+  const check = await checkHandleAvailability(cleanHandle);
+  if (!check.available) {
+    throw new Error(`Handle @${cleanHandle} is already taken. Please choose another.`);
+  }
+
+  const finalPassword = `G_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+  // Save into Supabase 'users' table
+  try {
+    await registerUserInSupabase({
+      id: authUserId,
+      handle: cleanHandle,
+      nickname: name,
+      avatarId: photo || 'panda',
+      mobileNumber: `${email}#${cleanPin}`,
+      password: finalPassword,
+      recoveryPin: cleanPin,
+    });
+  } catch (regErr) {
+    console.warn('[GoogleAuth] registerUserInSupabase error:', regErr.message);
+    try {
+      const fallbackPayload = {
+        handle: cleanHandle,
+        nickname: name,
+        avatar_id: photo || 'panda',
+        mobile_number: `${email}#${cleanPin}`,
+        password: finalPassword,
+        updated_at: new Date().toISOString(),
+      };
+      if (authUserId) fallbackPayload.id = authUserId;
+      await supabase.from('users').insert(fallbackPayload);
+    } catch (fbErr) {
+      console.warn('[GoogleAuth] Fallback insert error:', fbErr.message);
+    }
+  }
+
+  // Save into local Zustand store and complete onboarding
+  const store = useUserStore.getState();
+  store.setProfile(cleanHandle, name, 'panda', email, photo, cleanPin);
+  store.setPassword(finalPassword);
+  store.setStealthPin(cleanPin);
+  store.setMyCharacter('panda');
+  store.completeSetup();
+  store.setStealthUnlocked(true);
+
+  return {
+    success: true,
+    user: {
+      handle: cleanHandle,
+      name,
+      email,
+      photo,
+      pin: cleanPin,
+    },
+  };
+};
+
+/**
+ * Backward compatibility: Single-step fallback with default PIN 1357
+ */
+export const executeOneTapGoogleSignIn = async () => {
+  const init = await initiateGoogleAuth();
+  if (!init.success) return init;
+  if (init.exists) return init;
+
+  // New user with default credentials
+  return await completeGoogleRegistration({
+    authUserId: init.profile.authUserId,
+    name: init.profile.name,
+    email: init.profile.email,
+    photo: init.profile.photo,
+    handle: init.profile.suggestedHandle,
+    pin: '1357', // Safe known default!
+  });
+};
+
 export const tryNativeGoogleSignIn = executeOneTapGoogleSignIn;
 export const signInWithGoogle = executeOneTapGoogleSignIn;
 export const signInWithRealGoogle = executeOneTapGoogleSignIn;
