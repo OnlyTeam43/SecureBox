@@ -3,38 +3,17 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, StatusBar, ActivityIndicator, Alert,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
 import { CharacterAvatar } from '../../animal_ui/components/CharacterAvatar.js';
-import { executeOneTapGoogleSignIn } from '../../services/googleAuthService';
-
-// Official Google G SVG Icon
-function GoogleIcon({ size = 20 }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24">
-      <Path
-        fill="#4285F4"
-        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
-      />
-      <Path
-        fill="#34A853"
-        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.15C3.29 21.36 7.37 24 12 24z"
-      />
-      <Path
-        fill="#FBBC05"
-        d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.26C.46 8.16 0 9.94 0 12s.46 3.84 1.26 5.42l4.02-3.15z"
-      />
-      <Path
-        fill="#EA4335"
-        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.37 0 3.29 2.64 1.26 6.58l4.02 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-      />
-    </Svg>
-  );
-}
+import GoogleIcon from '../../components/GoogleIcon';
+import GoogleOnboardingModal from './GoogleOnboardingModal';
+import { initiateGoogleAuth } from '../../services/googleAuthService';
 
 export default function WelcomeScreen({ navigation }) {
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [pendingProfile, setPendingProfile] = useState(null);
 
   // 1-Tap Real Google Sign-In
   const handleGoogleSignInPress = async () => {
@@ -44,14 +23,22 @@ export default function WelcomeScreen({ navigation }) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } catch (_) {}
 
-      const res = await executeOneTapGoogleSignIn();
+      const res = await initiateGoogleAuth();
 
       if (res.success) {
-        try {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (_) {}
+        if (res.exists) {
+          // Returning user -> Instant unlock!
+          try {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (_) {}
 
-        navigation.replace('MainTabs');
+          navigation.replace('MainTabs');
+          return;
+        }
+
+        // New user -> Open Setup Modal so they can confirm handle & choose PIN!
+        setPendingProfile(res.profile);
+        setShowGoogleModal(true);
         return;
       }
 
@@ -114,6 +101,21 @@ export default function WelcomeScreen({ navigation }) {
       </View>
 
       <Text style={styles.note}>1-Tap Google Verification · Zero Typing Setup</Text>
+
+      {/* Google Onboarding & Profile Setup Modal for New Users */}
+      <GoogleOnboardingModal
+        visible={showGoogleModal}
+        initialProfile={pendingProfile}
+        onClose={() => {
+          setShowGoogleModal(false);
+          setPendingProfile(null);
+        }}
+        onComplete={() => {
+          setShowGoogleModal(false);
+          setPendingProfile(null);
+          navigation.replace('MainTabs');
+        }}
+      />
     </View>
   );
 }

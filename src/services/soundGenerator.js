@@ -115,3 +115,76 @@ export const getEndedToneUri = () => {
     }
   });
 };
+
+// ── ANIMAL SMASH / BRICK BREAKER ARCADE SFX ──
+
+// 5. Paddle hit: punchy, rubbery upward pitch sweep (260Hz -> 420Hz)
+export const getGamePaddleToneUri = () => {
+  return createWavUri(11025, 0.08, (t) => {
+    const env = Math.exp(-t * 35);
+    const freq = 260 + (t / 0.08) * 160;
+    return Math.sin(2 * Math.PI * freq * t) * 0.5 * env;
+  });
+};
+
+// 6. Brick hit: bright crisp crystal/glass pop (680Hz + 1360Hz overtone)
+export const getGameBrickToneUri = () => {
+  return createWavUri(11025, 0.07, (t) => {
+    const env = Math.exp(-t * 40);
+    const s1 = Math.sin(2 * Math.PI * 680 * t);
+    const s2 = Math.sin(2 * Math.PI * 1360 * t) * 0.3;
+    return (s1 + s2) * 0.5 * env;
+  });
+};
+
+// 7. Steel / unbreakable brick hit: heavy metallic ricochet clang
+export const getGameSteelToneUri = () => {
+  return createWavUri(11025, 0.12, (t) => {
+    const env = Math.exp(-t * 22);
+    const s1 = Math.sin(2 * Math.PI * 880 * t);
+    const s2 = Math.sin(2 * Math.PI * 1420 * t) * 0.6;
+    const s3 = Math.sin(2 * Math.PI * 2200 * t) * 0.3;
+    return (s1 + s2 + s3) * 0.4 * env;
+  });
+};
+
+// 8. Wall bounce: snappy arcade perimeter tick (420Hz)
+export const getGameWallToneUri = () => {
+  return createWavUri(11025, 0.04, (t) => {
+    const env = Math.exp(-t * 60);
+    return Math.sin(2 * Math.PI * 420 * t) * 0.35 * env;
+  });
+};
+
+// 9. Gift power-up caught: joyful 3-note rising magical chime (G5 -> B5 -> E6)
+export const getGameGiftToneUri = () => {
+  return createWavUri(11025, 0.22, (t) => {
+    const notes = [784, 988, 1318]; // G5, B5, E6
+    const noteIdx = Math.min(Math.floor(t / 0.07), notes.length - 1);
+    const noteTime = t - noteIdx * 0.07;
+    const env = Math.exp(-noteTime * 20);
+    return Math.sin(2 * Math.PI * notes[noteIdx] * noteTime) * 0.45 * env;
+  });
+};
+
+// 10. Ball lost / life lost: comic sad descending slide (440Hz -> 140Hz)
+export const getGameLostToneUri = () => {
+  return createWavUri(11025, 0.28, (t) => {
+    const env = Math.exp(-t * 10);
+    const freq = Math.max(140, 440 - (t / 0.28) * 300);
+    return Math.sin(2 * Math.PI * freq * t) * 0.5 * env;
+  });
+};
+
+// 11. Level cleared / victory: triumphant 4-note ascending fanfare (C5 -> E5 -> G5 -> C6)
+export const getGameWinToneUri = () => {
+  return createWavUri(11025, 0.45, (t) => {
+    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+    const noteIdx = Math.min(Math.floor(t / 0.11), notes.length - 1);
+    const noteTime = t - noteIdx * 0.11;
+    const env = Math.exp(-noteTime * 12);
+    const s1 = Math.sin(2 * Math.PI * notes[noteIdx] * noteTime);
+    const s2 = Math.sin(2 * Math.PI * notes[noteIdx] * 2 * noteTime) * 0.25;
+    return (s1 + s2) * 0.45 * env;
+  });
+};

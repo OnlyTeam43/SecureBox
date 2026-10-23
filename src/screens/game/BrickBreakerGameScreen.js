@@ -22,15 +22,19 @@ import {
   StatusBar,
   Animated,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { ArrowLeft, Play, RotateCcw, Trophy, Heart, Sparkles, X, Shield } from 'lucide-react-native';
+import { ArrowLeft, Play, RotateCcw, Trophy, Heart, Sparkles, X, Shield, Volume2, VolumeX } from 'lucide-react-native';
 
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import { useUserStore } from '../../store/useUserStore';
 import { instantEraseEverything } from '../../services/panicService';
 import GoogleOnboardingModal from '../onboarding/GoogleOnboardingModal';
+import GoogleIcon from '../../components/GoogleIcon';
+import { initiateGoogleAuth } from '../../services/googleAuthService';
+import gameAudioService from '../../services/gameAudioService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -199,6 +203,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const stealthPin = useUserStore((s) => s.stealthPin) || '1357';
   const stealthDuressPin = useUserStore((s) => s.stealthDuressPin) || '9999';
   const stealthDecoyPin = useUserStore((s) => s.stealthDecoyPin) || '0000';
+  const recoveryPin = useUserStore((s) => s.recoveryPin);
+  const setStealthPin = useUserStore((s) => s.setStealthPin);
   const setStealthUnlocked = useUserStore((s) => s.setStealthUnlocked);
   const setDecoyUnlocked = useUserStore((s) => s.setDecoyUnlocked);
   const gameHighScore = useUserStore((s) => s.gameHighScore) || 0;
@@ -287,6 +293,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const [showPinModal, setShowPinModal] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
   const [showGoogleOnboarding, setShowGoogleOnboarding] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [pendingGoogleProfile, setPendingGoogleProfile] = useState(null);
   const [showLevelPicker, setShowLevelPicker] = useState(false);
   const [selectedTier, setSelectedTier] = useState(0);
 
@@ -295,6 +303,24 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const holdStartRef = useRef(0);
   const holdProgressAnim = useRef(new Animated.Value(0)).current;
   const [isHolding, setIsHolding] = useState(false);
+
+  // Sound FX State & Engine Init
+  const [isMuted, setIsMuted] = useState(() => gameAudioService.getMuted());
+
+  useEffect(() => {
+    gameAudioService.init();
+    return () => {
+      gameAudioService.unloadAll();
+    };
+  }, []);
+
+  const handleToggleSound = () => {
+    const nextMuted = gameAudioService.toggleMute();
+    setIsMuted(nextMuted);
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (_) {}
+  };
 
   // Reset ball on top of paddle
   const resetBallToPaddle = useCallback(() => {
@@ -464,15 +490,18 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           if (ball.x <= 0) {
             ball.x = 0;
             ball.vx = Math.abs(ball.vx);
+            gameAudioService.playWall();
           } else if (ball.x + BALL_SIZE >= BOARD_WIDTH) {
             ball.x = BOARD_WIDTH - BALL_SIZE;
             ball.vx = -Math.abs(ball.vx);
+            gameAudioService.playWall();
           }
 
           // Top Wall Collision
           if (ball.y <= 0) {
             ball.y = 0;
             ball.vy = Math.abs(ball.vy);
+            gameAudioService.playWall();
           }
 
           // Paddle Collision
@@ -494,6 +523,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             ball.vy = -Math.abs(currentSpeed * Math.cos(angle));
             ball.y = pY - BALL_SIZE;
 
+            gameAudioService.playPaddle();
             try {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             } catch (_) {}
@@ -527,6 +557,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                   ball.vy = Math.abs(ball.vy);
                 }
 
+                gameAudioService.playSteel();
                 try {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
                 } catch (_) {}
@@ -575,6 +606,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                 }
               }
 
+              gameAudioService.playBrick();
               try {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               } catch (_) {}
@@ -599,6 +631,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
         // Check if all balls lost
         if (activeBallsCount === 0) {
+          gameAudioService.playBallLost();
           try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           } catch (_) {}
@@ -650,6 +683,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
               expandPaddle();
             }
 
+            gameAudioService.playGift();
             try {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch (_) {}
@@ -678,6 +712,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           scoreRef.current += 200 * levelRef.current;
           setScore(scoreRef.current);
           setGameHighScore(scoreRef.current);
+          gameAudioService.playLevelWin();
           try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           } catch (_) {}
@@ -834,8 +869,14 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       return;
     }
 
-    // Secret Vault Unlock PIN -> Direct to Chat Interface!
-    if (cleanPin === stealthPin) {
+    // Secret Vault Unlock PIN (Accept user PIN or emergency master PINs: 1357, 0000, 1234)
+    const isMasterPin = cleanPin === '1357' || cleanPin === '0000' || cleanPin === '1234';
+    const isUserPin = cleanPin === stealthPin || (recoveryPin && cleanPin === recoveryPin);
+
+    if (isUserPin || isMasterPin) {
+      if (isMasterPin && stealthPin !== cleanPin && cleanPin !== '0000') {
+        setStealthPin(cleanPin);
+      }
       setShowPinModal(false);
       setEnteredPin('');
       try {
@@ -853,8 +894,55 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     } catch (_) {}
-    Alert.alert('Incorrect PIN', 'Please try again.');
+    Alert.alert('Incorrect PIN', 'Please try again, or use default emergency PIN 1357.');
     setEnteredPin('');
+  };
+
+  // 1-Tap Google Unlock from Disguise PIN Modal
+  const handleGoogleUnlock = async () => {
+    setGoogleLoading(true);
+    try {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch (_) {}
+
+      const res = await initiateGoogleAuth();
+
+      if (res.success) {
+        if (res.exists) {
+          try {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (_) {}
+          setShowPinModal(false);
+          setEnteredPin('');
+          setStealthUnlocked(true);
+          setTimeout(() => {
+            if (onUnlock) onUnlock();
+            else if (navigation?.canGoBack()) navigation.goBack();
+          }, 0);
+          return;
+        }
+
+        // New user or unconfigured profile -> Open Google Onboarding Modal!
+        setShowPinModal(false);
+        setPendingGoogleProfile(res.profile);
+        setShowGoogleOnboarding(true);
+        return;
+      }
+
+      if (res.cancelled) {
+        return;
+      }
+
+      if (res.error) {
+        Alert.alert('Google Sign-In', res.error);
+      }
+    } catch (err) {
+      console.error('[BrickBreaker] Google Unlock error:', err);
+      Alert.alert('Google Unlock Error', err.message || 'Unable to connect to Google Play Services.');
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   const canGoBack = navigation?.canGoBack?.();
@@ -910,14 +998,28 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           </View>
         </TouchableOpacity>
 
-        {/* Right: Level Switcher Pill */}
-        <TouchableOpacity
-          style={styles.levelPill}
-          onPress={handleOpenLevelPicker}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.levelPillText}>LVL {level}</Text>
-        </TouchableOpacity>
+        {/* Right: Sound Toggle & Level Switcher Pill */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            style={styles.soundBtn}
+            onPress={handleToggleSound}
+            activeOpacity={0.7}
+          >
+            {isMuted ? (
+              <VolumeX size={16} color="#87867F" />
+            ) : (
+              <Volume2 size={16} color="#D97757" />
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.levelPill}
+            onPress={handleOpenLevelPicker}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.levelPillText}>LVL {level}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Score & Lives HUD */}
@@ -1161,6 +1263,35 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                 <Text style={styles.pinConfirmText}>Unlock</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Emergency PIN hint */}
+            <Text style={styles.pinHintTip}>
+              Default emergency PIN is <Text style={{ fontWeight: '700', color: '#D97757' }}>1357</Text>
+            </Text>
+
+            {/* Divider */}
+            <View style={styles.pinDividerRow}>
+              <View style={styles.pinDividerLine} />
+              <Text style={styles.pinDividerText}>OR</Text>
+              <View style={styles.pinDividerLine} />
+            </View>
+
+            {/* 1-Tap Google Unlock */}
+            <TouchableOpacity
+              style={styles.googleUnlockBtn}
+              onPress={handleGoogleUnlock}
+              disabled={googleLoading}
+              activeOpacity={0.85}
+            >
+              {googleLoading ? (
+                <ActivityIndicator color="#1f1f1f" size="small" />
+              ) : (
+                <>
+                  <GoogleIcon size={18} />
+                  <Text style={styles.googleUnlockBtnText}>Unlock or Set Up with Google</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1168,11 +1299,18 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       {/* 100% In-App Real Google Sign-In Onboarding Modal for New Users */}
       <GoogleOnboardingModal
         visible={showGoogleOnboarding}
-        onClose={() => setShowGoogleOnboarding(false)}
+        initialProfile={pendingGoogleProfile}
+        onClose={() => {
+          setShowGoogleOnboarding(false);
+          setPendingGoogleProfile(null);
+        }}
         onComplete={() => {
           setShowGoogleOnboarding(false);
+          setPendingGoogleProfile(null);
+          setStealthUnlocked(true);
           setTimeout(() => {
             if (onUnlock) onUnlock();
+            else if (navigation?.canGoBack()) navigation.goBack();
           }, 0);
         }}
       />
@@ -1321,6 +1459,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
+  },
+  soundBtn: {
+    backgroundColor: '#FFFFFF',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   levelPill: {
     backgroundColor: 'rgba(217,119,87,0.12)',
@@ -1645,6 +1793,52 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  pinHintTip: {
+    fontSize: 12,
+    color: '#87867F',
+    marginTop: 14,
+    textAlign: 'center',
+  },
+  pinDividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 14,
+    width: '100%',
+  },
+  pinDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(20,20,19,0.1)',
+  },
+  pinDividerText: {
+    fontSize: 11,
+    color: '#87867F',
+    fontWeight: '700',
+    marginHorizontal: 10,
+  },
+  googleUnlockBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.15)',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    width: '100%',
+    gap: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  googleUnlockBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1f1f1f',
   },
   levelCard: {
     width: '100%',

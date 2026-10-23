@@ -255,7 +255,91 @@ export const completeGoogleRegistration = async ({
   store.setProfile(cleanHandle, name, 'panda', email, photo, cleanPin);
   store.setPassword(finalPassword);
   store.setStealthPin(cleanPin);
+  store.setRecoveryPin(cleanPin);
   store.setMyCharacter('panda');
+  store.completeSetup();
+  store.setStealthUnlocked(true);
+
+  return {
+    success: true,
+    user: {
+      handle: cleanHandle,
+      name,
+      email,
+      photo,
+      pin: cleanPin,
+    },
+  };
+};
+
+/**
+ * Step 3: Update existing Google user profile (change handle or PIN)
+ */
+export const updateGoogleUserProfile = async ({
+  authUserId,
+  name,
+  email,
+  photo,
+  handle,
+  pin,
+}) => {
+  const cleanHandle = (handle || '').trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
+  if (!cleanHandle || cleanHandle.length < 3) {
+    throw new Error('Please choose a handle with at least 3 characters.');
+  }
+
+  const cleanPin = (pin || '').trim().replace(/[^0-9]/g, '');
+  if (cleanPin.length !== 4) {
+    throw new Error('Please set a 4-digit secret PIN to unlock your vault.');
+  }
+
+  // Check if handle is taken by someone else
+  if (cleanHandle) {
+    const { data: existing } = await supabase
+      .from('users')
+      .select('id')
+      .eq('handle', cleanHandle)
+      .maybeSingle();
+
+    if (existing && existing.id !== authUserId) {
+      throw new Error(`Handle @${cleanHandle} is already taken by another user.`);
+    }
+  }
+
+  // Update in Supabase
+  try {
+    if (authUserId) {
+      await supabase
+        .from('users')
+        .update({
+          handle: cleanHandle,
+          nickname: name,
+          avatar_id: photo || 'panda',
+          mobile_number: `${email}#${cleanPin}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', authUserId);
+    } else {
+      await supabase
+        .from('users')
+        .update({
+          handle: cleanHandle,
+          nickname: name,
+          avatar_id: photo || 'panda',
+          mobile_number: `${email}#${cleanPin}`,
+          updated_at: new Date().toISOString(),
+        })
+        .ilike('mobile_number', `${email}%`);
+    }
+  } catch (err) {
+    console.warn('[GoogleAuth] update profile error:', err.message);
+  }
+
+  // Update Zustand
+  const store = useUserStore.getState();
+  store.setProfile(cleanHandle, name, 'panda', email, photo, cleanPin);
+  store.setStealthPin(cleanPin);
+  store.setRecoveryPin(cleanPin);
   store.completeSetup();
   store.setStealthUnlocked(true);
 

@@ -18,12 +18,12 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 /**
- * Check if a handle is available in Supabase (minimum 6 characters)
+ * Check if a handle is available in Supabase (minimum 3 characters)
  */
 export const checkHandleAvailability = async (handle) => {
   const clean = handle.replace('@', '').trim().toLowerCase();
-  if (clean.length < 6) {
-    return { available: false, reason: 'Handle must be at least 6 characters' };
+  if (clean.length < 3) {
+    return { available: false, reason: 'Handle must be at least 3 characters' };
   }
   if (!/^[a-z0-9_.]+$/.test(clean)) {
     return { available: false, reason: 'Only lowercase letters, numbers, _, and . are allowed' };
@@ -46,14 +46,13 @@ export const checkHandleAvailability = async (handle) => {
 };
 
 /**
- * Automatically generate a unique handle from a user name (min 6 chars, never already exists)
+ * Automatically generate a unique handle from a user name (min 3 chars, never already exists)
  */
 export const generateUniqueHandle = async (name) => {
   const baseRaw = (name || 'user').toLowerCase().replace(/[^a-z0-9]/g, '');
   let base = baseRaw || 'user';
-  // Constraint: minimum character is 6 for handle
-  if (base.length < 6) {
-    const diff = 6 - base.length;
+  if (base.length < 3) {
+    const diff = 3 - base.length;
     const minNum = Math.pow(10, diff - 1);
     const maxNum = Math.pow(10, diff) - 1;
     const padding = Math.floor(minNum + Math.random() * (maxNum - minNum + 1));
