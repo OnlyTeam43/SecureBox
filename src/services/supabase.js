@@ -31,7 +31,7 @@ export const checkHandleAvailability = async (handle) => {
   try {
     const { data, error } = await supabase
       .from('users')
-      .select('id')
+      .select('handle')
       .eq('handle', clean)
       .maybeSingle();
 
@@ -124,10 +124,6 @@ export const registerUserInSupabase = async ({
     password: password,
     updated_at: new Date().toISOString(),
   };
-
-  if (authUserId) {
-    payload.id = authUserId;
-  }
 
   const { data, error } = await supabase
     .from('users')
@@ -318,13 +314,13 @@ export const sendMessageToSupabase = async ({
     await supabase.from('messages').upsert(
       {
         id,
-        conversation_id: conversationId,
+        type: 'chat',
         sender: cleanSender,
         receiver: receiverClean,
         body,
         media_uri: mediaUri || null,
-        sent_at: sentAt,
-        expires_at: expiresAt || null,
+        created_at: new Date(sentAt || Date.now()).toISOString(),
+        expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
       },
       { onConflict: 'id' }
     );
@@ -520,10 +516,10 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
       .from('messages')
       .select('*')
       .eq('receiver', clean)
-      .not('conversation_id', 'like', 'contact_req_%')
-      .not('conversation_id', 'like', 'contact_accepted_%')
-      .not('conversation_id', 'like', 'call_req_%')
-      .order('sent_at', { ascending: true });
+      .neq('type', 'contact_req')
+      .neq('type', 'contact_accepted')
+      .neq('type', 'call_req')
+      .order('created_at', { ascending: true });
 
     if (error || !data || data.length === 0) return [];
 
@@ -545,19 +541,20 @@ export const fetchPendingCallInvite = async (myHandle) => {
   if (!myHandle) return null;
   const clean = myHandle.replace('@', '').trim().toLowerCase();
   try {
-    const cutoff = Date.now() - 35000;
+    const cutoff = new Date(Date.now() - 35000).toISOString();
     const { data, error } = await supabase
       .from('messages')
       .select('*')
-      .eq('conversation_id', `call_req_${clean}`)
-      .gt('sent_at', cutoff)
-      .order('sent_at', { ascending: false })
+      .eq('receiver', clean)
+      .eq('type', 'call_req')
+      .gt('created_at', cutoff)
+      .order('created_at', { ascending: false })
       .limit(1);
 
     if (error || !data || data.length === 0) return null;
     const row = data[0];
     const parsed = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
-    if (Date.now() - (parsed.timestamp || row.sent_at) < 35000) {
+    if (Date.now() - (parsed.timestamp || new Date(row.created_at).getTime()) < 35000) {
       return parsed;
     }
     return null;
@@ -1024,7 +1021,7 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
         try {
           if (payload?.new && payload.new.receiver?.toLowerCase() === clean) {
             // Check if this is a durable acceptance confirmation
-            if (payload.new.conversation_id === `contact_accepted_${clean}`) {
+            if (payload.new.type === 'contact_accepted' || payload.new.conversation_id === `contact_accepted_${clean}`) {
               try {
                 const bodyObj = JSON.parse(payload.new.body);
                 notifyMessageStatusListeners({
@@ -1038,7 +1035,7 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
             }
 
             // Check if this is an incoming connection request
-            if (payload.new.conversation_id === `contact_req_${clean}`) {
+            if (payload.new.type === 'contact_req' || payload.new.conversation_id === `contact_req_${clean}`) {
               try {
                 const bodyObj = JSON.parse(payload.new.body);
                 notifyMessageStatusListeners({
@@ -1053,7 +1050,7 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
             }
 
             // Check if this is an incoming call invitation
-            if (payload.new.conversation_id === `call_req_${clean}`) {
+            if (payload.new.type === 'call_req' || payload.new.conversation_id === `call_req_${clean}`) {
               try {
                 const bodyObj = JSON.parse(payload.new.body);
                 // Check if call invite is still recent (< 35 seconds old)

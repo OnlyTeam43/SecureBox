@@ -59,13 +59,15 @@ const BALL_SIZE = 32;
 const PADDLE_HEIGHT = 14;
 const BASE_PADDLE_WIDTH = 96;
 const WIDE_PADDLE_WIDTH = 138;
+const WALL_THICKNESS = 10;
+const PLAY_WIDTH = BOARD_WIDTH - WALL_THICKNESS * 2;
 const BRICK_ROWS = 8;
 const BRICK_COLS = 8;
 const BRICK_GAP = 4;
 const BRICK_HEIGHT = 16;
-const BRICK_WIDTH = Math.floor((BOARD_WIDTH - 2 - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS);
+const BRICK_WIDTH = Math.floor((PLAY_WIDTH - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS);
 const TOTAL_GRID_WIDTH = BRICK_COLS * BRICK_WIDTH + (BRICK_COLS - 1) * BRICK_GAP;
-const GRID_OFFSET_X = Math.max(0, Math.floor((BOARD_WIDTH - 2 - TOTAL_GRID_WIDTH) / 2));
+const GRID_OFFSET_X = WALL_THICKNESS + Math.max(0, Math.floor((PLAY_WIDTH - TOTAL_GRID_WIDTH) / 2));
 const GIFT_SIZE = 26;
 
 // Pool capacities
@@ -206,7 +208,7 @@ function generateBricksData(lvl = 1) {
   const pIdx = (lvl - 1) % LEVEL_PATTERNS.length;
   const patternFn = LEVEL_PATTERNS[pIdx] || LEVEL_PATTERNS[0];
   const newBricks = [];
-  const topOffset = 18;
+  const topOffset = WALL_THICKNESS + 12;
   const tier = Math.floor((lvl - 1) / 25);
 
   for (let r = 0; r < BRICK_ROWS; r++) {
@@ -218,7 +220,7 @@ function generateBricksData(lvl = 1) {
 
       newBricks.push({
         id: `b_${r}_${c}`,
-        x: 1 + GRID_OFFSET_X + c * (BRICK_WIDTH + BRICK_GAP),
+        x: GRID_OFFSET_X + c * (BRICK_WIDTH + BRICK_GAP),
         y: topOffset + r * (BRICK_HEIGHT + BRICK_GAP),
         width: BRICK_WIDTH,
         height: BRICK_HEIGHT,
@@ -264,6 +266,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // HUD stats
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
+  const livesRef = useRef(3);
   const [level, setLevel] = useState(1);
   const [gameState, setGameState] = useState('ready'); // 'ready' | 'playing' | 'cleared' | 'over'
   const [activeBanner, setActiveBanner] = useState(null);
@@ -282,7 +285,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
   // ── ZERO LATENCY NATIVE REFS ──
   const paddleRef = useRef(null);
-  const paddleXRef = useRef(BOARD_WIDTH / 2 - BASE_PADDLE_WIDTH / 2);
+  const paddleXRef = useRef(WALL_THICKNESS + (PLAY_WIDTH - BASE_PADDLE_WIDTH) / 2);
   const paddleWidthRef = useRef(BASE_PADDLE_WIDTH);
   const widePaddleTimerRef = useRef(null);
 
@@ -396,11 +399,15 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const resetBallToPaddle = useCallback(() => {
     const curWidth = getLevelPaddleWidth(levelRef.current);
     paddleWidthRef.current = curWidth;
+
+    const playWidth = BOARD_WIDTH - WALL_THICKNESS * 2;
+    const initPaddleX = WALL_THICKNESS + (playWidth - curWidth) / 2;
+    paddleXRef.current = initPaddleX;
     paddleRef.current?.setNativeProps({
-      style: { width: curWidth },
+      style: { width: curWidth, left: initPaddleX },
     });
 
-    const initX = paddleXRef.current + curWidth / 2 - BALL_SIZE / 2;
+    const initX = initPaddleX + curWidth / 2 - BALL_SIZE / 2;
     const initY = paddleYRef.current - BALL_SIZE - 2;
     const baseSpeed = getLevelSpeed(levelRef.current);
 
@@ -443,17 +450,41 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     resetBallToPaddle();
   }, [resetBallToPaddle]);
 
-  // PanResponder for ZERO-LATENCY Direct Paddle Movement
+  // PanResponder for ZERO-LATENCY Direct Paddle Movement with Wall Boundaries
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gestureState) => {
-        let newX = gestureState.moveX - BOARD_PADDING - paddleWidthRef.current / 2;
-        if (newX < 0) newX = 0;
-        if (newX > BOARD_WIDTH - paddleWidthRef.current) {
-          newX = BOARD_WIDTH - paddleWidthRef.current;
+      onPanResponderGrant: (_, gestureState) => {
+        const touchX = gestureState.x0 - BOARD_PADDING;
+        let newX = touchX - paddleWidthRef.current / 2;
+        const minX = WALL_THICKNESS;
+        const maxX = BOARD_WIDTH - WALL_THICKNESS - paddleWidthRef.current;
+        if (newX < minX) newX = minX;
+        if (newX > maxX) newX = maxX;
+
+        paddleXRef.current = newX;
+        paddleRef.current?.setNativeProps({
+          style: { left: newX },
+        });
+
+        if (gameStateRef.current === 'ready') {
+          const ballX = newX + paddleWidthRef.current / 2 - BALL_SIZE / 2;
+          const ballY = paddleYRef.current - BALL_SIZE - 2;
+          ballsState.current[0].x = ballX;
+          ballsState.current[0].y = ballY;
+          ballViewRefs[0].current?.setNativeProps({
+            style: { left: ballX, top: ballY, opacity: 1 },
+          });
         }
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const touchX = gestureState.moveX - BOARD_PADDING;
+        let newX = touchX - paddleWidthRef.current / 2;
+        const minX = WALL_THICKNESS;
+        const maxX = BOARD_WIDTH - WALL_THICKNESS - paddleWidthRef.current;
+        if (newX < minX) newX = minX;
+        if (newX > maxX) newX = maxX;
 
         paddleXRef.current = newX;
         // Direct native write to paddle — 0ms React latency!
@@ -496,7 +527,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       const b = ballsState.current[i];
       if (!b.active) {
         b.active = true;
-        b.x = pX + (spawned === 0 ? 12 : paddleWidthRef.current - BALL_SIZE - 12);
+        const candidateX = pX + (spawned === 0 ? 12 : paddleWidthRef.current - BALL_SIZE - 12);
+        b.x = Math.max(WALL_THICKNESS, Math.min(candidateX, BOARD_WIDTH - WALL_THICKNESS - BALL_SIZE));
         b.y = paddleYRef.current - BALL_SIZE - 6;
         b.vx = (spawned === 0 ? -1 : 1) * (baseSpeed * 0.75);
         b.vy = -baseSpeed;
@@ -512,10 +544,21 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // Expand Paddle helper (dynamic ratio relative to current paddle width)
   const expandPaddle = () => {
     const baseW = getLevelPaddleWidth(levelRef.current);
-    const wideW = Math.min(baseW * 1.45, 140);
+    const maxAllowed = BOARD_WIDTH - WALL_THICKNESS * 2 - 20;
+    const wideW = Math.min(baseW * 1.45, maxAllowed);
     paddleWidthRef.current = wideW;
+
+    // Ensure expanded paddle does not pierce right or left wall
+    const maxX = BOARD_WIDTH - WALL_THICKNESS - wideW;
+    if (paddleXRef.current > maxX) {
+      paddleXRef.current = maxX;
+    }
+    if (paddleXRef.current < WALL_THICKNESS) {
+      paddleXRef.current = WALL_THICKNESS;
+    }
+
     paddleRef.current?.setNativeProps({
-      style: { width: wideW },
+      style: { width: wideW, left: paddleXRef.current },
     });
     showBanner('⚡ WIDE PADDLE!');
 
@@ -565,22 +608,31 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           ball.x += ball.vx * dt;
           ball.y += ball.vy * dt;
 
-          // Side Wall Collisions
-          if (ball.x <= 0) {
-            ball.x = 0;
+          // ── 1. Side Wall Collisions (Left & Right Arcade Bumpers) ──
+          if (ball.x <= WALL_THICKNESS) {
+            ball.x = WALL_THICKNESS;
             ball.vx = Math.abs(ball.vx);
             gameAudioService.playWall();
-          } else if (ball.x + BALL_SIZE >= BOARD_WIDTH) {
-            ball.x = BOARD_WIDTH - BALL_SIZE;
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            } catch (_) {}
+          } else if (ball.x + BALL_SIZE >= BOARD_WIDTH - WALL_THICKNESS) {
+            ball.x = BOARD_WIDTH - WALL_THICKNESS - BALL_SIZE;
             ball.vx = -Math.abs(ball.vx);
             gameAudioService.playWall();
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            } catch (_) {}
           }
 
-          // Top Wall Collision
-          if (ball.y <= 0) {
-            ball.y = 0;
+          // ── 2. Top Wall Collision (Arcade Top Bumper) ──
+          if (ball.y <= WALL_THICKNESS) {
+            ball.y = WALL_THICKNESS;
             ball.vy = Math.abs(ball.vy);
             gameAudioService.playWall();
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            } catch (_) {}
           }
 
           // Paddle Collision
@@ -677,7 +729,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                 const giftSlot = giftsState.current.find((g) => !g.active);
                 if (giftSlot) {
                   giftSlot.active = true;
-                  giftSlot.x = b.x + b.width / 2 - GIFT_SIZE / 2;
+                  const candidateX = b.x + b.width / 2 - GIFT_SIZE / 2;
+                  giftSlot.x = Math.max(WALL_THICKNESS, Math.min(candidateX, BOARD_WIDTH - WALL_THICKNESS - GIFT_SIZE));
                   giftSlot.y = b.y + b.height;
                   giftSlot.vy = 3.2 + Math.min((levelRef.current - 1) * 0.05, 2.5);
                   giftSlot.type = picked.type;
@@ -702,6 +755,19 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             continue;
           }
 
+          // Final safety bounds clamping against walls (guarantee ball never leaves court)
+          if (ball.x < WALL_THICKNESS) {
+            ball.x = WALL_THICKNESS;
+            ball.vx = Math.abs(ball.vx);
+          } else if (ball.x + BALL_SIZE > BOARD_WIDTH - WALL_THICKNESS) {
+            ball.x = BOARD_WIDTH - WALL_THICKNESS - BALL_SIZE;
+            ball.vx = -Math.abs(ball.vx);
+          }
+          if (ball.y < WALL_THICKNESS) {
+            ball.y = WALL_THICKNESS;
+            ball.vy = Math.abs(ball.vy);
+          }
+
           // Write updated ball coordinates directly to native view
           ballViewRefs[i].current?.setNativeProps({
             style: { left: ball.x, top: ball.y, opacity: 1 },
@@ -715,19 +781,19 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           } catch (_) {}
 
-          setLives((prev) => {
-            const next = prev - 1;
-            if (next <= 0) {
-              gameStateRef.current = 'over';
-              setGameState('over');
-              setGameHighScore(scoreRef.current);
-            } else {
-              gameStateRef.current = 'ready';
-              setGameState('ready');
-              resetBallToPaddle();
-            }
-            return next;
-          });
+          livesRef.current -= 1;
+          const remainingLives = livesRef.current;
+          setLives(remainingLives);
+
+          if (remainingLives <= 0) {
+            gameStateRef.current = 'over';
+            setGameState('over');
+            setGameHighScore(scoreRef.current);
+          } else {
+            gameStateRef.current = 'ready';
+            setGameState('ready');
+            resetBallToPaddle();
+          }
         }
 
         // ── 2. Update Falling Gifts Directly in Native Views ──
@@ -756,7 +822,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
               setScore(scoreRef.current);
               showBanner('🎁 +100 BONUS POINTS!');
             } else if (g.type === 'heart') {
-              setLives((l) => Math.min(l + 1, 5));
+              livesRef.current = Math.min(livesRef.current + 1, 5);
+              setLives(livesRef.current);
               showBanner('❤️ +1 EXTRA LIFE!');
             } else if (g.type === 'wide') {
               expandPaddle();
@@ -847,6 +914,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const handleRestart = () => {
     scoreRef.current = 0;
     setScore(0);
+    livesRef.current = 3;
     setLives(3);
     loadLevel(1);
   };
@@ -1149,6 +1217,27 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         style={[styles.board, { height: boardHeight }]}
         {...panResponder.panHandlers}
       >
+        {/* Physical Left Wall Arcade Bumper */}
+        <View style={styles.leftWall} pointerEvents="none">
+          <View style={styles.wallInnerGlow} />
+          <View style={styles.wallRivetTop} />
+          <View style={styles.wallRivetBottom} />
+        </View>
+
+        {/* Physical Right Wall Arcade Bumper */}
+        <View style={styles.rightWall} pointerEvents="none">
+          <View style={styles.wallInnerGlow} />
+          <View style={styles.wallRivetTop} />
+          <View style={styles.wallRivetBottom} />
+        </View>
+
+        {/* Physical Top Wall Arcade Bumper */}
+        <View style={styles.topWall} pointerEvents="none">
+          <View style={styles.topWallInnerGlow} />
+          <View style={styles.wallRivetLeft} />
+          <View style={styles.wallRivetRight} />
+        </View>
+
         {/* Render Bricks */}
         {bricks.map((b) => (
           <View
@@ -1859,10 +1948,85 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(20,20,19,0.1)',
+    borderWidth: 1.5,
+    borderColor: '#343330',
     overflow: 'hidden',
     position: 'relative',
+  },
+  leftWall: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: WALL_THICKNESS,
+    backgroundColor: '#343330',
+    borderRightWidth: 2,
+    borderRightColor: '#D97757',
+    zIndex: 10,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  rightWall: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: WALL_THICKNESS,
+    backgroundColor: '#343330',
+    borderLeftWidth: 2,
+    borderLeftColor: '#D97757',
+    zIndex: 10,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  topWall: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: WALL_THICKNESS,
+    backgroundColor: '#343330',
+    borderBottomWidth: 2,
+    borderBottomColor: '#D97757',
+    zIndex: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+  },
+  wallInnerGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(217, 119, 87, 0.12)',
+  },
+  topWallInnerGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(217, 119, 87, 0.12)',
+  },
+  wallRivetTop: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#A09E96',
+  },
+  wallRivetBottom: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#A09E96',
+  },
+  wallRivetLeft: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#A09E96',
+  },
+  wallRivetRight: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#A09E96',
   },
   brick: {
     position: 'absolute',
