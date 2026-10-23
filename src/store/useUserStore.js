@@ -26,7 +26,7 @@ export const useUserStore = create(
 
       // Stealth / Animal Game Decoy Mode
       isStealthModeEnabled: true,
-      stealthPin: '1357', // Default PIN for game unlock
+      stealthPin: null, // User must explicitly choose their secret PIN
       stealthDuressPin: '9999', // Emergency duress PIN that silently nukes all data
       stealthDecoyPin: '0000', // Decoy PIN that unlocks fake innocent study chats
       isStealthUnlocked: false,
@@ -83,7 +83,7 @@ export const useUserStore = create(
           defaultExpiry: null,
           pendingInviteHandle: null,
           isStealthModeEnabled: false,
-          stealthPin: '1357',
+          stealthPin: null,
           stealthDuressPin: '9999',
           stealthDecoyPin: '0000',
           isStealthUnlocked: false,

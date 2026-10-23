@@ -131,12 +131,14 @@ export const initiateGoogleAuth = async () => {
       const finalAvatarId = existingUser.avatar_id || 'panda';
       const finalPassword = existingUser.password || 'Google_Vault_Secured';
       const storedMobile = existingUser.mobile_number || '';
-      const finalPin = storedMobile.includes('#') ? storedMobile.split('#')[1] : '1357';
+      const finalPin = storedMobile.includes('#') ? storedMobile.split('#')[1] : (useUserStore.getState().stealthPin || null);
 
       const store = useUserStore.getState();
       store.setProfile(finalHandle, finalNickname, finalAvatarId, realEmail, realPhoto, finalPin);
       store.setPassword(finalPassword);
-      store.setStealthPin(finalPin);
+      if (finalPin) {
+        store.setStealthPin(finalPin);
+      }
       store.setMyCharacter('panda');
       store.completeSetup();
       store.setStealthUnlocked(true);
@@ -331,22 +333,15 @@ export const updateGoogleUserProfile = async ({
 };
 
 /**
- * Backward compatibility: Single-step fallback with default PIN 1357
+ * Backward compatibility: Single-step fallback
  */
 export const executeOneTapGoogleSignIn = async () => {
   const init = await initiateGoogleAuth();
   if (!init.success) return init;
   if (init.exists) return init;
 
-  // New user with default credentials
-  return await completeGoogleRegistration({
-    authUserId: init.profile.authUserId,
-    name: init.profile.name,
-    email: init.profile.email,
-    photo: init.profile.photo,
-    handle: init.profile.suggestedHandle,
-    pin: '1357', // Safe known default!
-  });
+  // Return init so caller can prompt user for their custom handle & PIN
+  return init;
 };
 
 export const tryNativeGoogleSignIn = executeOneTapGoogleSignIn;

@@ -43,7 +43,7 @@ export default function ProfileScreen({ navigation }) {
   } = useUserStore();
 
   const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState(stealthPin || '1357');
+  const [pinInput, setPinInput] = useState(stealthPin || '');
 
   const expiryLabel =
     EXPIRY_OPTIONS.find((o) => o.value === defaultExpiry)?.label || 'Never';
@@ -299,13 +299,13 @@ export default function ProfileScreen({ navigation }) {
             <TouchableOpacity
               style={styles.row}
               onPress={() => {
-                setPinInput(stealthPin || '1357');
+                setPinInput(stealthPin || '');
                 setShowPinModal(true);
               }}
             >
               <View>
                 <Text style={styles.rowLabel}>Secret Unlock PIN</Text>
-                <Text style={styles.rowSub}>PIN: {stealthPin} (Tap to view or change)</Text>
+                <Text style={styles.rowSub}>PIN: {stealthPin || 'Not set'} (Tap to view or change)</Text>
               </View>
               <Text style={styles.rowArrow}>→</Text>
             </TouchableOpacity>
@@ -420,7 +420,7 @@ export default function ProfileScreen({ navigation }) {
               style={styles.pinInput}
               value={pinInput}
               onChangeText={(t) => setPinInput(t.replace(/[^0-9]/g, '').slice(0, 4))}
-              placeholder="1357"
+              placeholder="••••"
               placeholderTextColor="#87867F"
               keyboardType="number-pad"
               maxLength={4}

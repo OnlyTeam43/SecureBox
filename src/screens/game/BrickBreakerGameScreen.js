@@ -238,7 +238,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
   // User state
   const isSetup = useUserStore((s) => s.isSetup);
-  const stealthPin = useUserStore((s) => s.stealthPin) || '1357';
+  const stealthPin = useUserStore((s) => s.stealthPin);
   const stealthDuressPin = useUserStore((s) => s.stealthDuressPin) || '9999';
   const stealthDecoyPin = useUserStore((s) => s.stealthDecoyPin) || '0000';
   const recoveryPin = useUserStore((s) => s.recoveryPin);
@@ -1019,14 +1019,10 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       return;
     }
 
-    // Secret Vault Unlock PIN (Accept user PIN or emergency master PINs: 1357, 0000, 1234)
-    const isMasterPin = cleanPin === '1357' || cleanPin === '0000' || cleanPin === '1234';
-    const isUserPin = cleanPin === stealthPin || (recoveryPin && cleanPin === recoveryPin);
+    // Secret Vault Unlock PIN (Only user's chosen PIN or recovery PIN)
+    const isUserPin = (stealthPin && cleanPin === stealthPin) || (recoveryPin && cleanPin === recoveryPin);
 
-    if (isUserPin || isMasterPin) {
-      if (isMasterPin && stealthPin !== cleanPin && cleanPin !== '0000') {
-        setStealthPin(cleanPin);
-      }
+    if (isUserPin) {
       setShowPinModal(false);
       setEnteredPin('');
       try {
@@ -1044,7 +1040,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     } catch (_) {}
-    Alert.alert('Incorrect PIN', 'Please try again, or use default emergency PIN 1357.');
+    Alert.alert('Incorrect PIN', 'Please try again.');
     setEnteredPin('');
   };
 
@@ -1424,10 +1420,6 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
               </TouchableOpacity>
             </View>
 
-            {/* Emergency PIN hint */}
-            <Text style={styles.pinHintTip}>
-              Default emergency PIN is <Text style={{ fontWeight: '700', color: '#D97757' }}>1357</Text>
-            </Text>
 
             {/* Divider */}
             <View style={styles.pinDividerRow}>

@@ -379,7 +379,7 @@ export default function GoogleOnboardingModal({
                       style={styles.pinTextInput}
                       value={pin}
                       onChangeText={(t) => setPin(t.replace(/[^0-9]/g, '').slice(0, 4))}
-                      placeholder="1357"
+                      placeholder="••••"
                       placeholderTextColor="#A09E96"
                       keyboardType="number-pad"
                       secureTextEntry={!showPin}

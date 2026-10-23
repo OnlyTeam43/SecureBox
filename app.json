@@ -21,7 +21,8 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#0d0a0e"
+        "backgroundColor": "#2C84DB",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.securebox.app",
       "googleServicesFile": "./google-services.json",
@@ -55,8 +56,8 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
-          "color": "#e02888"
+          "icon": "./assets/notification-icon.png",
+          "color": "#D97757"
         }
       ],
       "@react-native-google-signin/google-signin"

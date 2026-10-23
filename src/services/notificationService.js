@@ -73,7 +73,7 @@ export const initNotifications = async () => {
         name: 'Chat Messages',
         importance: Notifications.AndroidImportance.DEFAULT, // Sound, NO popup
         vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#E02888',
+        lightColor: '#D97757',
         sound: 'default',
         enableVibrate: true,
         showBadge: true,
@@ -83,7 +83,7 @@ export const initNotifications = async () => {
         name: 'Connection Requests',
         importance: Notifications.AndroidImportance.DEFAULT, // Sound, NO popup
         vibrationPattern: [0, 200, 100, 200],
-        lightColor: '#E02888',
+        lightColor: '#D97757',
         sound: 'default',
         enableVibrate: true,
         showBadge: true,
