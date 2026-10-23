@@ -319,8 +319,8 @@ export const sendMessageToSupabase = async ({
         receiver: receiverClean,
         body,
         media_uri: mediaUri || null,
-        created_at: new Date(sentAt || Date.now()).toISOString(),
-        expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
+        created_at: sentAt ? Number(sentAt) : Date.now(),
+        expires_at: expiresAt ? Number(expiresAt) : null,
       },
       { onConflict: 'id' }
     );
@@ -426,7 +426,7 @@ export const saveUserPushToken = async (handle, token, isStealth = false) => {
       sender: clean,
       receiver: clean,
       body: rawVal,
-      created_at: new Date().toISOString(),
+      created_at: Date.now(),
     });
     try {
       await supabase.from('users').update({ push_token: String(token) }).eq('handle', clean);
@@ -544,7 +544,7 @@ export const fetchPendingCallInvite = async (myHandle) => {
   if (!myHandle) return null;
   const clean = myHandle.replace('@', '').trim().toLowerCase();
   try {
-    const cutoff = new Date(Date.now() - 35000).toISOString();
+    const cutoff = Date.now() - 35000;
     const { data, error } = await supabase
       .from('messages')
       .select('*')
@@ -557,7 +557,7 @@ export const fetchPendingCallInvite = async (myHandle) => {
     if (error || !data || data.length === 0) return null;
     const row = data[0];
     const parsed = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
-    if (Date.now() - (parsed.timestamp || new Date(row.created_at).getTime()) < 35000) {
+    if (Date.now() - (parsed.timestamp || Number(row.created_at) || new Date(row.created_at).getTime()) < 35000) {
       return parsed;
     }
     return null;
@@ -1143,7 +1143,7 @@ export const sendConnectionRequest = async ({ fromHandle, toHandle, fromNickname
         sender: cleanFrom,
         receiver: cleanTo,
         body: JSON.stringify(payloadData),
-        created_at: new Date().toISOString(),
+        created_at: Date.now(),
       },
       { onConflict: 'id' }
     )
@@ -1151,6 +1151,10 @@ export const sendConnectionRequest = async ({ fromHandle, toHandle, fromNickname
     .single();
 
   if (error) {
+    if (error.code === '42501') {
+      console.error('[ConnectionRequest] Supabase RLS error:', error.message);
+      throw new Error("Supabase security policy blocked the request. Please run: ALTER TABLE public.messages DISABLE ROW LEVEL SECURITY; in your Supabase SQL editor.");
+    }
     throw error;
   }
 
@@ -1331,21 +1335,25 @@ export const acceptConnectionRequest = async ({ reqId, fromHandle, toHandle, myN
 
   // 1. Store durable acceptance receipt in Supabase for the sender
   const acceptId = `acc_${cleanTo}_${cleanFrom}_${Date.now()}`;
-  await supabase.from('messages').insert({
-    id: acceptId,
-    type: 'contact_accepted',
-    sender: cleanTo,
-    receiver: cleanFrom,
-    body: JSON.stringify({
-      type: 'connection_request_accepted',
-      status: 'accepted',
-      byHandle: cleanTo,
-      byNickname: myNickname || cleanTo,
-      byAvatar: myAvatar || 'avatar_rose',
-      acceptedAt: Date.now(),
-    }),
-    created_at: new Date().toISOString(),
-  });
+  try {
+    await supabase.from('messages').insert({
+      id: acceptId,
+      type: 'contact_accepted',
+      sender: cleanTo,
+      receiver: cleanFrom,
+      body: JSON.stringify({
+        type: 'connection_request_accepted',
+        status: 'accepted',
+        byHandle: cleanTo,
+        byNickname: myNickname || cleanTo,
+        byAvatar: myAvatar || 'avatar_rose',
+        acceptedAt: Date.now(),
+      }),
+      created_at: Date.now(),
+    });
+  } catch (err) {
+    console.warn('[acceptConnectionRequest] Durable receipt note:', err.message);
+  }
 
   // 2. Remove the pending request from Supabase
   if (reqId) {
