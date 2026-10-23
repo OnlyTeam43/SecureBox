@@ -1,8 +1,7 @@
 // src/screens/onboarding/GoogleOnboardingModal.js
-// 100% In-App Real Google Sign-In & Onboarding for SecureBox
-// Strictly internal to the app — zero external browser redirects and zero redirect_uri_mismatch errors.
-// Fetches real name, auto-suggests unique handle, sets vault password,
-// sets 4-digit recovery/stealth PIN, and enters the chat interface.
+// Single-Click Google Sign-In & Onboarding for SecureBox
+// Strictly 1-Click: Tapping "Continue with Google" immediately logs in without asking for name or email!
+// Automatically fetches name, auto-suggests unique handle, sets vault password & secret PIN.
 
 import React, { useState } from 'react';
 import {
@@ -22,18 +21,15 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
-import { Check, RefreshCw, X, Shield, ArrowRight, User, Mail } from 'lucide-react-native';
+import { Check, RefreshCw, X, Shield, ArrowRight } from 'lucide-react-native';
 
 import { useUserStore } from '../../store/useUserStore';
 import { registerUserInSupabase, generateUniqueHandle, checkHandleAvailability } from '../../services/supabase';
-import {
-  signInWithRealGoogle,
-  isNativeGoogleSignInAvailable,
-} from '../../services/googleAuthService';
+import { signInWithRealGoogle } from '../../services/googleAuthService';
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 
 // Official Google G SVG Icon
-function GoogleIcon({ size = 20 }) {
+function GoogleIcon({ size = 22 }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path
@@ -66,15 +62,11 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
   const completeSetup = useUserStore((s) => s.completeSetup);
   const setStealthUnlocked = useUserStore((s) => s.setStealthUnlocked);
 
-  // Flow step: 1 = In-App Google Sign In, 2 = Configure Vault Details
+  // Flow step: 1 = Single-Click Google Sign-In, 2 = Finalize Vault Details
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
 
-  // In-App Google account input fields
-  const [googleNameInput, setGoogleNameInput] = useState('');
-  const [googleEmailInput, setGoogleEmailInput] = useState('');
-
-  // Step 2 Form Fields
+  // Step 2 Form Fields (automatically prefilled from Google)
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [handle, setHandle] = useState('');
@@ -83,63 +75,42 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
   const [pinInput, setPinInput] = useState('');
   const [character, setCharacter] = useState('panda');
 
-  const hasNative = isNativeGoogleSignInAvailable();
-
-  // Handle native Google Play Services bottom-sheet sign-in if binary has it
-  const handleNativeGooglePress = async () => {
+  // ── TRUE SINGLE-CLICK GOOGLE SIGN-IN ──
+  const handleSingleClickGoogleSignIn = async () => {
     setLoading(true);
     try {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch (_) {}
+
+      // Instant 1-click resolution
       const res = await signInWithRealGoogle();
       if (res && res.success) {
-        applyGoogleProfile(res);
+        setName(res.name || 'Google User');
+        setEmail(res.email || 'user@gmail.com');
+
+        setIsGeneratingHandle(true);
+        const suggested = await generateUniqueHandle(res.name || 'Google User');
+        setHandle(suggested);
+        setIsGeneratingHandle(false);
+
+        // Immediate transition to Step 2
+        setStep(2);
+        try {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (_) {}
+      } else if (!res?.cancelled) {
+        Alert.alert('Sign-In', 'Could not complete Google Sign-In. Please try again.');
       }
-    } catch (e) {
-      console.warn('[GoogleOnboarding] Native sign-in error:', e);
+    } catch (err) {
+      console.warn('[GoogleOnboarding] 1-click sign-in error:', err);
+      Alert.alert('Google Sign-In', err.message || 'Error connecting to Google.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Submit in-app Google Sign-In directly (100% internal, zero external browser)
-  const handleInAppGoogleSubmit = async () => {
-    const trimmedName = googleNameInput.trim();
-    const trimmedEmail = googleEmailInput.trim().toLowerCase();
-
-    if (!trimmedName || trimmedName.length < 2) {
-      return Alert.alert('Enter Your Name', 'Please enter your full name as it appears on your Google account.');
-    }
-    if (!trimmedEmail || !trimmedEmail.includes('@') || !trimmedEmail.includes('.')) {
-      return Alert.alert('Enter Your Google Email', 'Please enter a valid Google / Gmail address (e.g. name@gmail.com).');
-    }
-
-    setLoading(true);
-    try {
-      await applyGoogleProfile({
-        name: trimmedName,
-        email: trimmedEmail,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Apply Google Profile & Suggest Unique Handle
-  const applyGoogleProfile = async (profile) => {
-    setName(profile.name || 'User');
-    setEmail(profile.email || '');
-
-    setIsGeneratingHandle(true);
-    const suggested = await generateUniqueHandle(profile.name || 'User');
-    setHandle(suggested);
-    setIsGeneratingHandle(false);
-
-    setStep(2);
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (_) {}
-  };
-
-  // Re-roll suggested handle
+  // Re-roll suggested unique handle
   const handleRegenerateHandle = async () => {
     if (!name) return;
     setIsGeneratingHandle(true);
@@ -151,7 +122,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
     }
   };
 
-  // Finish Onboarding & Register in Supabase
+  // Finish Onboarding & Register into Supabase
   const handleFinishOnboarding = async () => {
     const cleanHandle = handle.trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
     if (!cleanHandle || cleanHandle.length < 6) {
@@ -249,96 +220,44 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
           </View>
 
           {step === 1 ? (
-            /* ── STEP 1: 100% IN-APP GOOGLE SIGN-IN ── */
+            /* ── STEP 1: SINGLE-CLICK GOOGLE SIGN-IN (ZERO FORMS TO FILL!) ── */
             <View style={styles.stepOneWrap}>
               <View style={styles.heroCompanions}>
-                <CharacterBall character="panda" size={60} />
-                <CharacterBall character="cat" size={60} />
+                <CharacterBall character="panda" size={64} />
+                <CharacterBall character="cat" size={64} />
               </View>
 
               <Text style={styles.heroTitle}>Unlock SecureBox</Text>
               <Text style={styles.heroSub}>
-                Secret end-to-end encrypted messaging & calling. Connect your Google account to get started.
+                Secret end-to-end encrypted messaging & calling. Connect your Google account in a single tap.
               </Text>
 
-              {/* Native Google One-Tap if compiled in binary */}
-              {hasNative && (
-                <TouchableOpacity
-                  style={styles.googleBtn}
-                  onPress={handleNativeGooglePress}
-                  disabled={loading}
-                  activeOpacity={0.85}
-                >
-                  {loading ? (
-                    <ActivityIndicator size="small" color="#141413" />
-                  ) : (
-                    <>
-                      <View style={styles.googleIconBox}>
-                        <GoogleIcon size={22} />
-                      </View>
-                      <Text style={styles.googleBtnText}>One-Tap Google Sign-In</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              )}
-
-              {/* In-App Google Sign-In Sheet (Never leaves the app, 0 error 400s) */}
-              <View style={styles.inAppGoogleCard}>
-                <View style={styles.inAppGoogleHeader}>
-                  <GoogleIcon size={24} />
-                  <View style={{ marginLeft: 10 }}>
-                    <Text style={styles.inAppGoogleTitle}>Sign in with Google</Text>
-                    <Text style={styles.inAppGoogleSubtitle}>Secure internal verification</Text>
+              {/* Prominent Single-Click Google Sign-In Button */}
+              <TouchableOpacity
+                style={styles.googleBtn}
+                onPress={handleSingleClickGoogleSignIn}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <View style={styles.loadingRow}>
+                    <ActivityIndicator size="small" color="#141413" style={{ marginRight: 10 }} />
+                    <Text style={styles.googleBtnText}>Connecting to Google...</Text>
                   </View>
-                </View>
-
-                <Text style={styles.inputLabel}>YOUR FULL NAME</Text>
-                <View style={styles.inputWrapper}>
-                  <User size={16} color="#87867F" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.inAppInput}
-                    value={googleNameInput}
-                    onChangeText={setGoogleNameInput}
-                    placeholder="e.g. Alex Rivers"
-                    placeholderTextColor="#87867F"
-                  />
-                </View>
-
-                <Text style={styles.inputLabel}>GOOGLE EMAIL ADDRESS</Text>
-                <View style={styles.inputWrapper}>
-                  <Mail size={16} color="#87867F" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.inAppInput}
-                    value={googleEmailInput}
-                    onChangeText={setGoogleEmailInput}
-                    placeholder="e.g. yourname@gmail.com"
-                    placeholderTextColor="#87867F"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-
-                <TouchableOpacity
-                  style={styles.inAppSubmitBtn}
-                  onPress={handleInAppGoogleSubmit}
-                  disabled={loading}
-                  activeOpacity={0.85}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Text style={styles.inAppSubmitText}>Continue with Google Account</Text>
-                      <ArrowRight size={16} color="#FFFFFF" style={{ marginLeft: 8 }} />
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
+                ) : (
+                  <>
+                    <View style={styles.googleIconBox}>
+                      <GoogleIcon size={24} />
+                    </View>
+                    <Text style={styles.googleBtnText}>Continue with Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
 
               <View style={styles.featureList}>
                 <View style={styles.featureItem}>
                   <Check size={16} color="#D97757" style={{ marginTop: 2 }} />
-                  <Text style={styles.featureText}>Automatic profile & unique handle setup from your real Google name</Text>
+                  <Text style={styles.featureText}>Instant single-click login with automatic profile & handle setup</Text>
                 </View>
                 <View style={styles.featureItem}>
                   <Check size={16} color="#D97757" style={{ marginTop: 2 }} />
@@ -380,7 +299,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
                 })}
               </View>
 
-              {/* Name field */}
+              {/* Name field (prefilled from Google, editable if desired) */}
               <Text style={styles.fieldLabel}>DISPLAY NAME</Text>
               <TextInput
                 style={styles.textInput}
@@ -513,15 +432,15 @@ const styles = StyleSheet.create({
   },
   stepOneWrap: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 28,
   },
   heroCompanions: {
     flexDirection: 'row',
-    gap: 16,
-    marginBottom: 20,
+    gap: 18,
+    marginBottom: 24,
   },
   heroTitle: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '800',
     color: '#141413',
     marginBottom: 8,
@@ -531,113 +450,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#5E5D59',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 21,
     maxWidth: 320,
-    marginBottom: 24,
+    marginBottom: 36,
   },
   googleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    maxWidth: 320,
-    height: 52,
+    maxWidth: 330,
+    height: 56,
     backgroundColor: '#FFFFFF',
-    borderRadius: 26,
+    borderRadius: 28,
     borderWidth: 1.5,
     borderColor: 'rgba(20,20,19,0.14)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-    marginBottom: 16,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+    marginBottom: 28,
   },
   googleIconBox: {
     marginRight: 12,
   },
   googleBtnText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     color: '#141413',
   },
-  inAppGoogleCard: {
-    width: '100%',
-    maxWidth: 330,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(20,20,19,0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-    marginBottom: 24,
-  },
-  inAppGoogleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 18,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(20,20,19,0.06)',
-  },
-  inAppGoogleTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#141413',
-  },
-  inAppGoogleSubtitle: {
-    fontSize: 12,
-    color: '#87867F',
-  },
-  inputLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#87867F',
-    letterSpacing: 0.6,
-    marginBottom: 6,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 46,
-    backgroundColor: '#FAF9F5',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(20,20,19,0.12)',
-    paddingHorizontal: 12,
-    marginBottom: 14,
-  },
-  inputIcon: {
-    marginRight: 8,
-  },
-  inAppInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#141413',
-  },
-  inAppSubmitBtn: {
+  loadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#141413',
-    height: 48,
-    borderRadius: 14,
-    marginTop: 4,
-  },
-  inAppSubmitText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
   },
   featureList: {
     width: '100%',
-    maxWidth: 320,
-    marginTop: 4,
-    gap: 14,
+    maxWidth: 330,
+    marginTop: 8,
+    gap: 16,
   },
   featureItem: {
     flexDirection: 'row',
