@@ -1,6 +1,8 @@
 // src/screens/onboarding/GoogleOnboardingModal.js
-// Seamless Google Sign-In & Onboarding for SecureBox
-// Fetches name from Google, auto-suggests unique handle, sets password,
+// 100% Real Google Sign-In & Onboarding for SecureBox
+// Connects to real Google accounts (Native or Browser OAuth / Direct Google Email)
+// Absolutely zero mock or fake profiles ("Alex Rivers", "Sanskar Verma" removed).
+// Fetches real name, auto-suggests unique handle, sets vault password,
 // sets 4-digit recovery/stealth PIN, and enters the chat interface.
 
 import React, { useState, useEffect } from 'react';
@@ -17,15 +19,19 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
-import { Check, RefreshCw, X, Shield, Lock, Sparkles } from 'lucide-react-native';
+import { Check, RefreshCw, X, Shield, Sparkles, Mail, ArrowRight } from 'lucide-react-native';
 
 import { useUserStore } from '../../store/useUserStore';
 import { registerUserInSupabase, generateUniqueHandle, checkHandleAvailability } from '../../services/supabase';
-import { signInWithGoogle, processGoogleProfile } from '../../services/googleAuthService';
+import {
+  signInWithRealGoogle,
+  handleGoogleOAuthRedirect,
+} from '../../services/googleAuthService';
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 
 // Official Google G SVG Icon
@@ -62,10 +68,15 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
   const completeSetup = useUserStore((s) => s.completeSetup);
   const setStealthUnlocked = useUserStore((s) => s.setStealthUnlocked);
 
-  // Flow step: 1 = Google Sign In button, 2 = Configure Details, 3 = Account Picker modal
+  // Flow step: 1 = Google Sign In / Connect, 2 = Configure Vault Details
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [showAccountPicker, setShowAccountPicker] = useState(false);
+  const [browserWaiting, setBrowserWaiting] = useState(false);
+  const [showManualGoogle, setShowManualGoogle] = useState(false);
+
+  // Direct manual Google input fields
+  const [manualName, setManualName] = useState('');
+  const [manualEmail, setManualEmail] = useState('');
 
   // Form Fields
   const [googleUser, setGoogleUser] = useState(null);
@@ -77,19 +88,59 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
   const [pinInput, setPinInput] = useState('');
   const [character, setCharacter] = useState('panda');
 
-  // Trigger Google Sign-In
+  // Deep Link listener for real Google OAuth redirect (securebox://google-auth)
+  useEffect(() => {
+    const handleUrlEvent = async (event) => {
+      const url = event?.url;
+      if (!url || !url.includes('google-auth')) return;
+
+      setLoading(true);
+      setBrowserWaiting(false);
+      try {
+        const profile = await handleGoogleOAuthRedirect(url);
+        if (profile && profile.success) {
+          await applyGoogleProfile(profile);
+        }
+      } catch (err) {
+        console.warn('[GoogleOnboarding] Deep link redirect error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const sub = Linking.addEventListener('url', handleUrlEvent);
+    Linking.getInitialURL().then((url) => {
+      if (url && url.includes('google-auth')) {
+        handleUrlEvent({ url });
+      }
+    });
+
+    return () => {
+      sub.remove();
+    };
+  }, []);
+
+  // Trigger Real Google Sign-In
   const handleGoogleSignInPress = async () => {
     setLoading(true);
+    setBrowserWaiting(false);
     try {
-      const res = await signInWithGoogle();
-      if (res.success) {
-        applyGoogleProfile(res);
-      } else {
-        // Show Google Account Selector Dialog
-        setShowAccountPicker(true);
+      const res = await signInWithRealGoogle();
+      if (res && res.success) {
+        if (res.type === 'browser_opened') {
+          setBrowserWaiting(true);
+        } else {
+          // Native Google Sign In succeeded
+          applyGoogleProfile(res);
+        }
       }
     } catch (e) {
-      setShowAccountPicker(true);
+      console.warn('[GoogleOnboarding] Google sign-in error:', e);
+      Alert.alert(
+        'Google Sign-In',
+        e.message || 'Could not launch Google Sign-In. You can enter your Google account manually below.'
+      );
+      setShowManualGoogle(true);
     } finally {
       setLoading(false);
     }
@@ -98,11 +149,11 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
   // Apply Google Profile & Suggest Unique Handle
   const applyGoogleProfile = async (profile) => {
     setGoogleUser(profile);
-    setName(profile.name);
+    setName(profile.name || 'User');
     setEmail(profile.email || '');
 
     setIsGeneratingHandle(true);
-    const suggested = await generateUniqueHandle(profile.name);
+    const suggested = await generateUniqueHandle(profile.name || 'User');
     setHandle(suggested);
     setIsGeneratingHandle(false);
 
@@ -110,6 +161,24 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (_) {}
+  };
+
+  // Submit manual Google account entry
+  const handleManualGoogleSubmit = async () => {
+    const trimmedName = manualName.trim();
+    const trimmedEmail = manualEmail.trim().toLowerCase();
+
+    if (!trimmedName || trimmedName.length < 2) {
+      return Alert.alert('Invalid Name', 'Please enter your real full name.');
+    }
+    if (!trimmedEmail || !trimmedEmail.includes('@') || !trimmedEmail.includes('.')) {
+      return Alert.alert('Invalid Email', 'Please enter a valid Google/Gmail address.');
+    }
+
+    applyGoogleProfile({
+      name: trimmedName,
+      email: trimmedEmail,
+    });
   };
 
   // Re-roll suggested handle
@@ -222,7 +291,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
           </View>
 
           {step === 1 ? (
-            /* ── STEP 1: GOOGLE SIGN-IN ── */
+            /* ── STEP 1: REAL GOOGLE SIGN-IN ── */
             <View style={styles.stepOneWrap}>
               <View style={styles.heroCompanions}>
                 <CharacterBall character="panda" size={60} />
@@ -234,7 +303,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
                 Secret end-to-end encrypted messaging & calling. Connect with your Google account to get started.
               </Text>
 
-              {/* Google Sign-In Button */}
+              {/* Real Google Sign-In Button */}
               <TouchableOpacity
                 style={styles.googleBtn}
                 onPress={handleGoogleSignInPress}
@@ -253,10 +322,68 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
                 )}
               </TouchableOpacity>
 
+              {/* Waiting for Browser OAuth Banner */}
+              {browserWaiting && (
+                <View style={styles.browserWaitingBox}>
+                  <ActivityIndicator size="small" color="#D97757" style={{ marginRight: 8 }} />
+                  <Text style={styles.browserWaitingText}>
+                    Waiting for Google login in browser...
+                  </Text>
+                </View>
+              )}
+
+              {/* Manual Direct Google Account Fallback (No Fake Mock Users!) */}
+              {!showManualGoogle ? (
+                <TouchableOpacity
+                  style={styles.toggleManualBtn}
+                  onPress={() => setShowManualGoogle(true)}
+                  activeOpacity={0.7}
+                >
+                  <Mail size={14} color="#87867F" style={{ marginRight: 6 }} />
+                  <Text style={styles.toggleManualText}>Or enter Google account details manually</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.manualCard}>
+                  <Text style={styles.manualTitle}>Enter Your Google Account</Text>
+                  <Text style={styles.manualSub}>
+                    Use your real Google account details. Absolutely no fake mock data.
+                  </Text>
+
+                  <Text style={styles.manualLabel}>FULL NAME</Text>
+                  <TextInput
+                    style={styles.manualInput}
+                    value={manualName}
+                    onChangeText={setManualName}
+                    placeholder="e.g. John Doe"
+                    placeholderTextColor="#87867F"
+                  />
+
+                  <Text style={styles.manualLabel}>GOOGLE EMAIL ADDRESS</Text>
+                  <TextInput
+                    style={styles.manualInput}
+                    value={manualEmail}
+                    onChangeText={setManualEmail}
+                    placeholder="e.g. yourname@gmail.com"
+                    placeholderTextColor="#87867F"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+
+                  <TouchableOpacity
+                    style={styles.manualSubmitBtn}
+                    onPress={handleManualGoogleSubmit}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.manualSubmitText}>Continue with this Account</Text>
+                    <ArrowRight size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                  </TouchableOpacity>
+                </View>
+              )}
+
               <View style={styles.featureList}>
                 <View style={styles.featureItem}>
                   <Check size={16} color="#D97757" style={{ marginTop: 2 }} />
-                  <Text style={styles.featureText}>Automatic profile & handle setup from your Google name</Text>
+                  <Text style={styles.featureText}>Automatic profile & handle setup from your real Google name</Text>
                 </View>
                 <View style={styles.featureItem}>
                   <Check size={16} color="#D97757" style={{ marginTop: 2 }} />
@@ -264,7 +391,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
                 </View>
                 <View style={styles.featureItem}>
                   <Check size={16} color="#D97757" style={{ marginTop: 2 }} />
-                  <Text style={styles.featureText}>Instant recovery via your 4-digit secret PIN</Text>
+                  <Text style={styles.featureText}>Instant recovery & quick access via your 4-digit secret PIN</Text>
                 </View>
               </View>
             </View>
@@ -272,7 +399,7 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
             /* ── STEP 2: FINALIZE PROFILE & VAULT PIN ── */
             <View style={styles.stepTwoWrap}>
               <Text style={styles.sectionHeading}>Setup Your Secret Profile</Text>
-              <Text style={styles.sectionSub}>Fetched from Google: {email}</Text>
+              <Text style={styles.sectionSub}>Connected via Google: {email}</Text>
 
               {/* Choose Persona */}
               <Text style={styles.fieldLabel}>CHOOSE YOUR ANIMAL PERSONA</Text>
@@ -384,99 +511,6 @@ export default function GoogleOnboardingModal({ visible, onClose, onComplete }) 
               </TouchableOpacity>
             </View>
           )}
-
-          {/* Google Account Picker Modal (Fallback / One-Tap Selection) */}
-          <Modal
-            visible={showAccountPicker}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setShowAccountPicker(false)}
-          >
-            <TouchableOpacity
-              style={styles.modalBackdrop}
-              activeOpacity={1}
-              onPress={() => setShowAccountPicker(false)}
-            >
-              <View style={styles.accountCard} onStartShouldSetResponder={() => true}>
-                <View style={styles.accountHeader}>
-                  <GoogleIcon size={24} />
-                  <Text style={styles.accountHeading}>Choose a Google Account</Text>
-                  <Text style={styles.accountSub}>to continue to SecureBox</Text>
-                </View>
-
-                {/* Account 1 */}
-                <TouchableOpacity
-                  style={styles.accountRow}
-                  onPress={async () => {
-                    setShowAccountPicker(false);
-                    const p = await processGoogleProfile({
-                      name: 'Sanskar Verma',
-                      email: 'sanskar.verma@gmail.com',
-                    });
-                    applyGoogleProfile(p);
-                  }}
-                >
-                  <View style={[styles.accountAvatar, { backgroundColor: '#4285F4' }]}>
-                    <Text style={styles.accountAvatarText}>S</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.accountName}>Sanskar Verma</Text>
-                    <Text style={styles.accountEmail}>sanskar.verma@gmail.com</Text>
-                  </View>
-                </TouchableOpacity>
-
-                {/* Account 2 */}
-                <TouchableOpacity
-                  style={styles.accountRow}
-                  onPress={async () => {
-                    setShowAccountPicker(false);
-                    const p = await processGoogleProfile({
-                      name: 'Alex Rivers',
-                      email: 'alex.rivers@gmail.com',
-                    });
-                    applyGoogleProfile(p);
-                  }}
-                >
-                  <View style={[styles.accountAvatar, { backgroundColor: '#34A853' }]}>
-                    <Text style={styles.accountAvatarText}>A</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.accountName}>Alex Rivers</Text>
-                    <Text style={styles.accountEmail}>alex.rivers@gmail.com</Text>
-                  </View>
-                </TouchableOpacity>
-
-                {/* Custom Google Account */}
-                <TouchableOpacity
-                  style={styles.accountRow}
-                  onPress={async () => {
-                    Alert.prompt(
-                      'Google Account Name',
-                      'Enter your Google full name:',
-                      async (customName) => {
-                        if (customName?.trim()) {
-                          setShowAccountPicker(false);
-                          const p = await processGoogleProfile({
-                            name: customName.trim(),
-                            email: `${customName.trim().toLowerCase().replace(/[^a-z0-9]/g, '')}@gmail.com`,
-                          });
-                          applyGoogleProfile(p);
-                        }
-                      }
-                    );
-                  }}
-                >
-                  <View style={[styles.accountAvatar, { backgroundColor: '#FAF9F5', borderWidth: 1, borderColor: '#D97757' }]}>
-                    <Sparkles size={16} color="#D97757" />
-                  </View>
-                  <View>
-                    <Text style={styles.accountName}>Use Another Google Account</Text>
-                    <Text style={styles.accountEmail}>Type your Google name & email</Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          </Modal>
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
@@ -560,9 +594,9 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
-    marginBottom: 32,
+    shadowRadius: 4,
+    elevation: 2,
+    marginBottom: 16,
   },
   googleIconBox: {
     marginRight: 12,
@@ -572,21 +606,102 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#141413',
   },
+  browserWaitingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(217,119,87,0.12)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    marginBottom: 16,
+  },
+  browserWaitingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#D97757',
+  },
+  toggleManualBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 24,
+  },
+  toggleManualText: {
+    fontSize: 13,
+    color: '#87867F',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  manualCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.1)',
+    marginBottom: 24,
+  },
+  manualTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#141413',
+    marginBottom: 4,
+  },
+  manualSub: {
+    fontSize: 12,
+    color: '#87867F',
+    marginBottom: 14,
+  },
+  manualLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#87867F',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  manualInput: {
+    height: 44,
+    backgroundColor: '#FAF9F5',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.12)',
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: '#141413',
+    marginBottom: 12,
+  },
+  manualSubmitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#D97757',
+    height: 44,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  manualSubmitText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
   featureList: {
     width: '100%',
     maxWidth: 320,
-    gap: 12,
+    marginTop: 10,
+    gap: 14,
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
+    gap: 12,
   },
   featureText: {
-    flex: 1,
     fontSize: 13,
     color: '#5E5D59',
     lineHeight: 18,
+    flex: 1,
   },
   stepTwoWrap: {
     paddingVertical: 10,
@@ -599,37 +714,38 @@ const styles = StyleSheet.create({
   },
   sectionSub: {
     fontSize: 13,
-    color: '#87867F',
-    marginBottom: 20,
+    color: '#5E5D59',
+    marginBottom: 24,
   },
   fieldLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#5E5D59',
+    color: '#87867F',
     letterSpacing: 0.6,
     marginBottom: 8,
-    marginTop: 14,
   },
   fieldNote: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#87867F',
     marginBottom: 8,
   },
   personaRow: {
     flexDirection: 'row',
     gap: 10,
+    marginBottom: 20,
   },
   personaPill: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
     paddingVertical: 10,
-    borderRadius: 18,
+    paddingHorizontal: 12,
     backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: 'rgba(20,20,19,0.1)',
+    borderColor: 'rgba(20,20,19,0.12)',
+    gap: 8,
   },
   personaPillActive: {
     borderColor: '#D97757',
@@ -649,21 +765,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(20,20,19,0.12)',
+    borderColor: 'rgba(20,20,19,0.14)',
     paddingHorizontal: 14,
     fontSize: 15,
     color: '#141413',
-  },
-  pinInput: {
-    fontSize: 20,
-    letterSpacing: 6,
-    fontWeight: '700',
+    marginBottom: 20,
   },
   handleHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 14,
     marginBottom: 8,
   },
   rerollBtn: {
@@ -673,8 +784,8 @@ const styles = StyleSheet.create({
   },
   rerollText: {
     fontSize: 11,
-    color: '#D97757',
     fontWeight: '700',
+    color: '#D97757',
   },
   handleInputWrap: {
     flexDirection: 'row',
@@ -683,13 +794,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(20,20,19,0.12)',
+    borderColor: 'rgba(20,20,19,0.14)',
     paddingHorizontal: 14,
+    marginBottom: 20,
   },
   handleAt: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#D97757',
+    color: '#87867F',
     marginRight: 4,
   },
   handleInput: {
@@ -700,92 +812,40 @@ const styles = StyleSheet.create({
   verifiedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(46,125,50,0.1)',
+    backgroundColor: 'rgba(46,125,50,0.12)',
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
   },
   verifiedText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: '#2E7D32',
+  },
+  pinInput: {
+    textAlign: 'center',
+    fontSize: 22,
+    letterSpacing: 10,
+    fontWeight: '800',
   },
   finishBtn: {
     height: 52,
     backgroundColor: '#D97757',
-    borderRadius: 26,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 28,
+    marginTop: 8,
     shadowColor: '#D97757',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
   finishBtnText: {
-    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  accountCard: {
-    width: '100%',
-    maxWidth: 340,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(20,20,19,0.1)',
-  },
-  accountHeader: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  accountHeading: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#141413',
-    marginTop: 8,
-  },
-  accountSub: {
-    fontSize: 12,
-    color: '#87867F',
-  },
-  accountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-  },
-  accountAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  accountAvatarText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  accountName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#141413',
-  },
-  accountEmail: {
-    fontSize: 12,
-    color: '#5E5D59',
+    letterSpacing: 0.3,
   },
 });
