@@ -262,12 +262,12 @@ export const callService = {
     try {
       await supabase.from('messages').upsert({
         id: `call_req_${callId}`,
-        conversation_id: `call_req_${receiverClean}`,
+        type: 'call_req',
         sender: callerClean,
         receiver: receiverClean,
         body: JSON.stringify(payload),
-        sent_at: Date.now(),
-        expires_at: Date.now() + 35000,
+        created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 35000).toISOString(),
       });
     } catch (dbErr) {
       console.log('Durable call invite write note:', dbErr.message);

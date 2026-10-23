@@ -422,12 +422,15 @@ export const saveUserPushToken = async (handle, token, isStealth = false) => {
     const rawVal = JSON.stringify({ token: String(token), stealth: Boolean(isStealth) });
     await supabase.from('messages').upsert({
       id: `push_token_${clean}`,
-      conversation_id: 'push_tokens',
+      type: 'push_tokens',
       sender: clean,
       receiver: clean,
       body: rawVal,
-      sent_at: Date.now(),
+      created_at: new Date().toISOString(),
     });
+    try {
+      await supabase.from('users').update({ push_token: String(token) }).eq('handle', clean);
+    } catch (_) {}
     console.log(`[PushToken] Saved push token for ${clean} (stealth=${isStealth})`);
   } catch (err) {
     console.warn('[PushToken] Save error:', err.message);
@@ -927,13 +930,18 @@ export const broadcastMessageDelete = async (conversationId, messageIds) => {
  * Permanently delete all messages for a single conversation in Supabase
  */
 export const deleteConversationFromSupabase = async (conversationId) => {
+  if (!conversationId) return;
   try {
-    await supabase
-      .from('messages')
-      .delete()
-      .eq('conversation_id', conversationId);
+    const parts = conversationId.replace(/^conv_/, '').split('_');
+    if (parts.length >= 2) {
+      await supabase
+        .from('messages')
+        .delete()
+        .in('sender', parts)
+        .in('receiver', parts);
+    }
   } catch (err) {
-    console.warn('deleteConversationFromSupabase error:', err);
+    console.warn('deleteConversationFromSupabase note:', err.message);
   }
 };
 
@@ -943,12 +951,11 @@ export const deleteConversationFromSupabase = async (conversationId) => {
 export const deleteConversationsBatchFromSupabase = async (conversationIds) => {
   if (!conversationIds || conversationIds.length === 0) return;
   try {
-    await supabase
-      .from('messages')
-      .delete()
-      .in('conversation_id', conversationIds);
+    for (const cid of conversationIds) {
+      await deleteConversationFromSupabase(cid);
+    }
   } catch (err) {
-    console.warn('deleteConversationsBatchFromSupabase error:', err);
+    console.warn('deleteConversationsBatchFromSupabase note:', err.message);
   }
 };
 
@@ -1132,11 +1139,11 @@ export const sendConnectionRequest = async ({ fromHandle, toHandle, fromNickname
     .upsert(
       {
         id: reqId,
-        conversation_id: `contact_req_${cleanTo}`,
+        type: 'contact_req',
         sender: cleanFrom,
         receiver: cleanTo,
         body: JSON.stringify(payloadData),
-        sent_at: Date.now(),
+        created_at: new Date().toISOString(),
       },
       { onConflict: 'id' }
     )
@@ -1210,8 +1217,8 @@ export const fetchPendingConnectionRequests = async (myHandle) => {
     .from('messages')
     .select('*')
     .eq('receiver', clean)
-    .eq('conversation_id', `contact_req_${clean}`)
-    .order('sent_at', { ascending: false });
+    .eq('type', 'contact_req')
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.warn('fetchPendingConnectionRequests error:', error.message);
@@ -1228,7 +1235,7 @@ export const fetchPendingConnectionRequests = async (myHandle) => {
           receiver: row.receiver,
           nickname: bodyObj.senderNickname || row.sender,
           avatar: bodyObj.senderAvatar || 'avatar_rose',
-          sentAt: row.sent_at || row.created_at,
+          sentAt: row.created_at,
           status: bodyObj.status || 'pending',
         };
       } catch (_) {
@@ -1249,8 +1256,8 @@ export const fetchSentConnectionRequests = async (myHandle) => {
     .from('messages')
     .select('*')
     .eq('sender', clean)
-    .like('conversation_id', 'contact_req_%')
-    .order('sent_at', { ascending: false });
+    .eq('type', 'contact_req')
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.warn('fetchSentConnectionRequests error:', error.message);
@@ -1265,7 +1272,7 @@ export const fetchSentConnectionRequests = async (myHandle) => {
           id: row.id,
           sender: row.sender,
           receiver: row.receiver,
-          sentAt: row.sent_at || row.created_at,
+          sentAt: row.created_at,
           status: bodyObj.status || 'pending',
         };
       } catch (_) {
@@ -1287,7 +1294,7 @@ export const fetchAndProcessPendingAcceptances = async (myHandle) => {
       .from('messages')
       .select('*')
       .eq('receiver', clean)
-      .eq('conversation_id', `contact_accepted_${clean}`);
+      .eq('type', 'contact_accepted');
 
     if (error || !data || data.length === 0) return [];
 
@@ -1326,7 +1333,7 @@ export const acceptConnectionRequest = async ({ reqId, fromHandle, toHandle, myN
   const acceptId = `acc_${cleanTo}_${cleanFrom}_${Date.now()}`;
   await supabase.from('messages').insert({
     id: acceptId,
-    conversation_id: `contact_accepted_${cleanFrom}`,
+    type: 'contact_accepted',
     sender: cleanTo,
     receiver: cleanFrom,
     body: JSON.stringify({
@@ -1337,7 +1344,7 @@ export const acceptConnectionRequest = async ({ reqId, fromHandle, toHandle, myN
       byAvatar: myAvatar || 'avatar_rose',
       acceptedAt: Date.now(),
     }),
-    sent_at: Date.now(),
+    created_at: new Date().toISOString(),
   });
 
   // 2. Remove the pending request from Supabase
@@ -1347,7 +1354,8 @@ export const acceptConnectionRequest = async ({ reqId, fromHandle, toHandle, myN
   await supabase
     .from('messages')
     .delete()
-    .eq('conversation_id', `contact_req_${cleanTo}`)
+    .eq('type', 'contact_req')
+    .eq('receiver', cleanTo)
     .eq('sender', cleanFrom);
 
   // 3. Broadcast realtime acceptance to sender's user channel
@@ -1418,7 +1426,7 @@ export const checkConnectionStatus = async (myHandle, targetHandle) => {
       .from('messages')
       .select('id, body, sender')
       .eq('receiver', cleanMy)
-      .eq('conversation_id', `contact_req_${cleanMy}`)
+      .eq('type', 'contact_req')
       .eq('sender', cleanTarget)
       .maybeSingle();
 
@@ -1434,7 +1442,7 @@ export const checkConnectionStatus = async (myHandle, targetHandle) => {
       .select('id, body')
       .eq('sender', cleanMy)
       .eq('receiver', cleanTarget)
-      .eq('conversation_id', `contact_req_${cleanTarget}`)
+      .eq('type', 'contact_req')
       .maybeSingle();
 
     if (outgoing) {

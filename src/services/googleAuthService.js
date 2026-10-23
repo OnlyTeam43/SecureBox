@@ -117,23 +117,12 @@ export const initiateGoogleAuth = async () => {
     // Check if user already exists in Supabase 'users' table
     let existingUser = null;
 
-    if (authUserId) {
-      const { data: byId } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authUserId)
-        .maybeSingle();
-      if (byId) existingUser = byId;
-    }
-
-    if (!existingUser) {
-      const { data: byEmailPrefix } = await supabase
-        .from('users')
-        .select('*')
-        .ilike('mobile_number', `${realEmail}%`)
-        .maybeSingle();
-      if (byEmailPrefix) existingUser = byEmailPrefix;
-    }
+    const { data: byEmailPrefix } = await supabase
+      .from('users')
+      .select('*')
+      .ilike('mobile_number', `${realEmail}%`)
+      .maybeSingle();
+    if (byEmailPrefix) existingUser = byEmailPrefix;
 
     // CASE A: User is an existing registered user -> Restore and enter immediately!
     if (existingUser) {
@@ -243,8 +232,7 @@ export const completeGoogleRegistration = async ({
         password: finalPassword,
         updated_at: new Date().toISOString(),
       };
-      if (authUserId) fallbackPayload.id = authUserId;
-      await supabase.from('users').insert(fallbackPayload);
+      await supabase.from('users').upsert(fallbackPayload, { onConflict: 'handle' });
     } catch (fbErr) {
       console.warn('[GoogleAuth] Fallback insert error:', fbErr.message);
     }
@@ -297,40 +285,27 @@ export const updateGoogleUserProfile = async ({
   if (cleanHandle) {
     const { data: existing } = await supabase
       .from('users')
-      .select('id')
+      .select('handle, mobile_number')
       .eq('handle', cleanHandle)
       .maybeSingle();
 
-    if (existing && existing.id !== authUserId) {
+    if (existing && !existing.mobile_number?.startsWith(email)) {
       throw new Error(`Handle @${cleanHandle} is already taken by another user.`);
     }
   }
 
   // Update in Supabase
   try {
-    if (authUserId) {
-      await supabase
-        .from('users')
-        .update({
-          handle: cleanHandle,
-          nickname: name,
-          avatar_id: photo || 'panda',
-          mobile_number: `${email}#${cleanPin}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', authUserId);
-    } else {
-      await supabase
-        .from('users')
-        .update({
-          handle: cleanHandle,
-          nickname: name,
-          avatar_id: photo || 'panda',
-          mobile_number: `${email}#${cleanPin}`,
-          updated_at: new Date().toISOString(),
-        })
-        .ilike('mobile_number', `${email}%`);
-    }
+    await supabase
+      .from('users')
+      .update({
+        handle: cleanHandle,
+        nickname: name,
+        avatar_id: photo || 'panda',
+        mobile_number: `${email}#${cleanPin}`,
+        updated_at: new Date().toISOString(),
+      })
+      .ilike('mobile_number', `${email}%`);
   } catch (err) {
     console.warn('[GoogleAuth] update profile error:', err.message);
   }
