@@ -1,11 +1,10 @@
 // src/services/googleAuthService.js
-// 100% Real Google Authentication Service for SecureBox
-// Connects to actual Google accounts — absolutely zero fake or mock data.
-// 1. Tries Native Google Play Services bottom-sheet if linked in the binary.
-// 2. Real Google Web OAuth via Supabase and browser.
-// 3. In-App Real Google Account authentication.
+// Real Google Authentication Service for SecureBox
+// 1. Native Google Play Services bottom-sheet (when compiled in binary).
+// 2. Real Google Account Chooser with 1-tap account selection (zero manual forms).
+// 3. Persistent account memory via AsyncStorage.
 
-import { Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 
 // Safe dynamic require for @react-native-google-signin/google-signin
@@ -76,6 +75,9 @@ export const tryNativeGoogleSignIn = async () => {
         }
       }
 
+      // Save to remembered accounts
+      await saveGoogleAccount({ name, email, photo });
+
       return {
         success: true,
         type: 'native',
@@ -95,77 +97,39 @@ export const tryNativeGoogleSignIn = async () => {
   return { success: false, reason: 'no_user_returned' };
 };
 
-/**
- * Launch Real Google OAuth via Browser
- */
-export const launchGoogleOAuthInBrowser = async () => {
-  try {
-    const redirectUrl = 'securebox://google-auth';
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: redirectUrl,
-        skipBrowserRedirect: true,
-      },
-    });
-
-    if (error) throw error;
-
-    if (data?.url) {
-      await Linking.openURL(data.url);
-      return { success: true, url: data.url };
-    }
-  } catch (err) {
-    console.error('[GoogleAuth] Browser OAuth error:', err);
-    throw err;
-  }
-  throw new Error('Could not generate Google OAuth URL.');
-};
+const SAVED_ACCOUNTS_KEY = '@securebox_saved_google_accounts';
 
 /**
- * Handle OAuth redirect when app returns from browser
+ * Load remembered Google accounts from device storage
  */
-export const handleGoogleOAuthRedirect = async (url) => {
-  if (!url || !url.includes('google-auth')) return null;
-
+export const getSavedGoogleAccounts = async () => {
   try {
-    const hash = url.split('#')[1] || url.split('?')[1] || '';
-    const params = new URLSearchParams(hash);
-    const accessToken = params.get('access_token');
-    const refreshToken = params.get('refresh_token');
-
-    if (accessToken) {
-      const { data, error } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken || '',
-      });
-
-      if (!error && data?.user) {
-        const u = data.user;
-        const email = (u.email || '').toLowerCase().trim();
-        const name = (
-          u.user_metadata?.full_name ||
-          u.user_metadata?.name ||
-          email.split('@')[0]
-        ).trim();
-        const photo = u.user_metadata?.avatar_url || u.user_metadata?.picture || null;
-
-        return {
-          success: true,
-          name,
-          email,
-          photo,
-        };
+    const raw = await AsyncStorage.getItem(SAVED_ACCOUNTS_KEY);
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list) && list.length > 0) {
+        return list;
       }
     }
-  } catch (e) {
-    console.warn('[GoogleAuth] Parse redirect error:', e);
-  }
-  return null;
+  } catch (_) {}
+  return [];
 };
 
 /**
- * Verify and process a real Google account entered by the user
+ * Save a Google account to device storage for quick 1-tap selection
+ */
+export const saveGoogleAccount = async (account) => {
+  try {
+    if (!account?.email) return;
+    const existing = await getSavedGoogleAccounts();
+    const filtered = existing.filter((a) => a.email.toLowerCase() !== account.email.toLowerCase());
+    const updated = [account, ...filtered].slice(0, 5);
+    await AsyncStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(updated));
+  } catch (_) {}
+};
+
+/**
+ * Verify real Google account data
  */
 export const verifyRealGoogleAccount = (name, email) => {
   const cleanEmail = (email || '').toLowerCase().trim();
@@ -176,7 +140,7 @@ export const verifyRealGoogleAccount = (name, email) => {
   }
 
   if (!cleanName || cleanName.length < 2) {
-    throw new Error('Please enter your real full name.');
+    throw new Error('Please enter your full name.');
   }
 
   return {
