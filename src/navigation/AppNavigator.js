@@ -296,10 +296,12 @@ export default function AppNavigator() {
           handleIncomingCall(reconstructed);
         }
       } else if (nextState === 'background') {
-        // Automatically re-lock to decoy Animal Smash game when app is minimized or phone locked
-        console.log('AppNavigator: App backgrounded — re-locking to Animal Game Decoy');
-        setStealthUnlocked(false);
-        setDecoyUnlocked(false);
+        if (isStealthModeEnabled) {
+          // Automatically re-lock to decoy Animal Smash game when app is minimized or phone locked
+          console.log('AppNavigator: App backgrounded — re-locking to Animal Game Decoy');
+          setStealthUnlocked(false);
+          setDecoyUnlocked(false);
+        }
       }
     };
 
@@ -307,7 +309,7 @@ export default function AppNavigator() {
     return () => subscription.remove();
   }, [isSetup, myHandle]);
 
-  // If Decoy PIN was entered (e.g. 0000), show innocent Decoy Study Connect screen
+  // If Decoy Study screen was unlocked, show innocent Decoy Study Connect screen
   if (isDecoyUnlocked) {
     return (
       <DecoyInboxScreen
@@ -319,8 +321,8 @@ export default function AppNavigator() {
     );
   }
 
-  // Front-door Animal Brick Breaker Game until unlocked with PIN (or via Google Sign-In for new users)
-  if (!isStealthUnlocked) {
+  // Front-door Animal Brick Breaker Game until unlocked (or via Google Sign-In for new users)
+  if (isStealthModeEnabled && !isStealthUnlocked) {
     return <BrickBreakerGameScreen onUnlock={() => setStealthUnlocked(true)} />;
   }
 

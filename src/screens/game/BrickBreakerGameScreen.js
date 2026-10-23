@@ -238,11 +238,6 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
   // User state
   const isSetup = useUserStore((s) => s.isSetup);
-  const stealthPin = useUserStore((s) => s.stealthPin);
-  const stealthDuressPin = useUserStore((s) => s.stealthDuressPin) || '9999';
-  const stealthDecoyPin = useUserStore((s) => s.stealthDecoyPin) || '0000';
-  const recoveryPin = useUserStore((s) => s.recoveryPin);
-  const setStealthPin = useUserStore((s) => s.setStealthPin);
   const setStealthUnlocked = useUserStore((s) => s.setStealthUnlocked);
   const setDecoyUnlocked = useUserStore((s) => s.setDecoyUnlocked);
   const gameHighScore = useUserStore((s) => s.gameHighScore) || 0;
@@ -335,8 +330,6 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   levelRef.current = level;
 
   // Modals
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [enteredPin, setEnteredPin] = useState('');
   const [showGoogleOnboarding, setShowGoogleOnboarding] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [pendingGoogleProfile, setPendingGoogleProfile] = useState(null);
@@ -961,11 +954,14 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
       // Check User Setup Status:
       if (!isSetup) {
-        // NEW USER: DO NOT ASK FOR PIN! Directly open In-App Real Google Sign-In Onboarding!
+        // NEW USER: Directly open In-App Real Google Sign-In Onboarding!
         setShowGoogleOnboarding(true);
       } else {
-        // SIGNED-IN USER: Prompt for Secret PIN and send directly to chat interface!
-        setShowPinModal(true);
+        // SIGNED-IN USER: Instantly unlock into SecureBox!
+        setDecoyUnlocked(false);
+        setStealthUnlocked(true);
+        if (onUnlock) onUnlock();
+        else if (navigation?.canGoBack()) navigation.goBack();
       }
     }, 3000);
   };
@@ -991,60 +987,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     }
   };
 
-  // Stealth PIN Verification
-  const handleVerifyPin = async (pin) => {
-    const cleanPin = (pin || enteredPin).trim();
-    if (!cleanPin) return;
-
-    // Silent Duress
-    if (cleanPin === stealthDuressPin) {
-      setShowPinModal(false);
-      setEnteredPin('');
-      await instantEraseEverything({ silent: true });
-      return;
-    }
-
-    // Decoy Vault
-    if (cleanPin === stealthDecoyPin) {
-      setShowPinModal(false);
-      setEnteredPin('');
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch (_) {}
-      setDecoyUnlocked(true);
-      setStealthUnlocked(true);
-      setTimeout(() => {
-        if (onUnlock) onUnlock();
-      }, 0);
-      return;
-    }
-
-    // Secret Vault Unlock PIN (Only user's chosen PIN or recovery PIN)
-    const isUserPin = (stealthPin && cleanPin === stealthPin) || (recoveryPin && cleanPin === recoveryPin);
-
-    if (isUserPin) {
-      setShowPinModal(false);
-      setEnteredPin('');
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch (_) {}
-      setDecoyUnlocked(false);
-      setStealthUnlocked(true);
-      setTimeout(() => {
-        if (onUnlock) onUnlock();
-        else if (navigation?.canGoBack()) navigation.goBack();
-      }, 0);
-      return;
-    }
-
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    } catch (_) {}
-    Alert.alert('Incorrect PIN', 'Please try again.');
-    setEnteredPin('');
-  };
-
-  // 1-Tap Google Unlock from Disguise PIN Modal
+  // 1-Tap Google Unlock
   const handleGoogleUnlock = async () => {
     setGoogleLoading(true);
     try {
@@ -1059,8 +1002,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           } catch (_) {}
-          setShowPinModal(false);
-          setEnteredPin('');
+          setDecoyUnlocked(false);
           setStealthUnlocked(true);
           setTimeout(() => {
             if (onUnlock) onUnlock();
@@ -1070,7 +1012,6 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         }
 
         // New user or unconfigured profile -> Open Google Onboarding Modal!
-        setShowPinModal(false);
         setPendingGoogleProfile(res.profile);
         setShowGoogleOnboarding(true);
         return;
@@ -1363,90 +1304,6 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         </Text>
       </View>
 
-      {/* Secret Stealth Vault PIN Modal */}
-      <Modal
-        visible={showPinModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPinModal(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setShowPinModal(false)}
-        >
-          <View style={styles.pinCard} onStartShouldSetResponder={() => true}>
-            <View style={styles.pinIconCircle}>
-              <CharacterBall character={character} size={36} />
-            </View>
-            <Text style={styles.pinTitle}>Enter Secret Vault PIN</Text>
-            <Text style={styles.pinSubtitle}>
-              Direct access to end-to-end encrypted chats
-            </Text>
-
-            <TextInput
-              style={styles.pinInput}
-              placeholder="••••"
-              placeholderTextColor="#87867F"
-              keyboardType="number-pad"
-              secureTextEntry
-              maxLength={6}
-              value={enteredPin}
-              onChangeText={(text) => {
-                setEnteredPin(text);
-                if (text.length >= 4) {
-                  handleVerifyPin(text);
-                }
-              }}
-              autoFocus
-            />
-
-            <View style={styles.pinBtnRow}>
-              <TouchableOpacity
-                style={styles.pinCancelBtn}
-                onPress={() => {
-                  setShowPinModal(false);
-                  setEnteredPin('');
-                }}
-              >
-                <Text style={styles.pinCancelText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.pinConfirmBtn}
-                onPress={() => handleVerifyPin(enteredPin)}
-              >
-                <Text style={styles.pinConfirmText}>Unlock</Text>
-              </TouchableOpacity>
-            </View>
-
-
-            {/* Divider */}
-            <View style={styles.pinDividerRow}>
-              <View style={styles.pinDividerLine} />
-              <Text style={styles.pinDividerText}>OR</Text>
-              <View style={styles.pinDividerLine} />
-            </View>
-
-            {/* 1-Tap Google Unlock */}
-            <TouchableOpacity
-              style={styles.googleUnlockBtn}
-              onPress={handleGoogleUnlock}
-              disabled={googleLoading}
-              activeOpacity={0.85}
-            >
-              {googleLoading ? (
-                <ActivityIndicator color="#1f1f1f" size="small" />
-              ) : (
-                <>
-                  <GoogleIcon size={18} />
-                  <Text style={styles.googleUnlockBtnText}>Unlock or Set Up with Google</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* 100% In-App Real Google Sign-In Onboarding Modal for New Users */}
       <GoogleOnboardingModal
@@ -1727,14 +1584,50 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             {/* Account / Logout Section */}
             <View style={[styles.drawerSection, { marginTop: 'auto' }]}>
               {isSetup ? (
-                <TouchableOpacity
-                  style={styles.drawerLogoutBtn}
-                  onPress={handleLogoutPress}
-                  activeOpacity={0.75}
-                >
-                  <LogOut size={18} color="#C95D4A" style={{ marginRight: 10 }} />
-                  <Text style={styles.drawerLogoutText}>Log Out Google Account</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={[
+                      styles.drawerMenuItem,
+                      {
+                        marginBottom: 12,
+                        backgroundColor: 'rgba(217,119,87,0.12)',
+                        borderRadius: 12,
+                        paddingVertical: 12,
+                        paddingHorizontal: 12,
+                      },
+                    ]}
+                    onPress={() => {
+                      setShowDrawer(false);
+                      setDecoyUnlocked(false);
+                      setStealthUnlocked(true);
+                      if (onUnlock) onUnlock();
+                      else if (navigation?.canGoBack()) navigation.goBack();
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.drawerMenuLeft}>
+                      <View style={[styles.drawerIconBox, { backgroundColor: '#D97757' }]}>
+                        <Shield size={18} color="#FFFFFF" />
+                      </View>
+                      <View style={{ marginLeft: 12 }}>
+                        <Text style={[styles.drawerMenuLabel, { color: '#D97757', fontWeight: '700' }]}>
+                          Open SecureBox
+                        </Text>
+                        <Text style={styles.drawerMenuSub}>Access your chats</Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.drawerMenuArrow, { color: '#D97757' }]}>→</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.drawerLogoutBtn}
+                    onPress={handleLogoutPress}
+                    activeOpacity={0.75}
+                  >
+                    <LogOut size={18} color="#C95D4A" style={{ marginRight: 10 }} />
+                    <Text style={styles.drawerLogoutText}>Log Out Google Account</Text>
+                  </TouchableOpacity>
+                </>
               ) : (
                 <TouchableOpacity
                   style={styles.drawerGoogleLoginBtn}

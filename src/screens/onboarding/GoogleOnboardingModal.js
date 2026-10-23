@@ -44,8 +44,6 @@ export default function GoogleOnboardingModal({
 
   // Form Fields
   const [handle, setHandle] = useState(initialProfile?.suggestedHandle || '');
-  const [pin, setPin] = useState('');
-  const [showPin, setShowPin] = useState(false);
 
   // Loading & Validation
   const [authLoading, setAuthLoading] = useState(false);
@@ -158,8 +156,6 @@ export default function GoogleOnboardingModal({
   // Step 2: User completes Handle & PIN setup
   const handleCompleteRegistration = async () => {
     const cleanHandle = handle.trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
-    const cleanPin = pin.trim().replace(/[^0-9]/g, '');
-
     if (cleanHandle.length < 3) {
       Alert.alert('Handle Required', 'Please enter a valid handle with at least 3 characters.');
       return;
@@ -167,11 +163,6 @@ export default function GoogleOnboardingModal({
 
     if (handleStatus && !handleStatus.available) {
       Alert.alert('Handle Unavailable', handleStatus.reason || 'This handle is already taken.');
-      return;
-    }
-
-    if (cleanPin.length !== 4) {
-      Alert.alert('4-Digit PIN Required', 'Please set a 4-digit secret PIN to unlock your vault.');
       return;
     }
 
@@ -187,7 +178,6 @@ export default function GoogleOnboardingModal({
         email: profile.email,
         photo: profile.photo,
         handle: cleanHandle,
-        pin: cleanPin,
       });
 
       if (res.success) {
@@ -211,7 +201,6 @@ export default function GoogleOnboardingModal({
 
   const isFormValid =
     handle.trim().length >= 3 &&
-    pin.trim().length === 4 &&
     (!handleStatus || handleStatus.available) &&
     !isCheckingHandle;
 
@@ -233,7 +222,7 @@ export default function GoogleOnboardingModal({
               <View style={styles.shieldBadge}>
                 <Shield size={16} color="#D97757" />
                 <Text style={styles.shieldBadgeText}>
-                  {step === 'SETUP' ? 'Profile & PIN Setup' : 'Secure Verification'}
+                  {step === 'SETUP' ? 'Profile Setup' : 'Secure Verification'}
                 </Text>
               </View>
               <TouchableOpacity
@@ -251,7 +240,7 @@ export default function GoogleOnboardingModal({
                 <View style={styles.titleWrap}>
                   <Text style={styles.title}>Continue with Google</Text>
                   <Text style={styles.subtitle}>
-                    Instant identity setup from your Google account. You will customize your private @handle and 4-digit vault PIN.
+                    Instant identity setup from your Google account. You will customize your private @handle.
                   </Text>
                 </View>
 
@@ -267,7 +256,7 @@ export default function GoogleOnboardingModal({
                   </View>
                   <View style={styles.benefitItem}>
                     <Sparkles size={16} color="#2E7D32" style={styles.benefitIcon} />
-                    <Text style={styles.benefitText}>Set your 4-digit stealth game unlock PIN</Text>
+                    <Text style={styles.benefitText}>Direct disguise vault access</Text>
                   </View>
                 </View>
 
@@ -298,7 +287,7 @@ export default function GoogleOnboardingModal({
                 <View style={styles.titleWrap}>
                   <Text style={styles.title}>Customize Your Vault</Text>
                   <Text style={styles.subtitle}>
-                    Review your Google identity, pick your unique @handle, and set your secret unlock PIN.
+                    Review your Google identity and confirm your unique @handle.
                   </Text>
                 </View>
 
@@ -363,39 +352,6 @@ export default function GoogleOnboardingModal({
                       )}
                     </View>
                   )}
-                </View>
-
-                {/* Field 2: 4-Digit Secret Unlock PIN */}
-                <View style={styles.fieldSection}>
-                  <View style={styles.labelWithIcon}>
-                    <Lock size={15} color="#D97757" />
-                    <Text style={styles.fieldLabel}>Set 4-Digit Secret Vault PIN</Text>
-                  </View>
-                  <Text style={styles.fieldSubLabel}>
-                    You will enter this PIN on the animal game screen to reveal your chats
-                  </Text>
-                  <View style={styles.pinInputRow}>
-                    <TextInput
-                      style={styles.pinTextInput}
-                      value={pin}
-                      onChangeText={(t) => setPin(t.replace(/[^0-9]/g, '').slice(0, 4))}
-                      placeholder="••••"
-                      placeholderTextColor="#A09E96"
-                      keyboardType="number-pad"
-                      secureTextEntry={!showPin}
-                      maxLength={4}
-                    />
-                    <TouchableOpacity
-                      style={styles.pinToggleBtn}
-                      onPress={() => setShowPin(!showPin)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.pinToggleBtnText}>{showPin ? 'Hide' : 'Show'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.pinTipText}>
-                    💡 Remember this PIN! If you forget, you can also unlock with Google.
-                  </Text>
                 </View>
 
                 {/* Complete Button */}

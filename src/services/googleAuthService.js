@@ -130,15 +130,10 @@ export const initiateGoogleAuth = async () => {
       const finalNickname = existingUser.nickname || realName;
       const finalAvatarId = existingUser.avatar_id || 'panda';
       const finalPassword = existingUser.password || 'Google_Vault_Secured';
-      const storedMobile = existingUser.mobile_number || '';
-      const finalPin = storedMobile.includes('#') ? storedMobile.split('#')[1] : (useUserStore.getState().stealthPin || null);
 
       const store = useUserStore.getState();
-      store.setProfile(finalHandle, finalNickname, finalAvatarId, realEmail, realPhoto, finalPin);
+      store.setProfile(finalHandle, finalNickname, finalAvatarId, realEmail, realPhoto);
       store.setPassword(finalPassword);
-      if (finalPin) {
-        store.setStealthPin(finalPin);
-      }
       store.setMyCharacter('panda');
       store.completeSetup();
       store.setStealthUnlocked(true);
@@ -151,7 +146,6 @@ export const initiateGoogleAuth = async () => {
           name: finalNickname,
           email: realEmail,
           photo: realPhoto,
-          pin: finalPin,
         },
       };
     }
@@ -200,9 +194,6 @@ export const completeGoogleRegistration = async ({
   }
 
   const cleanPin = (pin || '').trim().replace(/[^0-9]/g, '');
-  if (cleanPin.length !== 4) {
-    throw new Error('Please set a 4-digit secret PIN to unlock your vault.');
-  }
 
   // Check handle availability
   const check = await checkHandleAvailability(cleanHandle);
@@ -211,6 +202,7 @@ export const completeGoogleRegistration = async ({
   }
 
   const finalPassword = `G_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const mobilePayload = cleanPin ? `${email}#${cleanPin}` : email;
 
   // Save into Supabase 'users' table
   try {
@@ -219,9 +211,8 @@ export const completeGoogleRegistration = async ({
       handle: cleanHandle,
       nickname: name,
       avatarId: photo || 'panda',
-      mobileNumber: `${email}#${cleanPin}`,
+      mobileNumber: mobilePayload,
       password: finalPassword,
-      recoveryPin: cleanPin,
     });
   } catch (regErr) {
     console.warn('[GoogleAuth] registerUserInSupabase error:', regErr.message);
@@ -230,7 +221,7 @@ export const completeGoogleRegistration = async ({
         handle: cleanHandle,
         nickname: name,
         avatar_id: photo || 'panda',
-        mobile_number: `${email}#${cleanPin}`,
+        mobile_number: mobilePayload,
         password: finalPassword,
         updated_at: new Date().toISOString(),
       };
@@ -242,10 +233,8 @@ export const completeGoogleRegistration = async ({
 
   // Save into local Zustand store and complete onboarding
   const store = useUserStore.getState();
-  store.setProfile(cleanHandle, name, 'panda', email, photo, cleanPin);
+  store.setProfile(cleanHandle, name, 'panda', email, photo);
   store.setPassword(finalPassword);
-  store.setStealthPin(cleanPin);
-  store.setRecoveryPin(cleanPin);
   store.setMyCharacter('panda');
   store.completeSetup();
   store.setStealthUnlocked(true);
@@ -257,7 +246,6 @@ export const completeGoogleRegistration = async ({
       name,
       email,
       photo,
-      pin: cleanPin,
     },
   };
 };
@@ -279,9 +267,7 @@ export const updateGoogleUserProfile = async ({
   }
 
   const cleanPin = (pin || '').trim().replace(/[^0-9]/g, '');
-  if (cleanPin.length !== 4) {
-    throw new Error('Please set a 4-digit secret PIN to unlock your vault.');
-  }
+  const mobilePayload = cleanPin ? `${email}#${cleanPin}` : email;
 
   // Check if handle is taken by someone else
   if (cleanHandle) {
@@ -304,7 +290,7 @@ export const updateGoogleUserProfile = async ({
         handle: cleanHandle,
         nickname: name,
         avatar_id: photo || 'panda',
-        mobile_number: `${email}#${cleanPin}`,
+        mobile_number: mobilePayload,
         updated_at: new Date().toISOString(),
       })
       .ilike('mobile_number', `${email}%`);
@@ -314,9 +300,7 @@ export const updateGoogleUserProfile = async ({
 
   // Update Zustand
   const store = useUserStore.getState();
-  store.setProfile(cleanHandle, name, 'panda', email, photo, cleanPin);
-  store.setStealthPin(cleanPin);
-  store.setRecoveryPin(cleanPin);
+  store.setProfile(cleanHandle, name, 'panda', email, photo);
   store.completeSetup();
   store.setStealthUnlocked(true);
 
@@ -327,7 +311,6 @@ export const updateGoogleUserProfile = async ({
       name,
       email,
       photo,
-      pin: cleanPin,
     },
   };
 };
