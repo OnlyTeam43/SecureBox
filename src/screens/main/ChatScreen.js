@@ -267,6 +267,19 @@ export default function ChatScreen({ route, navigation }) {
       conversationId,
       async (newMsg) => {
         if (newMsg && newMsg.sender !== myHandle) {
+          // Never process or display raw connection/status payloads as chat messages
+          if (
+            newMsg.type === 'connection' ||
+            newMsg.type === 'contact_req' ||
+            newMsg.type === 'contact_accepted' ||
+            (newMsg.body && (newMsg.body.startsWith('{"status"') || newMsg.body.includes('"status":"connected"')))
+          ) {
+            try {
+              await supabase.from('messages').delete().eq('id', newMsg.id);
+            } catch (_) {}
+            return;
+          }
+
           let mediaDataUri = newMsg.media_uri;
           let fullBody = newMsg.body;
 
@@ -667,6 +680,16 @@ export default function ChatScreen({ route, navigation }) {
 
   // Render individual chat bubble
   const renderMessageItem = ({ item }) => {
+    if (
+      !item ||
+      item.type === 'connection' ||
+      item.type === 'contact_req' ||
+      item.type === 'contact_accepted' ||
+      (item.body && (item.body.startsWith('{"status"') || item.body.includes('"status":"connected"')))
+    ) {
+      return null;
+    }
+
     const isMe = item.sender === myHandle;
     const mediaUri = item.media_uri || item.mediaUri;
     const timeStr = new Date(item.sent_at || item.sentAt).toLocaleTimeString([], {
@@ -866,7 +889,15 @@ export default function ChatScreen({ route, navigation }) {
         {/* Message Stream */}
         <FlatList
           ref={flatRef}
-          data={messages}
+          data={messages.filter(
+            (m) =>
+              m &&
+              !m.deleted &&
+              m.type !== 'connection' &&
+              m.type !== 'contact_req' &&
+              m.type !== 'contact_accepted' &&
+              !(m.body && (m.body.startsWith('{"status"') || m.body.includes('"status":"connected"')))
+          )}
           keyExtractor={(m) => m.id}
           renderItem={renderMessageItem}
           contentContainerStyle={styles.messageListContent}

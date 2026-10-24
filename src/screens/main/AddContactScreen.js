@@ -92,29 +92,18 @@ export default function AddContactScreen({ navigation }) {
       await upsertConversation({
         id: convId,
         contactId,
-        lastMsg: 'Chat request sent 💌',
+        lastMsg: 'Connected! Say hi 💕',
         lastTime: Date.now(),
         unread: 0,
       });
 
       setLoading(false);
-      Alert.alert(
-        'Connected! 💌',
-        `Chat created with @${cleanHandle}! You can start chatting right away.`,
-        [
-          {
-            text: 'Chat Now 💕',
-            onPress: () => {
-              navigation.navigate('Chat', {
-                conversationId: convId,
-                contactHandle: cleanHandle,
-                contactNickname: nickname.trim() || remoteUser.nickname || cleanHandle,
-                contactAvatarId: selectedAvatar || remoteUser.avatar_id || 'avatar_rose',
-              });
-            },
-          },
-        ]
-      );
+      navigation.replace('Chat', {
+        conversationId: convId,
+        contactHandle: cleanHandle,
+        contactNickname: nickname.trim() || remoteUser.nickname || cleanHandle,
+        contactAvatarId: selectedAvatar || remoteUser.avatar_id || 'avatar_rose',
+      });
     } catch (e) {
       console.error('Error adding contact:', e);
       Alert.alert('Error', `Could not send request: ${e?.message || e}`);

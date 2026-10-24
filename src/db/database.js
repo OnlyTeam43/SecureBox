@@ -88,6 +88,14 @@ const initSchema = async () => {
   } catch (_) {
     // Column already exists
   }
+
+  // Automatic clean-up: Purge any raw connection/status JSON strings so they never render as messages
+  try {
+    await db.execAsync(`
+      DELETE FROM messages WHERE type = 'connection' OR body LIKE '{"status"%' OR body LIKE '%"status":"connected"%';
+      UPDATE conversations SET last_msg = 'Connected! Say hi 💕' WHERE last_msg LIKE '{"status"%' OR last_msg LIKE '%"status":"connected"%';
+    `);
+  } catch (_) {}
 };
 
 // ─── Contacts ────────────────────────────────────────────────────────────────
@@ -357,6 +365,16 @@ export const ensureConversationExists = async (conversationId, contactHandle, co
 };
 
 export const insertMessage = async (msg) => {
+  if (
+    !msg ||
+    msg.type === 'connection' ||
+    msg.type === 'contact_req' ||
+    msg.type === 'contact_accepted' ||
+    (msg.body && (msg.body.startsWith('{"status"') || msg.body.includes('"status":"connected"')))
+  ) {
+    return;
+  }
+
   const db = await getDB();
 
   // Ensure conversation & contact exist in SQLite so foreign key constraint NEVER fails!
@@ -401,15 +419,16 @@ export const insertMessage = async (msg) => {
 
 export const getMessages = async (conversationId, limit = 50, before = null) => {
   const db = await getDB();
+  const notCodeSql = `AND (body NOT LIKE '{"status"%' AND (body IS NULL OR body NOT LIKE '%"status":"connected"%')) AND type != 'connection' AND type != 'contact_req' AND type != 'contact_accepted'`;
   if (before) {
     return await db.getAllAsync(
-      `SELECT * FROM messages WHERE conversation_id = ? AND deleted = 0 AND (body IS NOT NULL OR media_uri IS NOT NULL) AND sent_at < ?
+      `SELECT * FROM messages WHERE conversation_id = ? AND deleted = 0 AND (body IS NOT NULL OR media_uri IS NOT NULL) ${notCodeSql} AND sent_at < ?
        ORDER BY sent_at DESC LIMIT ?`,
       [conversationId, before, limit]
     );
   }
   return await db.getAllAsync(
-    `SELECT * FROM messages WHERE conversation_id = ? AND deleted = 0 AND (body IS NOT NULL OR media_uri IS NOT NULL)
+    `SELECT * FROM messages WHERE conversation_id = ? AND deleted = 0 AND (body IS NOT NULL OR media_uri IS NOT NULL) ${notCodeSql}
      ORDER BY sent_at DESC LIMIT ?`,
     [conversationId, limit]
   );

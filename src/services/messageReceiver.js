@@ -33,6 +33,22 @@ export const processIncomingMessage = async (incoming, myHandle) => {
   const senderClean = (incoming.sender || '').replace('@', '').trim().toLowerCase();
   if (!senderClean || senderClean === cleanMy) return;
 
+  // NEVER process system control / connection records as chat messages!
+  if (
+    incoming.type === 'connection' ||
+    incoming.type === 'contact_req' ||
+    incoming.type === 'contact_accepted' ||
+    incoming.type === 'call_req' ||
+    (incoming.body && (incoming.body.startsWith('{"status"') || incoming.body.includes('"status":"connected"')))
+  ) {
+    if (incoming.id) {
+      try {
+        await supabase.from('messages').delete().eq('id', incoming.id);
+      } catch (_) {}
+    }
+    return;
+  }
+
   const participants = [cleanMy, senderClean].sort();
   const convId = incoming.conversation_id || `chat_${participants[0]}_${participants[1]}`;
 
@@ -175,63 +191,24 @@ export const processIncomingConnectionRequest = async (requestData, myHandle) =>
     });
 
     const isActiveChat = getActiveConversation() === convId;
-    const initialBody = 'Chat request received 💌';
-    const msgId = requestData.reqId || `msg_req_${fromHandle}_${Date.now()}`;
 
-    // 2. Persist initial request message to local SQLite
-    await insertMessage({
-      id: msgId,
-      conversationId: convId,
-      sender: fromHandle,
-      receiver: cleanMy,
-      type: 'text',
-      body: initialBody,
-      mediaUri: null,
-      sentAt: Date.now(),
-      expiresAt: null,
-      delivered: 1,
-      read: isActiveChat ? 1 : 0,
+    // 2. Upsert conversation in Messages list so it appears directly in Inbox
+    await upsertConversation({
+      id: convId,
+      contactId,
+      lastMsg: 'Connected! Say hi 💕',
+      lastTime: Date.now(),
+      unread: isActiveChat ? 0 : 1,
     });
 
-    // 3. Upsert conversation in Messages list
-    if (!isActiveChat) {
-      await incrementConversationUnread(
-        convId,
-        initialBody,
-        Date.now(),
-        fromHandle
-      );
-    } else {
-      await updateConversationLastMessage(
-        convId,
-        initialBody,
-        Date.now(),
-        fromHandle
-      );
-      await markConversationRead(convId, cleanMy);
-    }
-
-    // 4. ZERO CLOUD STORAGE: Delete the ephemeral request from Supabase relay
+    // 3. ZERO CLOUD STORAGE: Delete the ephemeral request from Supabase relay
     if (requestData.reqId) {
       try {
         await supabase.from('messages').delete().eq('id', requestData.reqId);
       } catch (_) {}
     }
 
-    // 5. Establish mutual connection in Supabase so reciprocal searches show connected
-    const connId = `conn_${participants[0]}_${participants[1]}`;
-    try {
-      await supabase.from('messages').upsert({
-        id: connId,
-        type: 'connection',
-        sender: fromHandle,
-        receiver: cleanMy,
-        body: JSON.stringify({ status: 'connected', timestamp: Date.now() }),
-        created_at: Date.now(),
-      });
-    } catch (_) {}
-
-    // 6. Refresh unread badges for companion icon and Messages tab
+    // 4. Refresh unread badges for companion icon and Messages tab
     await useBadgeStore.getState().refreshBadges(cleanMy);
   } catch (err) {
     console.warn('[processIncomingConnectionRequest] Error saving request to Messages:', err);

@@ -537,6 +537,7 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
       .neq('type', 'contact_req')
       .neq('type', 'contact_accepted')
       .neq('type', 'call_req')
+      .neq('type', 'connection')
       .order('created_at', { ascending: true });
 
     if (error || !data || data.length === 0) return [];
@@ -546,6 +547,15 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
 
     for (const row of data) {
       idsToDelete.push(row.id);
+
+      if (
+        row.type === 'connection' ||
+        row.type === 'contact_req' ||
+        row.type === 'contact_accepted' ||
+        (row.body && (row.body.startsWith('{"status"') || row.body.includes('"status":"connected"')))
+      ) {
+        continue;
+      }
 
       if (row.type === 'delete_cmd') {
         try {
@@ -1169,6 +1179,14 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
               return;
             }
 
+            // Never dispatch internal connection signals or raw status payloads as chat messages
+            if (
+              payload.new.type === 'connection' ||
+              (payload.new.body && (payload.new.body.startsWith('{"status"') || payload.new.body.includes('"status":"connected"')))
+            ) {
+              return;
+            }
+
             notifyIncomingMessageListeners(payload.new);
           }
         } catch (_) {}
@@ -1177,6 +1195,14 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
     .on('broadcast', { event: 'incoming_msg' }, ({ payload }) => {
       try {
         if (payload && payload.receiver?.toLowerCase() === clean) {
+          if (
+            payload.type === 'connection' ||
+            payload.type === 'contact_req' ||
+            payload.type === 'contact_accepted' ||
+            (payload.body && (payload.body.startsWith('{"status"') || payload.body.includes('"status":"connected"')))
+          ) {
+            return;
+          }
           notifyIncomingMessageListeners(payload);
         }
       } catch (_) {}
@@ -1261,23 +1287,8 @@ export const sendConnectionRequest = async ({ fromHandle, toHandle, fromNickname
     throw error;
   }
 
-  // 2. Persist permanent connection record in Supabase so chat is never removed
+  // 2. Ensure local SQLite contact & conversation exist immediately so chat is ready
   const participants = [cleanFrom, cleanTo].sort();
-  const connId = `conn_${participants[0]}_${participants[1]}`;
-  supabase
-    .from('messages')
-    .upsert({
-      id: connId,
-      type: 'connection',
-      sender: cleanFrom,
-      receiver: cleanTo,
-      body: JSON.stringify({ status: 'connected', initiatedBy: cleanFrom, timestamp: Date.now() }),
-      created_at: Date.now(),
-    })
-    .then(() => {})
-    .catch(() => {});
-
-  // 3. Ensure local SQLite contact & conversation exist immediately so chat is never missing
   try {
     const contactId = `contact_${cleanTo}`;
     await insertContact({
@@ -1289,7 +1300,7 @@ export const sendConnectionRequest = async ({ fromHandle, toHandle, fromNickname
     await upsertConversation({
       id: `chat_${participants[0]}_${participants[1]}`,
       contactId,
-      lastMsg: 'Chat request sent 💌',
+      lastMsg: 'Connected! Say hi 💕',
       lastTime: Date.now(),
       unread: 0,
     });
@@ -1492,21 +1503,24 @@ export const acceptConnectionRequest = async ({ reqId, fromHandle, toHandle, myN
     console.warn('[acceptConnectionRequest] Durable receipt note:', err.message);
   }
 
-  // 2. Persist permanent connection record in Supabase so neither user is EVER asked to connect again
+  // 2. Ensure local SQLite contact & conversation exist immediately
   const participants = [cleanFrom, cleanTo].sort();
-  const connId = `conn_${participants[0]}_${participants[1]}`;
-  supabase
-    .from('messages')
-    .upsert({
-      id: connId,
-      type: 'connection',
-      sender: cleanTo,
-      receiver: cleanFrom,
-      body: JSON.stringify({ status: 'connected', acceptedBy: cleanTo, timestamp: Date.now() }),
-      created_at: Date.now(),
-    })
-    .then(() => {})
-    .catch(() => {});
+  try {
+    const contactId = `contact_${cleanFrom}`;
+    await insertContact({
+      id: contactId,
+      handle: cleanFrom,
+      nickname: myNickname || cleanFrom,
+      avatarId: myAvatar || 'avatar_rose',
+    });
+    await upsertConversation({
+      id: `chat_${participants[0]}_${participants[1]}`,
+      contactId,
+      lastMsg: 'Connected! Say hi 💕',
+      lastTime: Date.now(),
+      unread: 0,
+    });
+  } catch (_) {}
 
   // 3. Ensure local SQLite contact & conversation exist
   try {
@@ -1645,7 +1659,7 @@ export const checkConnectionStatus = async (myHandle, targetHandle) => {
     }
   } catch (_) {}
 
-  // 4. Check if cleanTarget sent a pending request to cleanMy
+  // 4. Check if cleanTarget sent a request to cleanMy
   try {
     const { data: incoming } = await supabase
       .from('messages')
@@ -1656,11 +1670,14 @@ export const checkConnectionStatus = async (myHandle, targetHandle) => {
       .maybeSingle();
 
     if (incoming) {
-      return { status: 'pending_received', reqId: incoming.id };
+      return {
+        status: 'connected',
+        contact: { handle: cleanTarget, nickname: cleanTarget, avatar_id: 'avatar_rose' },
+      };
     }
   } catch (_) {}
 
-  // 5. Check if cleanMy sent a pending request to cleanTarget
+  // 5. Check if cleanMy sent a request to cleanTarget
   try {
     const { data: outgoing } = await supabase
       .from('messages')
@@ -1671,7 +1688,10 @@ export const checkConnectionStatus = async (myHandle, targetHandle) => {
       .maybeSingle();
 
     if (outgoing) {
-      return { status: 'pending_sent', reqId: outgoing.id };
+      return {
+        status: 'connected',
+        contact: { handle: cleanTarget, nickname: cleanTarget, avatar_id: 'avatar_rose' },
+      };
     }
   } catch (_) {}
 

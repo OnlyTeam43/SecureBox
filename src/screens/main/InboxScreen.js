@@ -293,11 +293,6 @@ export default function InboxScreen({ navigation }) {
           byNickname: partnerNick,
           byAvatar: partnerAvatar,
         });
-
-        Alert.alert(
-          'Request Accepted! 🎉',
-          `@${partnerHandle} accepted your chat request! You can now start chatting.`
-        );
       } else if (statusEvent.event === 'incoming_connection_request') {
         await processIncomingConnectionRequest(
           {
@@ -399,52 +394,40 @@ export default function InboxScreen({ navigation }) {
 
       setSearching(false);
       // 3. Connect directly into chat window
-      Alert.alert(
-        'Chat with @' + clean,
-        `Start private chatting with ${remoteUser.nickname || clean} (@${clean})?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Start Chat 💕',
-            onPress: async () => {
-              try {
-                await sendConnectionRequest({
-                  fromHandle: myHandle,
-                  toHandle: clean,
-                  fromNickname: myNickname,
-                  fromAvatar: myAvatarId,
-                });
-                const participants = [myHandle.toLowerCase(), clean].sort();
-                const convId = `chat_${participants[0]}_${participants[1]}`;
-                const contactId = `contact_${clean}`;
-                await insertContact({
-                  id: contactId,
-                  handle: clean,
-                  nickname: remoteUser.nickname || clean,
-                  avatarId: remoteUser.avatar_id || 'avatar_rose',
-                });
-                await upsertConversation({
-                  id: convId,
-                  contactId,
-                  lastMsg: 'Chat started 💕',
-                  lastTime: Date.now(),
-                  unread: 0,
-                });
-                setSearchHandle('');
-                await loadConversations();
-                navigation.navigate('Chat', {
-                  conversationId: convId,
-                  contactHandle: clean,
-                  contactNickname: remoteUser.nickname || clean,
-                  contactAvatarId: remoteUser.avatar_id || 'avatar_rose',
-                });
-              } catch (reqErr) {
-                Alert.alert('Error', reqErr.message || 'Could not start chat');
-              }
-            },
-          },
-        ]
-      );
+      try {
+        await sendConnectionRequest({
+          fromHandle: myHandle,
+          toHandle: clean,
+          fromNickname: myNickname,
+          fromAvatar: myAvatarId,
+        });
+        const participants = [myHandle.toLowerCase(), clean].sort();
+        const convId = `chat_${participants[0]}_${participants[1]}`;
+        const contactId = `contact_${clean}`;
+        await insertContact({
+          id: contactId,
+          handle: clean,
+          nickname: remoteUser.nickname || clean,
+          avatarId: remoteUser.avatar_id || 'avatar_rose',
+        });
+        await upsertConversation({
+          id: convId,
+          contactId,
+          lastMsg: 'Chat started 💕',
+          lastTime: Date.now(),
+          unread: 0,
+        });
+        setSearchHandle('');
+        await loadConversations();
+        navigation.navigate('Chat', {
+          conversationId: convId,
+          contactHandle: clean,
+          contactNickname: remoteUser.nickname || clean,
+          contactAvatarId: remoteUser.avatar_id || 'avatar_rose',
+        });
+      } catch (reqErr) {
+        Alert.alert('Error', reqErr.message || 'Could not start chat');
+      }
     } catch (err) {
       console.error('Search error:', err);
       setSearching(false);
