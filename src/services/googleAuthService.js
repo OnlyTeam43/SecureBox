@@ -37,8 +37,7 @@ export const configureGoogleSignIn = () => {
   try {
     GoogleSignin.configure({
       webClientId: DEFAULT_WEB_CLIENT_ID,
-      offlineAccess: true,
-      forceCodeForRefreshToken: true,
+      offlineAccess: false,
     });
   } catch (err) {
     console.warn('[GoogleAuth] Native configure notice:', err);
@@ -89,47 +88,52 @@ export const initiateGoogleAuth = async () => {
     const realName = (gUser.name || gUser.givenName || realEmail.split('@')[0]).trim();
     const realPhoto = gUser.photo || null;
 
-    // Exchange ID Token with Supabase Auth
-    let authUserId = null;
+    // Background non-blocking sync with Supabase Auth
     if (idToken) {
-      try {
-        const { data: authData } = await supabase.auth.signInWithIdToken({
-          provider: 'google',
-          token: idToken,
-        });
-        if (authData?.user?.id) {
-          authUserId = authData.user.id;
-        }
-      } catch (authErr) {
-        console.warn('[GoogleAuth] Supabase ID token exchange notice:', authErr.message);
-      }
+      supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      }).catch(() => {});
     }
 
-    if (!authUserId) {
-      try {
-        const { data: authUserRes } = await supabase.auth.getUser();
-        if (authUserRes?.user?.id) {
-          authUserId = authUserRes.user.id;
-        }
-      } catch (_) {}
-    }
+    const cleanPrefix = realEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_.]/g, '');
 
-    // Check if user already exists in Supabase 'users' table
+    // Check if user already exists in Supabase 'users' table (One Email = One Handle)
     let existingUser = null;
 
-    const { data: byEmailPrefix } = await supabase
-      .from('users')
-      .select('*')
-      .ilike('mobile_number', `${realEmail}%`)
-      .maybeSingle();
-    if (byEmailPrefix) existingUser = byEmailPrefix;
+    try {
+      const { data: matches } = await supabase
+        .from('users')
+        .select('*')
+        .or(`mobile_number.ilike.${realEmail}%,mobile_number.eq.${realEmail},handle.eq.${cleanPrefix}`);
+
+      if (matches && matches.length > 0) {
+        // Find exact handle match or first matching row
+        existingUser = matches.find((m) => m.handle === cleanPrefix) || matches[0];
+      }
+    } catch (qErr) {
+      console.warn('[GoogleAuth] Query user error:', qErr.message);
+    }
 
     // CASE A: User is an existing registered user -> Restore and enter immediately!
     if (existingUser) {
       const finalHandle = existingUser.handle;
       const finalNickname = existingUser.nickname || realName;
-      const finalAvatarId = existingUser.avatar_id || 'panda';
+      const finalAvatarId = realPhoto || existingUser.avatar_id || 'panda';
       const finalPassword = existingUser.password || 'Google_Vault_Secured';
+
+      // Always ensure their row in DB has their actual Google email in mobile_number
+      if (existingUser.mobile_number !== realEmail) {
+        supabase
+          .from('users')
+          .update({
+            mobile_number: realEmail,
+            avatar_id: finalAvatarId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('handle', finalHandle)
+          .catch(() => {});
+      }
 
       const store = useUserStore.getState();
       store.setProfile(finalHandle, finalNickname, finalAvatarId, realEmail, realPhoto);
@@ -150,19 +154,53 @@ export const initiateGoogleAuth = async () => {
       };
     }
 
-    // CASE B: User is new -> Auto-suggest unique handle and return to let user confirm/choose handle and PIN
-    const cleanPrefix = realEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_.]/g, '');
-    const suggestedHandle = await generateUniqueHandle(cleanPrefix.length >= 4 ? cleanPrefix : realName);
+    // CASE B: Truly Brand New User -> Fast auto-registration with cleanPrefix (No extra popups!)
+    let assignedHandle = cleanPrefix;
+    try {
+      const { data: takenCheck } = await supabase
+        .from('users')
+        .select('handle')
+        .eq('handle', cleanPrefix)
+        .maybeSingle();
+
+      if (takenCheck) {
+        assignedHandle = await generateUniqueHandle(cleanPrefix);
+      }
+    } catch (_) {
+      assignedHandle = cleanPrefix;
+    }
+
+    const finalPassword = `G_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const newRecord = {
+      handle: assignedHandle,
+      nickname: realName,
+      avatar_id: realPhoto || 'panda',
+      mobile_number: realEmail,
+      password: finalPassword,
+      updated_at: new Date().toISOString(),
+    };
+
+    try {
+      await supabase.from('users').upsert(newRecord, { onConflict: 'handle' });
+    } catch (saveErr) {
+      console.warn('[GoogleAuth] Auto-reg save error:', saveErr.message);
+    }
+
+    const store = useUserStore.getState();
+    store.setProfile(assignedHandle, realName, realPhoto || 'panda', realEmail, realPhoto);
+    store.setPassword(finalPassword);
+    store.setMyCharacter('panda');
+    store.completeSetup();
+    store.setStealthUnlocked(true);
 
     return {
       success: true,
-      exists: false,
-      profile: {
-        authUserId,
+      exists: true,
+      user: {
+        handle: assignedHandle,
         name: realName,
         email: realEmail,
         photo: realPhoto,
-        suggestedHandle,
       },
     };
   } catch (err) {

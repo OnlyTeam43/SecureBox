@@ -1025,8 +1025,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
       // Check User Setup Status:
       if (!isSetup) {
-        // NEW USER: Directly open In-App Real Google Sign-In Onboarding!
-        setShowGoogleOnboarding(true);
+        // Fast direct Google Sign-In (no intermediate popups!)
+        handleGoogleUnlock();
       } else {
         // SIGNED-IN USER: Instantly unlock into SecureBox!
         setDecoyUnlocked(false);
@@ -1719,12 +1719,12 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                   style={styles.drawerGoogleLoginBtn}
                   onPress={() => {
                     setShowDrawer(false);
-                    setTimeout(() => setShowGoogleOnboarding(true), 200);
+                    setTimeout(() => handleGoogleUnlock(), 200);
                   }}
                   activeOpacity={0.8}
                 >
                   <GoogleIcon size={18} />
-                  <Text style={styles.drawerGoogleLoginText}>Connect Google Account</Text>
+                  <Text style={styles.drawerGoogleLoginText}>Sign In with Google</Text>
                 </TouchableOpacity>
               )}
             </View>
