@@ -307,26 +307,9 @@ export const sendMessageToSupabase = async ({
     reply_to: replyTo || null,
   };
 
-  // 1. Durable Relay Queue on Supabase
-  // Ensures messages are NEVER lost when recipient app is minimized, in background, or offline.
-  // Messages are deleted automatically immediately upon retrieval by recipient.
-  try {
-    await supabase.from('messages').upsert(
-      {
-        id,
-        type: 'chat',
-        sender: cleanSender,
-        receiver: receiverClean,
-        body,
-        media_uri: mediaUri || null,
-        created_at: sentAt ? Number(sentAt) : Date.now(),
-        expires_at: expiresAt ? Number(expiresAt) : null,
-      },
-      { onConflict: 'id' }
-    );
-  } catch (qErr) {
-    console.log('Relay queue note:', qErr.message);
-  }
+  // 1. Zero Cloud Storage Policy:
+  // Messages are NEVER stored in Supabase database. They exist strictly in local device SQLite.
+  // Realtime WebSocket broadcasts are ephemeral in-memory delivery packets.
 
   // 2. Direct instantaneous delivery to the active chat room via WebSocket broadcast
   try {

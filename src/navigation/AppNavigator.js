@@ -15,7 +15,7 @@ import { initCallReceiver, callService, processIncomingCallPayload } from '../se
 import { subscribeToMyMessages, fetchPendingCallInvite } from '../services/supabase';
 import IncomingCallModal from '../components/IncomingCallModal';
 import ActiveCallBanner from '../components/ActiveCallBanner';
-import InAppNotificationBanner from '../components/InAppNotificationBanner';
+import { processIncomingMessage } from '../services/messageReceiver';
 import * as Notifications from 'expo-notifications';
 import {
   initNotifications,
@@ -240,12 +240,23 @@ export default function AppNavigator() {
 
     const unsub = subscribeToMyMessages(
       myHandle,
-      null,
+      async (incomingMsg) => {
+        try {
+          await processIncomingMessage(incomingMsg, myHandle);
+        } catch (err) {
+          console.warn('[AppNavigator] Incoming message process error:', err);
+        }
+      },
       async (statusEvent) => {
         if (!statusEvent) return;
         if (statusEvent.event === 'incoming_call') {
           console.log('AppNavigator: Received durable incoming_call event:', statusEvent);
           await processIncomingCallPayload(statusEvent);
+        } else if (
+          statusEvent.event === 'incoming_connection_request' ||
+          statusEvent.event === 'connection_request_accepted'
+        ) {
+          useBadgeStore.getState().refreshBadges(myHandle);
         }
       }
     );
@@ -376,9 +387,6 @@ export default function AppNavigator() {
 
       {/* Global Active Call Return Banner (when call is active & user is browsing other screens) */}
       <ActiveCallBanner navigationRef={navigationRef} currentRouteName={currentRouteName} />
-
-      {/* Global In-App Notification Toast */}
-      <InAppNotificationBanner navigationRef={navigationRef} />
 
       {/* Global Incoming Call Overlay */}
       <IncomingCallModal

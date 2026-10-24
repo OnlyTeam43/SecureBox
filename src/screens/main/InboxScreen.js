@@ -41,7 +41,6 @@ import * as ScreenCapture from 'expo-screen-capture';
 import { TrashIcon, UserAvatarIcon, CheckIcon, DoubleCheckIcon, ShareIcon } from '../../components/Icons';
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import {
-  notifyIncomingMessage,
   notifyConnectionRequest,
   notifyRequestAccepted,
   getActiveConversation,
@@ -176,13 +175,6 @@ export default function InboxScreen({ navigation }) {
             msg.sent_at,
             msg.sender
           );
-          notifyIncomingMessage({
-            senderNickname: contactNick,
-            senderHandle,
-            text: msg.body || 'Sent a photo 📷',
-            conversationId: convId,
-            contactAvatarId: contactAvatar,
-          });
         } else {
           await updateConversationLastMessage(
             convId,
@@ -218,83 +210,17 @@ export default function InboxScreen({ navigation }) {
     return () => sub.remove();
   }, [syncPendingMessages]);
 
-  // App-level realtime listener for incoming messages to update unread badge
+  // App-level realtime listener for incoming messages to update conversation list
   useEffect(() => {
     if (!myHandle) return;
-    const unsubscribe = subscribeToMyMessages(myHandle, async (incoming) => {
-      if (incoming && incoming.sender !== myHandle) {
-        const senderHandle = incoming.sender.toLowerCase();
-        const participants = [myHandle.toLowerCase(), senderHandle].sort();
-        const convId = incoming.conversation_id || `chat_${participants[0]}_${participants[1]}`;
-
-        const contactId = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          senderHandle
-        );
-
-        let contactAvatar = 'avatar_rose';
-        let contactNick = senderHandle;
-        try {
-          const remoteUser = await findUserByHandle(senderHandle);
-          if (remoteUser?.avatar_id) contactAvatar = remoteUser.avatar_id;
-          if (remoteUser?.nickname) contactNick = remoteUser.nickname;
-        } catch (_) {}
-
-        await insertContact({
-          id: contactId,
-          handle: senderHandle,
-          nickname: contactNick,
-          avatarId: contactAvatar,
-        });
-
-        // Save incoming photo into private hidden sandbox vault
-        let localMedia = null;
-        if (incoming.media_uri) {
-          localMedia = await saveIncomingBase64ToVault(incoming.id, incoming.media_uri);
+    const unsubscribe = subscribeToMyMessages(
+      myHandle,
+      async (incoming) => {
+        if (incoming && incoming.sender !== myHandle) {
+          // Centralized message receiver in AppNavigator persists message to local SQLite
+          loadConversations();
         }
-
-        const isActiveChat = getActiveConversation() === convId;
-
-        await insertMessage({
-          id: incoming.id,
-          conversationId: convId,
-          sender: incoming.sender,
-          type: incoming.media_uri ? 'image' : 'text',
-          body: incoming.body,
-          mediaUri: localMedia,
-          sentAt: incoming.sent_at,
-          expiresAt: incoming.expires_at,
-          read: isActiveChat ? 1 : 0,
-        });
-
-        if (!isActiveChat) {
-          await incrementConversationUnread(
-            convId,
-            incoming.body || 'Photo',
-            incoming.sent_at,
-            incoming.sender
-          );
-          notifyIncomingMessage({
-            senderNickname: contactNick,
-            senderHandle,
-            text: incoming.body || 'Sent a photo 📷',
-            conversationId: convId,
-            contactAvatarId: contactAvatar,
-          });
-        } else {
-          await updateConversationLastMessage(
-            convId,
-            incoming.body || 'Photo',
-            incoming.sent_at,
-            incoming.sender
-          );
-          await markConversationRead(convId, myHandle);
-        }
-
-        markMessagesDeliveredInSupabase(convId, myHandle, incoming.sender);
-        loadConversations();
-      }
-    },
+      },
     async (statusEvent) => {
       if (!statusEvent) return;
       if (statusEvent.event === 'messages_seen') {

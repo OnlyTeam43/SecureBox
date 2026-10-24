@@ -245,22 +245,7 @@ export const notifyIncomingMessage = async ({
         ? contactAvatarId
         : 'avatar_rose';
 
-    // 1. If foregrounded, display the slick In-App notification toast!
-    if (AppState.currentState === 'active') {
-      useBadgeStore.getState().showInAppNotification({
-        type: 'chat',
-        title,
-        body,
-        avatar: safeAvatarId,
-        data: {
-          conversationId: String(conversationId || ''),
-          contactHandle: cleanHandle,
-          contactNickname: cleanNick,
-          contactAvatarId: safeAvatarId,
-        },
-      });
-    }
-
+    // In-app notification toast removed per user stealth requirements
     // Refresh badge counts
     useBadgeStore.getState().refreshBadges();
 
@@ -296,21 +281,7 @@ export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId 
     const cleanNick = fromNickname ? String(fromNickname).substring(0, 40) : null;
     const displayName = cleanNick ? `${cleanNick} (@${cleanHandle})` : `@${cleanHandle}`;
 
-    // If foregrounded, show in-app banner toast
-    if (AppState.currentState === 'active') {
-      useBadgeStore.getState().showInAppNotification({
-        type: 'request',
-        title: 'New Connection Request 💌',
-        body: `${displayName} wants to connect with you!`,
-        avatar: 'avatar_rose',
-        data: {
-          fromHandle: cleanHandle,
-          fromNickname: cleanNick || cleanHandle,
-          reqId: String(reqId || ''),
-        },
-      });
-    }
-
+    // In-app notification toast removed per user stealth requirements
     useBadgeStore.getState().refreshBadges();
 
     await Notifications.scheduleNotificationAsync({
@@ -352,20 +323,7 @@ export const notifyRequestAccepted = async ({ byHandle, byNickname, byAvatar }) 
         ? byAvatar
         : 'avatar_rose';
 
-    if (AppState.currentState === 'active') {
-      useBadgeStore.getState().showInAppNotification({
-        type: 'chat',
-        title: 'Request Accepted! 💕',
-        body: `${displayName} accepted your chat request! Say hi.`,
-        avatar: safeAvatar,
-        data: {
-          contactHandle: cleanHandle,
-          contactNickname: cleanNick || cleanHandle,
-          contactAvatarId: safeAvatar,
-        },
-      });
-    }
-
+    // In-app notification toast removed per user stealth requirements
     useBadgeStore.getState().refreshBadges();
 
     await Notifications.scheduleNotificationAsync({
@@ -463,13 +421,8 @@ export const notifyMissedCall = async ({
   const callTypeName = callType === 'video' ? 'Video' : 'Voice';
 
   if (AppState.currentState === 'active') {
-    useBadgeStore.getState().showInAppNotification({
-      type: 'call',
-      title: `Missed ${callTypeName} Call 📵`,
-      body: `Missed call from ${cleanNick}`,
-      avatar: callerAvatarId || 'avatar_rose',
-      data: { callerHandle, callerNickname, callerAvatarId, callType },
-    });
+    // In-app notification toast removed per user stealth requirements
+    useBadgeStore.getState().refreshBadges();
   } else {
     try {
       await Notifications.scheduleNotificationAsync({

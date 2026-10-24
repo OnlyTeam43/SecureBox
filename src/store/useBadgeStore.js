@@ -22,13 +22,9 @@ export const useBadgeStore = create((set, get) => ({
     }));
   },
 
-  showInAppNotification: (notification) => {
-    set({ inAppNotification: notification });
-  },
+  showInAppNotification: () => {},
 
-  clearInAppNotification: () => {
-    set({ inAppNotification: null });
-  },
+  clearInAppNotification: () => {},
 
   refreshBadges: async (myHandle) => {
     try {

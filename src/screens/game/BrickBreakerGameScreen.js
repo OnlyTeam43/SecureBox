@@ -44,6 +44,7 @@ import {
 
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import { useUserStore } from '../../store/useUserStore';
+import { useBadgeStore } from '../../store/useBadgeStore';
 import { instantEraseEverything } from '../../services/panicService';
 import GoogleOnboardingModal from '../onboarding/GoogleOnboardingModal';
 import GoogleIcon from '../../components/GoogleIcon';
@@ -249,6 +250,14 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const mobileNumber = useUserStore((s) => s.mobileNumber);
   const avatarUri = useUserStore((s) => s.avatarUri);
   const myCharacter = useUserStore((s) => s.myCharacter) || 'panda';
+  const unreadMessagesCount = useBadgeStore((s) => s.unreadMessagesCount);
+
+  // Sync badge unread count on mount and when handle updates
+  useEffect(() => {
+    if (handle) {
+      useBadgeStore.getState().refreshBadges(handle);
+    }
+  }, [handle]);
 
   const boardHeight = Math.min(SCREEN_HEIGHT - insets.top - insets.bottom - 150, 530);
   const paddleY = boardHeight - 38;
@@ -1119,6 +1128,13 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             activeOpacity={0.7}
           >
             <Menu size={20} color="#141413" />
+            {unreadMessagesCount > 0 && (
+              <View style={styles.menuBadgeDot}>
+                <Text style={styles.menuBadgeText}>
+                  {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
           {canGoBack && (
             <TouchableOpacity
@@ -1162,6 +1178,13 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             )}
             <View style={styles.animalIconBox}>
               <CharacterBall character={character} size={38} />
+              {unreadMessagesCount > 0 && (
+                <View style={styles.animalBadge}>
+                  <Text style={styles.animalBadgeText}>
+                    {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
+                  </Text>
+                </View>
+              )}
             </View>
           </TouchableOpacity>
         </View>
@@ -1590,6 +1613,22 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
               </View>
             </View>
 
+            {/* Unread Secret Messages Card in Drawer */}
+            {unreadMessagesCount > 0 && (
+              <View style={styles.drawerMsgCard}>
+                <View style={styles.drawerMsgRow}>
+                  <View style={styles.drawerMsgBadge}>
+                    <Text style={styles.drawerMsgBadgeText}>
+                      💬 {unreadMessagesCount} unread {unreadMessagesCount === 1 ? 'message' : 'messages'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.drawerMsgHint}>
+                  Hold center companion for 3s to enter vault
+                </Text>
+              </View>
+            )}
+
             {/* Menu Options Section */}
             <View style={styles.drawerSection}>
               <Text style={styles.drawerSectionLabel}>SETTINGS & AUDIO</Text>
@@ -1821,6 +1860,53 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
+    position: 'relative',
+  },
+  animalBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -8,
+    backgroundColor: '#E53935',
+    borderRadius: 11,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#FAF9F5',
+    zIndex: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+  },
+  animalBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '900',
+    lineHeight: 12,
+  },
+  menuBadgeDot: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#E53935',
+    borderRadius: 9,
+    minWidth: 17,
+    height: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#FAF9F5',
+  },
+  menuBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
+    lineHeight: 11,
   },
   soundBtn: {
     backgroundColor: '#FFFFFF',
@@ -2527,5 +2613,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#141413',
+  },
+  drawerMsgCard: {
+    backgroundColor: 'rgba(229,57,53,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(229,57,53,0.2)',
+    borderRadius: 14,
+    padding: 12,
+    marginVertical: 10,
+  },
+  drawerMsgRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  drawerMsgBadge: {
+    backgroundColor: '#E53935',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  drawerMsgBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  drawerMsgHint: {
+    fontSize: 12,
+    color: '#5E5D59',
   },
 });
