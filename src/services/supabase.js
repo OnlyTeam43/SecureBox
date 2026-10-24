@@ -695,6 +695,34 @@ export const subscribeToConversation = (conversationId, onNewMessage, onSecurity
       (payload) => {
         try {
           if (payload?.new && payload.new.conversation_id === conversationId) {
+            // Check if this is an ACK or system control row — NEVER pass as chat message!
+            if (
+              payload.new.type === 'ack_delivered' ||
+              payload.new.type === 'ack_seen' ||
+              payload.new.type === 'delete_cmd' ||
+              payload.new.type === 'connection' ||
+              payload.new.type === 'contact_req' ||
+              payload.new.type === 'contact_accepted' ||
+              payload.new.id?.startsWith('ack_') ||
+              payload.new.id?.startsWith('del_cmd_') ||
+              (payload.new.body && (
+                payload.new.body.startsWith('{"conversationId"') ||
+                payload.new.body.includes('"conversationId"') ||
+                payload.new.body.startsWith('{"status"') ||
+                payload.new.body.includes('"status":"connected"')
+              ))
+            ) {
+              if (payload.new.type === 'ack_delivered' && onSecurityEvent) {
+                onSecurityEvent({ event: 'messages_delivered', conversationId });
+              } else if (payload.new.type === 'ack_seen' && onSecurityEvent) {
+                onSecurityEvent({ event: 'messages_seen', conversationId });
+              }
+              if (payload.new.id) {
+                supabase.from('messages').delete().eq('id', payload.new.id).then(() => {}).catch(() => {});
+              }
+              return;
+            }
+
             onNewMessage(payload.new);
           }
         } catch (_) {}
@@ -703,6 +731,20 @@ export const subscribeToConversation = (conversationId, onNewMessage, onSecurity
     .on('broadcast', { event: 'new_message' }, ({ payload }) => {
       try {
         if (payload && payload.conversation_id === conversationId) {
+          if (
+            payload.type === 'ack_delivered' ||
+            payload.type === 'ack_seen' ||
+            payload.type === 'delete_cmd' ||
+            payload.type === 'connection' ||
+            payload.id?.startsWith('ack_') ||
+            (payload.body && (
+              payload.body.startsWith('{"conversationId"') ||
+              payload.body.includes('"conversationId"') ||
+              payload.body.startsWith('{"status"')
+            ))
+          ) {
+            return;
+          }
           onNewMessage(payload);
         }
       } catch (_) {}
@@ -1179,11 +1221,76 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
               return;
             }
 
-            // Never dispatch internal connection signals or raw status payloads as chat messages
+            // Check if this is an ACK delivered
+            if (payload.new.type === 'ack_delivered' || payload.new.id?.startsWith('ack_deliv_')) {
+              try {
+                const bodyObj = typeof payload.new.body === 'string' ? JSON.parse(payload.new.body) : payload.new.body;
+                notifyMessageStatusListeners({
+                  event: 'messages_delivered',
+                  ...bodyObj,
+                });
+                if (bodyObj?.conversationId) {
+                  markSentMessagesDelivered(bodyObj.conversationId, clean);
+                }
+                supabase.from('messages').delete().eq('id', payload.new.id).then(() => {}).catch(() => {});
+              } catch (_) {}
+              return;
+            }
+
+            // Check if this is an ACK seen
+            if (payload.new.type === 'ack_seen' || payload.new.id?.startsWith('ack_seen_')) {
+              try {
+                const bodyObj = typeof payload.new.body === 'string' ? JSON.parse(payload.new.body) : payload.new.body;
+                notifyMessageStatusListeners({
+                  event: 'messages_seen',
+                  ...bodyObj,
+                });
+                if (bodyObj?.conversationId) {
+                  markSentMessagesRead(bodyObj.conversationId, clean);
+                }
+                supabase.from('messages').delete().eq('id', payload.new.id).then(() => {}).catch(() => {});
+              } catch (_) {}
+              return;
+            }
+
+            // Check if this is an offline delete command
+            if (payload.new.type === 'delete_cmd' || payload.new.id?.startsWith('del_cmd_')) {
+              try {
+                const bodyObj = typeof payload.new.body === 'string' ? JSON.parse(payload.new.body) : payload.new.body;
+                notifyMessageStatusListeners({
+                  event: 'delete_messages',
+                  ...bodyObj,
+                });
+                if (bodyObj?.messageIds && bodyObj.messageIds.length > 0) {
+                  deleteMessagesBatch(bodyObj.messageIds);
+                }
+                supabase.from('messages').delete().eq('id', payload.new.id).then(() => {}).catch(() => {});
+              } catch (_) {}
+              return;
+            }
+
+            // Never dispatch internal connection signals, ACKs, or raw status payloads as chat messages
             if (
               payload.new.type === 'connection' ||
-              (payload.new.body && (payload.new.body.startsWith('{"status"') || payload.new.body.includes('"status":"connected"')))
+              payload.new.type === 'contact_req' ||
+              payload.new.type === 'contact_accepted' ||
+              payload.new.type === 'ack_delivered' ||
+              payload.new.type === 'ack_seen' ||
+              payload.new.type === 'delete_cmd' ||
+              payload.new.id?.startsWith('ack_') ||
+              payload.new.id?.startsWith('del_cmd_') ||
+              payload.new.id?.startsWith('conn_') ||
+              payload.new.id?.startsWith('req_') ||
+              (payload.new.body && (
+                payload.new.body.startsWith('{"conversationId"') ||
+                payload.new.body.includes('"conversationId"') ||
+                payload.new.body.startsWith('{"status"') ||
+                payload.new.body.includes('"status":"connected"')
+              ))
             ) {
+              if (payload.new.id) {
+                supabase.from('messages').delete().eq('id', payload.new.id).then(() => {}).catch(() => {});
+              }
               return;
             }
 
@@ -1199,7 +1306,16 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
             payload.type === 'connection' ||
             payload.type === 'contact_req' ||
             payload.type === 'contact_accepted' ||
-            (payload.body && (payload.body.startsWith('{"status"') || payload.body.includes('"status":"connected"')))
+            payload.type === 'ack_delivered' ||
+            payload.type === 'ack_seen' ||
+            payload.type === 'delete_cmd' ||
+            payload.id?.startsWith('ack_') ||
+            (payload.body && (
+              payload.body.startsWith('{"conversationId"') ||
+              payload.body.includes('"conversationId"') ||
+              payload.body.startsWith('{"status"') ||
+              payload.body.includes('"status":"connected"')
+            ))
           ) {
             return;
           }

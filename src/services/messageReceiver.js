@@ -11,6 +11,9 @@ import {
   updateConversationLastMessage,
   markConversationRead,
   upsertConversation,
+  markSentMessagesDelivered,
+  markSentMessagesRead,
+  deleteMessagesBatch,
 } from '../db/database';
 import {
   supabase,
@@ -33,13 +36,66 @@ export const processIncomingMessage = async (incoming, myHandle) => {
   const senderClean = (incoming.sender || '').replace('@', '').trim().toLowerCase();
   if (!senderClean || senderClean === cleanMy) return;
 
-  // NEVER process system control / connection records as chat messages!
+  // 1. Process delivery ACK packets — NEVER save as chat message!
+  if (incoming.type === 'ack_delivered' || incoming.id?.startsWith('ack_deliv_')) {
+    try {
+      const payload = typeof incoming.body === 'string' ? JSON.parse(incoming.body) : incoming.body;
+      const targetConvId = payload?.conversationId || incoming.conversation_id;
+      if (targetConvId) {
+        await markSentMessagesDelivered(targetConvId, cleanMy);
+      }
+      if (incoming.id) {
+        await supabase.from('messages').delete().eq('id', incoming.id);
+      }
+    } catch (_) {}
+    return;
+  }
+
+  // 2. Process read ACK packets — NEVER save as chat message!
+  if (incoming.type === 'ack_seen' || incoming.id?.startsWith('ack_seen_')) {
+    try {
+      const payload = typeof incoming.body === 'string' ? JSON.parse(incoming.body) : incoming.body;
+      const targetConvId = payload?.conversationId || incoming.conversation_id;
+      if (targetConvId) {
+        await markSentMessagesRead(targetConvId, cleanMy);
+      }
+      if (incoming.id) {
+        await supabase.from('messages').delete().eq('id', incoming.id);
+      }
+    } catch (_) {}
+    return;
+  }
+
+  // 3. Process remote message deletion command — NEVER save as chat message!
+  if (incoming.type === 'delete_cmd' || incoming.id?.startsWith('del_cmd_')) {
+    try {
+      const payload = typeof incoming.body === 'string' ? JSON.parse(incoming.body) : incoming.body;
+      if (payload?.messageIds && payload.messageIds.length > 0) {
+        await deleteMessagesBatch(payload.messageIds);
+      }
+      if (incoming.id) {
+        await supabase.from('messages').delete().eq('id', incoming.id);
+      }
+    } catch (_) {}
+    return;
+  }
+
+  // 4. NEVER process system control / connection records as chat messages!
   if (
     incoming.type === 'connection' ||
     incoming.type === 'contact_req' ||
     incoming.type === 'contact_accepted' ||
     incoming.type === 'call_req' ||
-    (incoming.body && (incoming.body.startsWith('{"status"') || incoming.body.includes('"status":"connected"')))
+    incoming.id?.startsWith('ack_') ||
+    incoming.id?.startsWith('del_cmd_') ||
+    incoming.id?.startsWith('conn_') ||
+    incoming.id?.startsWith('req_') ||
+    (incoming.body && (
+      incoming.body.startsWith('{"conversationId"') ||
+      incoming.body.includes('"conversationId"') ||
+      incoming.body.startsWith('{"status"') ||
+      incoming.body.includes('"status":"connected"')
+    ))
   ) {
     if (incoming.id) {
       try {

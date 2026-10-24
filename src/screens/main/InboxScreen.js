@@ -550,6 +550,14 @@ export default function InboxScreen({ navigation }) {
 
     // Show "📷 Photo" emoji-prefixed label for image messages
     let rawLastMsg = item.last_msg;
+    if (
+      rawLastMsg &&
+      (rawLastMsg.startsWith('{"conversationId"') ||
+        rawLastMsg.includes('"conversationId"') ||
+        rawLastMsg.startsWith('{"status"'))
+    ) {
+      rawLastMsg = '';
+    }
     if (rawLastMsg === 'Photo') rawLastMsg = '📷 Photo';
 
     let subtitle = rawLastMsg;

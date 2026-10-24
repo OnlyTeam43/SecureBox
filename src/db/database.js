@@ -89,11 +89,23 @@ const initSchema = async () => {
     // Column already exists
   }
 
-  // Automatic clean-up: Purge any raw connection/status JSON strings so they never render as messages
+  // Automatic clean-up: Purge any raw connection/status/ACK JSON strings so they never render as messages
   try {
     await db.execAsync(`
-      DELETE FROM messages WHERE type = 'connection' OR body LIKE '{"status"%' OR body LIKE '%"status":"connected"%';
-      UPDATE conversations SET last_msg = 'Connected! Say hi 💕' WHERE last_msg LIKE '{"status"%' OR last_msg LIKE '%"status":"connected"%';
+      DELETE FROM messages WHERE
+        type IN ('connection', 'contact_req', 'contact_accepted', 'call_req', 'ack_seen', 'ack_delivered', 'delete_cmd')
+        OR id LIKE 'ack_%'
+        OR id LIKE 'del_cmd_%'
+        OR body LIKE '{"conversationId"%'
+        OR body LIKE '%"conversationId"%'
+        OR body LIKE '{"status"%'
+        OR body LIKE '%"status":"connected"%';
+
+      UPDATE conversations SET last_msg = '' WHERE
+        last_msg LIKE '{"conversationId"%'
+        OR last_msg LIKE '%"conversationId"%'
+        OR last_msg LIKE '{"status"%'
+        OR last_msg LIKE '%"status":"connected"%';
     `);
   } catch (_) {}
 };
@@ -153,6 +165,15 @@ export const upsertConversation = async (conv) => {
 };
 
 export const updateConversationLastMessage = async (conversationId, text, time, sender = null, status = 'sent') => {
+  if (
+    text &&
+    (text.startsWith('{"conversationId"') ||
+      text.includes('"conversationId"') ||
+      text.startsWith('{"status"') ||
+      text.includes('"status":"connected"'))
+  ) {
+    return;
+  }
   const db = await getDB();
   await db.runAsync(
     `UPDATE conversations SET last_msg = ?, last_time = ?, last_sender = ?, last_status = ? WHERE id = ?`,
@@ -161,6 +182,15 @@ export const updateConversationLastMessage = async (conversationId, text, time, 
 };
 
 export const incrementConversationUnread = async (conversationId, text, time, sender = null) => {
+  if (
+    text &&
+    (text.startsWith('{"conversationId"') ||
+      text.includes('"conversationId"') ||
+      text.startsWith('{"status"') ||
+      text.includes('"status":"connected"'))
+  ) {
+    return;
+  }
   const db = await getDB();
   await db.runAsync(
     `UPDATE conversations SET last_msg = ?, last_time = ?, last_sender = ?, unread = COALESCE(unread, 0) + 1 WHERE id = ?`,
@@ -170,11 +200,15 @@ export const incrementConversationUnread = async (conversationId, text, time, se
 
 export const getAllConversations = async (currentHandle = null) => {
   const db = await getDB();
+  const notMsgSql = `AND m.type NOT IN ('connection', 'contact_req', 'contact_accepted', 'call_req', 'ack_seen', 'ack_delivered', 'delete_cmd')
+    AND m.id NOT LIKE 'ack_%' AND m.id NOT LIKE 'del_cmd_%'
+    AND (m.body IS NULL OR (m.body NOT LIKE '{"conversationId"%' AND m.body NOT LIKE '{"status"%'))`;
+
   const rows = await db.getAllAsync(`
     SELECT c.*, ct.handle, ct.nickname, ct.avatar_id,
-      (SELECT m.sender FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ORDER BY m.sent_at DESC LIMIT 1) as latest_sender,
-      (SELECT m.read FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ORDER BY m.sent_at DESC LIMIT 1) as latest_read,
-      (SELECT m.delivered FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ORDER BY m.sent_at DESC LIMIT 1) as latest_delivered
+      (SELECT m.sender FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY m.sent_at DESC LIMIT 1) as latest_sender,
+      (SELECT m.read FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY m.sent_at DESC LIMIT 1) as latest_read,
+      (SELECT m.delivered FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY m.sent_at DESC LIMIT 1) as latest_delivered
     FROM conversations c
     LEFT JOIN contacts ct ON ct.id = c.contact_id
     ORDER BY c.last_time DESC
@@ -370,7 +404,17 @@ export const insertMessage = async (msg) => {
     msg.type === 'connection' ||
     msg.type === 'contact_req' ||
     msg.type === 'contact_accepted' ||
-    (msg.body && (msg.body.startsWith('{"status"') || msg.body.includes('"status":"connected"')))
+    msg.type === 'ack_seen' ||
+    msg.type === 'ack_delivered' ||
+    msg.type === 'delete_cmd' ||
+    msg.id?.startsWith('ack_') ||
+    msg.id?.startsWith('del_cmd_') ||
+    (msg.body && (
+      msg.body.startsWith('{"conversationId"') ||
+      msg.body.includes('"conversationId"') ||
+      msg.body.startsWith('{"status"') ||
+      msg.body.includes('"status":"connected"')
+    ))
   ) {
     return;
   }
@@ -417,9 +461,43 @@ export const insertMessage = async (msg) => {
   );
 };
 
+export const purgeCorruptedSystemMessages = async (conversationId = null) => {
+  const db = await getDB();
+  try {
+    if (conversationId) {
+      await db.runAsync(
+        `DELETE FROM messages WHERE conversation_id = ? AND (
+          type IN ('connection', 'contact_req', 'contact_accepted', 'call_req', 'ack_seen', 'ack_delivered', 'delete_cmd')
+          OR id LIKE 'ack_%'
+          OR id LIKE 'del_cmd_%'
+          OR body LIKE '{"conversationId"%'
+          OR body LIKE '%"conversationId"%'
+          OR body LIKE '{"status"%'
+          OR body LIKE '%"status":"connected"%'
+        )`,
+        [conversationId]
+      );
+    } else {
+      await db.runAsync(`
+        DELETE FROM messages WHERE
+          type IN ('connection', 'contact_req', 'contact_accepted', 'call_req', 'ack_seen', 'ack_delivered', 'delete_cmd')
+          OR id LIKE 'ack_%'
+          OR id LIKE 'del_cmd_%'
+          OR body LIKE '{"conversationId"%'
+          OR body LIKE '%"conversationId"%'
+          OR body LIKE '{"status"%'
+          OR body LIKE '%"status":"connected"%';
+      `);
+    }
+  } catch (_) {}
+};
+
 export const getMessages = async (conversationId, limit = 50, before = null) => {
   const db = await getDB();
-  const notCodeSql = `AND (body NOT LIKE '{"status"%' AND (body IS NULL OR body NOT LIKE '%"status":"connected"%')) AND type != 'connection' AND type != 'contact_req' AND type != 'contact_accepted'`;
+  const notCodeSql = `AND (body NOT LIKE '{"status"%' AND (body IS NULL OR body NOT LIKE '%"status":"connected"%'))
+    AND (body NOT LIKE '{"conversationId"%' AND (body IS NULL OR body NOT LIKE '%"conversationId"%'))
+    AND type NOT IN ('connection', 'contact_req', 'contact_accepted', 'ack_seen', 'ack_delivered', 'delete_cmd')
+    AND id NOT LIKE 'ack_%' AND id NOT LIKE 'del_cmd_%'`;
   if (before) {
     return await db.getAllAsync(
       `SELECT * FROM messages WHERE conversation_id = ? AND deleted = 0 AND (body IS NOT NULL OR media_uri IS NOT NULL) ${notCodeSql} AND sent_at < ?

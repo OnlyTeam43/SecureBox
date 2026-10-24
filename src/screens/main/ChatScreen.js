@@ -65,6 +65,7 @@ import {
   markSentMessagesRead,
   markSentMessagesDelivered,
   ensureConversationExists,
+  purgeCorruptedSystemMessages,
 } from '../../db/database';
 import {
   saveIncomingBase64ToVault,
@@ -242,8 +243,18 @@ export default function ChatScreen({ route, navigation }) {
     if (!conversationId) return;
     try {
       await ensureConversationExists(conversationId, contactHandle, contactNickname, contactAvatarId);
+      await purgeCorruptedSystemMessages(conversationId);
       const dbMsgs = await getMessages(conversationId);
-      const sorted = (dbMsgs || []).reverse(); // Oldest first, newest at bottom
+      const cleanMsgs = (dbMsgs || []).filter(
+        (m) =>
+          !m.body ||
+          (!m.body.startsWith('{"conversationId"') &&
+            !m.body.includes('"conversationId"') &&
+            !m.body.startsWith('{"status"') &&
+            !m.id?.startsWith('ack_') &&
+            !['connection', 'contact_req', 'contact_accepted', 'call_req', 'ack_seen', 'ack_delivered', 'delete_cmd'].includes(m.type))
+      );
+      const sorted = cleanMsgs.reverse(); // Oldest first, newest at bottom
       setMessages(sorted);
 
       const myMsgs = sorted.filter((m) => m.sender === myHandle);
@@ -319,12 +330,22 @@ export default function ChatScreen({ route, navigation }) {
       conversationId,
       async (newMsg) => {
         if (newMsg && newMsg.sender !== myHandle) {
-          // Never process or display raw connection/status payloads as chat messages
+          // Never process or display raw connection/status/ACK payloads as chat messages
           if (
             newMsg.type === 'connection' ||
             newMsg.type === 'contact_req' ||
             newMsg.type === 'contact_accepted' ||
-            (newMsg.body && (newMsg.body.startsWith('{"status"') || newMsg.body.includes('"status":"connected"')))
+            newMsg.type === 'ack_seen' ||
+            newMsg.type === 'ack_delivered' ||
+            newMsg.type === 'delete_cmd' ||
+            newMsg.id?.startsWith('ack_') ||
+            newMsg.id?.startsWith('del_cmd_') ||
+            (newMsg.body && (
+              newMsg.body.startsWith('{"conversationId"') ||
+              newMsg.body.includes('"conversationId"') ||
+              newMsg.body.startsWith('{"status"') ||
+              newMsg.body.includes('"status":"connected"')
+            ))
           ) {
             try {
               await supabase.from('messages').delete().eq('id', newMsg.id);
@@ -359,6 +380,15 @@ export default function ChatScreen({ route, navigation }) {
           if (mediaDataUri) {
             localMedia = await saveIncomingBase64ToVault(newMsg.id, mediaDataUri);
           }
+          if (
+            fullBody &&
+            (fullBody.startsWith('{"conversationId"') ||
+              fullBody.includes('"conversationId"') ||
+              fullBody.startsWith('{"status"'))
+          ) {
+            return;
+          }
+
           const storedMsg = {
             id: newMsg.id,
             conversationId: newMsg.conversation_id || conversationId,
