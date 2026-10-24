@@ -321,8 +321,8 @@ export default function AppNavigator() {
     );
   }
 
-  // Front-door Animal Brick Breaker Game until unlocked (or via Google Sign-In for new users)
-  if (isStealthModeEnabled && !isStealthUnlocked) {
+  // Front-door Animal Brick Breaker Game until unlocked (default disguise before and after login)
+  if (!isStealthUnlocked && (isStealthModeEnabled || !isSetup)) {
     return <BrickBreakerGameScreen onUnlock={() => setStealthUnlocked(true)} />;
   }
 

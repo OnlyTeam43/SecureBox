@@ -76,7 +76,7 @@ export const useUserStore = create(
           isSetup: false,
           defaultExpiry: null,
           pendingInviteHandle: null,
-          isStealthModeEnabled: false,
+          isStealthModeEnabled: true,
           isStealthUnlocked: false,
           isDecoyUnlocked: false,
           isStealthNotificationsEnabled: false,
@@ -89,6 +89,11 @@ export const useUserStore = create(
     {
       name: 'securebox-user',
       storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => {
+        // Do not persist unlocked session states so the app always defaults to the game on startup/restart!
+        const { isStealthUnlocked, isDecoyUnlocked, ...rest } = state;
+        return rest;
+      },
     }
   )
 );
