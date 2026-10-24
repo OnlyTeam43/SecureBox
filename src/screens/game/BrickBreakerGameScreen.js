@@ -263,6 +263,10 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const [level, setLevel] = useState(1);
   const [gameState, setGameState] = useState('ready'); // 'ready' | 'playing' | 'cleared' | 'over'
   const [activeBanner, setActiveBanner] = useState(null);
+  const bannerOpacity = useRef(new Animated.Value(0)).current;
+  const bannerTranslateY = useRef(new Animated.Value(-10)).current;
+  const bannerScale = useRef(new Animated.Value(0.85)).current;
+  const bannerTimeoutRef = useRef(null);
 
   // Bricks state initialized synchronously
   const [bricks, setBricks] = useState(() => generateBricksData(1));
@@ -443,9 +447,12 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // PanResponder for ZERO-LATENCY Direct Paddle Movement & Instant Tap to Launch
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () =>
+        gameStateRef.current === 'playing' || gameStateRef.current === 'ready',
+      onMoveShouldSetPanResponder: () =>
+        gameStateRef.current === 'playing' || gameStateRef.current === 'ready',
       onPanResponderGrant: (_, gestureState) => {
+        if (gameStateRef.current !== 'playing' && gameStateRef.current !== 'ready') return;
         const touchX = gestureState.x0 - BOARD_PADDING;
         let newX = touchX - paddleWidthRef.current / 2;
         if (newX < 0) newX = 0;
@@ -468,6 +475,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         }
       },
       onPanResponderMove: (_, gestureState) => {
+        if (gameStateRef.current !== 'playing' && gameStateRef.current !== 'ready') return;
         const touchX = gestureState.moveX - BOARD_PADDING;
         let newX = touchX - paddleWidthRef.current / 2;
         if (newX < 0) newX = 0;
@@ -566,11 +574,67 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     }, 12000);
   };
 
-  // Show floating power-up banner
-  const showBanner = (msg) => {
+  // Show floating power-up / bonus banner with smooth fade-in and graceful fade-out
+  const showBanner = useCallback((msg) => {
+    if (bannerTimeoutRef.current) {
+      clearTimeout(bannerTimeoutRef.current);
+    }
+    bannerOpacity.stopAnimation();
+    bannerTranslateY.stopAnimation();
+    bannerScale.stopAnimation();
+
     setActiveBanner(msg);
-    setTimeout(() => setActiveBanner(null), 2200);
-  };
+    bannerOpacity.setValue(0);
+    bannerTranslateY.setValue(-10);
+    bannerScale.setValue(0.85);
+
+    // 1. Snappy entrance: fade-in and spring scale (200ms)
+    Animated.parallel([
+      Animated.timing(bannerOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bannerTranslateY, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(bannerScale, {
+        toValue: 1,
+        friction: 5,
+        tension: 80,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // 2. Hold for 1300ms, then graceful fade-out over 750ms with smooth upward float
+      bannerTimeoutRef.current = setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(bannerOpacity, {
+            toValue: 0,
+            duration: 750,
+            useNativeDriver: true,
+          }),
+          Animated.timing(bannerTranslateY, {
+            toValue: -16,
+            duration: 750,
+            useNativeDriver: true,
+          }),
+        ]).start(({ finished }) => {
+          if (finished) {
+            setActiveBanner(null);
+          }
+        });
+      }, 1300);
+    });
+  }, [bannerOpacity, bannerTranslateY, bannerScale]);
+
+  // Clean up banner timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
+    };
+  }, []);
 
   // ── ZERO LATENCY 60-120 FPS NATIVE GAME LOOP ──
   useEffect(() => {
@@ -854,6 +918,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           setGameHighScore(scoreRef.current);
           setGameMaxUnlockedLevel(levelRef.current + 1); // Unlock next level immediately!
           gameAudioService.playLevelWin();
+          showBanner(`🎉 +${200 * levelRef.current} LEVEL BONUS!`);
           try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           } catch (_) {}
@@ -893,6 +958,9 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
   // Next level handler (sequential progression 1 -> 2 -> ... -> 200+)
   const handleNextLevel = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (_) {}
     const nextLvl = levelRef.current + 1;
     setGameMaxUnlockedLevel(nextLvl);
     loadLevel(nextLvl);
@@ -906,6 +974,9 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
   // Restart game
   const handleRestart = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (_) {}
     scoreRef.current = 0;
     setScore(0);
     livesRef.current = 3;
@@ -1128,12 +1199,12 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
         <View style={styles.hudCardCenter}>
           <View style={styles.livesRow}>
-            {[1, 2, 3].map((heartIndex) => (
+            {Array.from({ length: Math.max(3, lives) }, (_, i) => i + 1).map((heartIndex) => (
               <Heart
                 key={heartIndex}
                 size={18}
-                color={heartIndex <= lives ? '#D97757' : '#D4D0C5'}
-                fill={heartIndex <= lives ? '#D97757' : 'transparent'}
+                color={heartIndex <= lives ? '#E53935' : '#D4D0C5'}
+                fill={heartIndex <= lives ? '#E53935' : 'transparent'}
                 style={{ marginHorizontal: 2 }}
               />
             ))}
@@ -1150,106 +1221,121 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         </View>
       </View>
 
-      {/* Main Game Board Canvas with Zero-Latency Pan */}
-      <View
-        style={[styles.board, { height: boardHeight }]}
-        {...panResponder.panHandlers}
-      >
-        {/* Render Bricks */}
-        {bricks.map((b) => (
-          <View
-            key={b.id}
-            ref={(el) => {
-              brickRefs.current[b.id] = el;
-            }}
-            style={[
-              styles.brick,
-              {
-                left: b.x,
-                top: b.y,
-                width: b.width,
-                height: b.height,
-                backgroundColor: b.color,
-                borderColor: b.border,
-              },
-            ]}
-          >
-            {b.unbreakable ? (
-              <View style={styles.steelPlate}>
-                <View style={styles.steelRivet} />
-                <View style={styles.steelCenterLine} />
-                <View style={styles.steelRivet} />
-              </View>
-            ) : (
-              <View style={styles.brickShine} />
-            )}
-          </View>
-        ))}
-
-        {/* Falling Gifts Direct Views (Native-controlled) */}
-        {giftsState.current.map((g, k) => (
-          <View
-            key={g.id}
-            ref={giftViewRefs[k]}
-            style={[
-              styles.giftItem,
-              {
-                left: -999,
-                top: -999,
-                opacity: 0,
-              },
-            ]}
-          >
-            <Text style={styles.giftEmoji}>{g.emoji}</Text>
-          </View>
-        ))}
-
-        {/* Active Power-up Floating Banner */}
-        {activeBanner && (
-          <View style={styles.powerupBanner}>
-            <Sparkles size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.powerupBannerText}>{activeBanner}</Text>
-          </View>
-        )}
-
-        {/* Zero Latency Paddle View (Native Ref) */}
+      {/* Main Game Board Canvas with Zero-Latency Pan & Independent Overlays */}
+      <View style={{ width: BOARD_WIDTH, height: boardHeight, alignSelf: 'center', position: 'relative' }}>
         <View
-          ref={paddleRef}
-          style={[
-            styles.paddle,
-            {
-              left: paddleXRef.current,
-              top: paddleY,
-              width: paddleWidthRef.current,
-              height: PADDLE_HEIGHT,
-            },
-          ]}
+          style={[styles.board, { height: boardHeight }]}
+          {...panResponder.panHandlers}
         >
-          <View style={styles.paddleAccent} />
+          {/* Render Bricks */}
+          {bricks.map((b) => (
+            <View
+              key={`${level}_${b.id}`}
+              ref={(el) => {
+                brickRefs.current[b.id] = el;
+              }}
+              style={[
+                styles.brick,
+                {
+                  left: b.x,
+                  top: b.y,
+                  width: b.width,
+                  height: b.height,
+                  backgroundColor: b.color,
+                  borderColor: b.border,
+                  opacity: 1,
+                },
+              ]}
+            >
+              {b.unbreakable ? (
+                <View style={styles.steelPlate}>
+                  <View style={styles.steelRivet} />
+                  <View style={styles.steelCenterLine} />
+                  <View style={styles.steelRivet} />
+                </View>
+              ) : (
+                <View style={styles.brickShine} />
+              )}
+            </View>
+          ))}
+
+          {/* Falling Gifts Direct Views (Native-controlled) */}
+          {giftsState.current.map((g, k) => (
+            <View
+              key={g.id}
+              ref={giftViewRefs[k]}
+              style={[
+                styles.giftItem,
+                {
+                  left: -999,
+                  top: -999,
+                  opacity: 0,
+                },
+              ]}
+            >
+              <Text style={styles.giftEmoji}>{g.emoji}</Text>
+            </View>
+          ))}
+
+          {/* Zero Latency Paddle View (Native Ref) */}
+          <View
+            ref={paddleRef}
+            style={[
+              styles.paddle,
+              {
+                left: paddleXRef.current,
+                top: paddleY,
+                width: paddleWidthRef.current,
+                height: PADDLE_HEIGHT,
+              },
+            ]}
+          >
+            <View style={styles.paddleAccent} />
+          </View>
+
+          {/* Zero Latency Balls Pool (Native Views with Direct setNativeProps) */}
+          {ballsState.current.map((b, i) => (
+            <View
+              key={b.id}
+              ref={ballViewRefs[i]}
+              style={[
+                styles.ballWrap,
+                {
+                  left: -999,
+                  top: -999,
+                  width: BALL_SIZE,
+                  height: BALL_SIZE,
+                  opacity: 0,
+                },
+              ]}
+            >
+              <CharacterBall
+                character={i === 0 ? character : i === 1 ? 'cat' : i === 2 ? 'puppy' : 'panda'}
+                size={BALL_SIZE}
+              />
+            </View>
+          ))}
         </View>
 
-        {/* Zero Latency Balls Pool (Native Views with Direct setNativeProps) */}
-        {ballsState.current.map((b, i) => (
-          <View
-            key={b.id}
-            ref={ballViewRefs[i]}
+        {/* Active Power-up / Bonus Floating Banner with Fade-out Animation */}
+        {activeBanner && (
+          <Animated.View
+            pointerEvents="none"
             style={[
-              styles.ballWrap,
+              styles.powerupBanner,
               {
-                left: -999,
-                top: -999,
-                width: BALL_SIZE,
-                height: BALL_SIZE,
-                opacity: 0,
+                opacity: bannerOpacity,
+                transform: [
+                  { translateY: bannerTranslateY },
+                  { scale: bannerScale },
+                ],
               },
             ]}
           >
-            <CharacterBall
-              character={i === 0 ? character : i === 1 ? 'cat' : i === 2 ? 'puppy' : 'panda'}
-              size={BALL_SIZE}
-            />
-          </View>
-        ))}
+            <Sparkles size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+            <Text style={styles.powerupBannerText}>{activeBanner}</Text>
+          </Animated.View>
+        )}
 
         {/* Tap to Serve Banner */}
         {gameState === 'ready' && (
