@@ -28,6 +28,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import {
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
+  ChevronRight,
   Play,
   RotateCcw,
   Trophy,
@@ -54,16 +57,16 @@ import gameAudioService from '../../services/gameAudioService';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Game Board Dimensions (High-Density 8x8 Arcade Grid)
-const BOARD_PADDING = 16;
+const BOARD_PADDING = 18;
 const BOARD_WIDTH = SCREEN_WIDTH - BOARD_PADDING * 2;
-const BALL_SIZE = 32;
+const BALL_SIZE = 30;
 const PADDLE_HEIGHT = 14;
 const BASE_PADDLE_WIDTH = 96;
 const WIDE_PADDLE_WIDTH = 138;
 const BRICK_ROWS = 8;
 const BRICK_COLS = 8;
-const BRICK_GAP = 4;
-const BRICK_HEIGHT = 16;
+const BRICK_GAP = 3.5;
+const BRICK_HEIGHT = 12.5;
 const BRICK_WIDTH = Math.floor((BOARD_WIDTH - 2 - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS);
 const TOTAL_GRID_WIDTH = BRICK_COLS * BRICK_WIDTH + (BRICK_COLS - 1) * BRICK_GAP;
 const GRID_OFFSET_X = Math.max(0, Math.floor((BOARD_WIDTH - 2 - TOTAL_GRID_WIDTH) / 2));
@@ -245,6 +248,10 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const setGameHighScore = useUserStore((s) => s.setGameHighScore);
   const gameMaxUnlockedLevel = useUserStore((s) => s.gameMaxUnlockedLevel) || 3;
   const setGameMaxUnlockedLevel = useUserStore((s) => s.setGameMaxUnlockedLevel);
+  const gameCurrentLevel = useUserStore((s) => s.gameCurrentLevel) || 1;
+  const setGameCurrentLevel = useUserStore((s) => s.setGameCurrentLevel);
+  const hasSeenAppTour = useUserStore((s) => s.hasSeenAppTour);
+  const setHasSeenAppTour = useUserStore((s) => s.setHasSeenAppTour);
   const nickname = useUserStore((s) => s.nickname);
   const handle = useUserStore((s) => s.handle);
   const mobileNumber = useUserStore((s) => s.mobileNumber);
@@ -265,11 +272,12 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // Selected companion persona
   const [character, setCharacter] = useState(myCharacter);
 
-  // HUD stats
+  // HUD stats — initialized directly from persisted user progress
+  const initialLevel = useUserStore.getState().gameCurrentLevel || 1;
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
   const livesRef = useRef(3);
-  const [level, setLevel] = useState(1);
+  const [level, setLevel] = useState(initialLevel);
   const [gameState, setGameState] = useState('ready'); // 'ready' | 'playing' | 'cleared' | 'over'
   const [activeBanner, setActiveBanner] = useState(null);
   const bannerOpacity = useRef(new Animated.Value(0)).current;
@@ -277,8 +285,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const bannerScale = useRef(new Animated.Value(0.85)).current;
   const bannerTimeoutRef = useRef(null);
 
-  // Bricks state initialized synchronously
-  const [bricks, setBricks] = useState(() => generateBricksData(1));
+  // Bricks state initialized synchronously with current level
+  const [bricks, setBricks] = useState(() => generateBricksData(initialLevel));
   const bricksRef = useRef(bricks);
   const remainingBricksRef = useRef(bricks.filter((b) => !b.unbreakable).length);
   const brickRefs = useRef({});
@@ -349,6 +357,74 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   const [showLevelPicker, setShowLevelPicker] = useState(false);
   const [selectedTier, setSelectedTier] = useState(0);
   const [showDrawer, setShowDrawer] = useState(false);
+
+  // Synchronize state if store rehydrates saved level after initial mount
+  useEffect(() => {
+    if (gameCurrentLevel && gameCurrentLevel !== levelRef.current) {
+      loadLevel(gameCurrentLevel);
+    }
+  }, [gameCurrentLevel]);
+
+  // First-Time Fresh User Feature Tour state
+  const [showTour, setShowTour] = useState(false);
+  const [tourStep, setTourStep] = useState(0); // 0: 3s hold secret, 1: Disguise arcade game, 2: Silent counter
+  const arrowAnim = useRef(new Animated.Value(0)).current;
+
+  // Open tour automatically for fresh first-time users
+  useEffect(() => {
+    if (!hasSeenAppTour) {
+      const t = setTimeout(() => {
+        setShowTour(true);
+      }, 650);
+      return () => clearTimeout(t);
+    }
+  }, [hasSeenAppTour]);
+
+  // Arrow bounce animation loop
+  useEffect(() => {
+    if (showTour) {
+      arrowAnim.setValue(0);
+      const bounceLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(arrowAnim, {
+            toValue: -8,
+            duration: 550,
+            useNativeDriver: true,
+          }),
+          Animated.timing(arrowAnim, {
+            toValue: 2,
+            duration: 550,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      bounceLoop.start();
+      return () => bounceLoop.stop();
+    }
+  }, [showTour, tourStep, arrowAnim]);
+
+  const handleNextTourStep = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (_) {}
+    setTourStep((prev) => Math.min(prev + 1, 2));
+  };
+
+  const handleSkipTour = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (_) {}
+    setHasSeenAppTour(true);
+    setShowTour(false);
+  };
+
+  const handleFinishTour = () => {
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (_) {}
+    setHasSeenAppTour(true);
+    setShowTour(false);
+  };
 
   // 3-Second Hold on Top Animal Icon state
   const holdTimerRef = useRef(null);
@@ -925,7 +1001,9 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           scoreRef.current += 200 * levelRef.current;
           setScore(scoreRef.current);
           setGameHighScore(scoreRef.current);
-          setGameMaxUnlockedLevel(levelRef.current + 1); // Unlock next level immediately!
+          const nextLvl = levelRef.current + 1;
+          setGameMaxUnlockedLevel(nextLvl); // Unlock next level immediately!
+          setGameCurrentLevel(nextLvl); // Remember user completed level and is now on next level!
           gameAudioService.playLevelWin();
           showBanner(`🎉 +${200 * levelRef.current} LEVEL BONUS!`);
           try {
@@ -942,14 +1020,16 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       isCancelled = true;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [ballViewRefs, giftViewRefs, resetBallToPaddle, setGameHighScore, setGameMaxUnlockedLevel]);
+  }, [ballViewRefs, giftViewRefs, resetBallToPaddle, setGameHighScore, setGameMaxUnlockedLevel, setGameCurrentLevel]);
 
   // Load level helper (clean state & ref synchronization)
   const loadLevel = (lvl) => {
-    levelRef.current = lvl;
-    setLevel(lvl);
+    const validLevel = Math.max(1, Number(lvl) || 1);
+    levelRef.current = validLevel;
+    setLevel(validLevel);
+    setGameCurrentLevel(validLevel);
 
-    const freshBricks = generateBricksData(lvl);
+    const freshBricks = generateBricksData(validLevel);
     bricksRef.current = freshBricks;
     remainingBricksRef.current = freshBricks.filter((b) => !b.unbreakable).length;
     setBricks(freshBricks);
@@ -972,6 +1052,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     } catch (_) {}
     const nextLvl = levelRef.current + 1;
     setGameMaxUnlockedLevel(nextLvl);
+    setGameCurrentLevel(nextLvl);
     loadLevel(nextLvl);
   };
 
@@ -981,7 +1062,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     setShowLevelPicker(true);
   };
 
-  // Restart game
+  // Restart game (retry current level)
   const handleRestart = () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -990,7 +1071,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     setScore(0);
     livesRef.current = 3;
     setLives(3);
-    loadLevel(1);
+    loadLevel(levelRef.current);
   };
 
   // ── SECRET 3-SECOND HOLD ON TOP ANIMAL ICON ──
@@ -1684,6 +1765,28 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                 <Text style={styles.drawerMenuArrow}>→</Text>
               </TouchableOpacity>
 
+              {/* Feature Tour Guide */}
+              <TouchableOpacity
+                style={styles.drawerMenuItem}
+                onPress={() => {
+                  setShowDrawer(false);
+                  setTourStep(0);
+                  setTimeout(() => setShowTour(true), 250);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.drawerMenuLeft}>
+                  <View style={styles.drawerIconBox}>
+                    <Sparkles size={18} color="#D97757" />
+                  </View>
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={styles.drawerMenuLabel}>Feature Tour Guide</Text>
+                    <Text style={styles.drawerMenuSub}>Learn secret vault gesture & tips</Text>
+                  </View>
+                </View>
+                <Text style={styles.drawerMenuArrow}>→</Text>
+              </TouchableOpacity>
+
               {/* Restart Game */}
               <TouchableOpacity
                 style={styles.drawerMenuItem}
@@ -1699,7 +1802,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                   </View>
                   <View style={{ marginLeft: 12 }}>
                     <Text style={styles.drawerMenuLabel}>Restart Game</Text>
-                    <Text style={styles.drawerMenuSub}>Play again from Level 1</Text>
+                    <Text style={styles.drawerMenuSub}>Retry Level {level}</Text>
                   </View>
                 </View>
                 <Text style={styles.drawerMenuArrow}>↺</Text>
@@ -1769,6 +1872,199 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             </View>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* First-Time Fresh User Quick Feature Tour Modal */}
+      <Modal
+        visible={showTour}
+        transparent
+        animationType="fade"
+        onRequestClose={handleSkipTour}
+      >
+        <View style={styles.tourBackdrop}>
+          {/* STEP 0: Secret Vault Gate (3-second hold on center companion) */}
+          {tourStep === 0 && (
+            <View style={[styles.tourStepContainer, { paddingTop: insets.top + 6 }]}>
+              {/* Highlighted Spotlight on the Center Companion Icon */}
+              <View style={styles.tourSpotlightIconWrap}>
+                <View style={styles.tourSpotlightHalo} />
+                <View style={styles.tourCompanionBox}>
+                  <CharacterBall character={character} size={42} />
+                </View>
+              </View>
+
+              {/* Bouncing Arrow pointing UP directly at the Companion Icon */}
+              <Animated.View
+                style={[
+                  styles.tourArrowWrap,
+                  { transform: [{ translateY: arrowAnim }] },
+                ]}
+              >
+                <View style={styles.tourArrowBubble}>
+                  <ArrowUp size={22} color="#FFFFFF" strokeWidth={2.5} />
+                </View>
+                <Text style={styles.tourArrowHint}>HOLD 3 SECONDS HERE</Text>
+              </Animated.View>
+
+              {/* Tour Card */}
+              <View style={styles.tourCard}>
+                <View style={styles.tourCardHeader}>
+                  <View style={styles.tourStepTag}>
+                    <Text style={styles.tourStepTagText}>QUICK TOUR • 1 OF 3</Text>
+                  </View>
+                  <View style={styles.tourDotsRow}>
+                    <View style={[styles.tourDot, styles.tourDotActive]} />
+                    <View style={styles.tourDot} />
+                    <View style={styles.tourDot} />
+                  </View>
+                </View>
+
+                <Text style={styles.tourTitle}>Secret Vault Gate 🐾</Text>
+                <Text style={styles.tourDesc}>
+                  Press and hold this center animal companion icon for 3 seconds to reveal your private encrypted chat, calls, and stealth vault.
+                </Text>
+
+                <View style={styles.tourActionRow}>
+                  <TouchableOpacity
+                    style={styles.tourSkipBtn}
+                    onPress={handleSkipTour}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.tourSkipText}>Skip</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.tourNextBtn}
+                    onPress={handleNextTourStep}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.tourNextText}>Next</Text>
+                    <ChevronRight size={16} color="#FFFFFF" style={{ marginLeft: 2 }} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* STEP 1: Disguise Arcade Game (Smash bricks & beat 150+ levels) */}
+          {tourStep === 1 && (
+            <View style={[styles.tourStepContainer, { paddingTop: insets.top + 70 }]}>
+              {/* Tour Card placed above game board */}
+              <View style={styles.tourCard}>
+                <View style={styles.tourCardHeader}>
+                  <View style={styles.tourStepTag}>
+                    <Text style={styles.tourStepTagText}>QUICK TOUR • 2 OF 3</Text>
+                  </View>
+                  <View style={styles.tourDotsRow}>
+                    <View style={styles.tourDot} />
+                    <View style={[styles.tourDot, styles.tourDotActive]} />
+                    <View style={styles.tourDot} />
+                  </View>
+                </View>
+
+                <Text style={styles.tourTitle}>Disguise Arcade Game 🎮</Text>
+                <Text style={styles.tourDesc}>
+                  Drag the paddle to smash bricks, beat 150+ levels, and catch falling gift power-ups. Anyone looking over your shoulder only sees a real arcade game!
+                </Text>
+
+                <View style={styles.tourActionRow}>
+                  <TouchableOpacity
+                    style={styles.tourSkipBtn}
+                    onPress={handleSkipTour}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.tourSkipText}>Skip</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.tourNextBtn}
+                    onPress={handleNextTourStep}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.tourNextText}>Next</Text>
+                    <ChevronRight size={16} color="#FFFFFF" style={{ marginLeft: 2 }} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Bouncing Arrow pointing DOWN towards paddle and bricks */}
+              <Animated.View
+                style={[
+                  styles.tourArrowWrap,
+                  { marginTop: 24, transform: [{ translateY: arrowAnim }] },
+                ]}
+              >
+                <Text style={styles.tourArrowHint}>DRAG PADDLE TO PLAY</Text>
+                <View style={styles.tourArrowBubble}>
+                  <ArrowDown size={22} color="#FFFFFF" strokeWidth={2.5} />
+                </View>
+              </Animated.View>
+            </View>
+          )}
+
+          {/* STEP 2: Silent Message Counter (Subtle badge, zero popups) */}
+          {tourStep === 2 && (
+            <View style={[styles.tourStepContainer, { paddingTop: insets.top + 6 }]}>
+              {/* Highlighted Spotlight on the Center Companion Icon with Badge */}
+              <View style={styles.tourSpotlightIconWrap}>
+                <View style={styles.tourSpotlightHalo} />
+                <View style={styles.tourCompanionBox}>
+                  <CharacterBall character={character} size={42} />
+                  <View style={styles.animalBadge}>
+                    <Text style={styles.animalBadgeText}>1</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Bouncing Arrow pointing UP directly at the badge */}
+              <Animated.View
+                style={[
+                  styles.tourArrowWrap,
+                  { transform: [{ translateY: arrowAnim }] },
+                ]}
+              >
+                <View style={styles.tourArrowBubble}>
+                  <ArrowUp size={22} color="#FFFFFF" strokeWidth={2.5} />
+                </View>
+                <Text style={styles.tourArrowHint}>SILENT UNREAD COUNTER</Text>
+              </Animated.View>
+
+              {/* Tour Card */}
+              <View style={styles.tourCard}>
+                <View style={styles.tourCardHeader}>
+                  <View style={styles.tourStepTag}>
+                    <Text style={styles.tourStepTagText}>QUICK TOUR • 3 OF 3</Text>
+                  </View>
+                  <View style={styles.tourDotsRow}>
+                    <View style={styles.tourDot} />
+                    <View style={styles.tourDot} />
+                    <View style={[styles.tourDot, styles.tourDotActive]} />
+                  </View>
+                </View>
+
+                <Text style={styles.tourTitle}>Silent Message Counter 💬</Text>
+                <Text style={styles.tourDesc}>
+                  When private messages or requests arrive, a subtle counter appears directly on your companion icon. Zero loud notification popups will ever give you away!
+                </Text>
+
+                <View style={styles.tourActionRow}>
+                  <TouchableOpacity
+                    style={styles.tourSkipBtn}
+                    onPress={handleSkipTour}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.tourSkipText}>Close</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.tourNextBtn, { backgroundColor: '#5E9473' }]}
+                    onPress={handleFinishTour}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.tourNextText}>Get Started 🚀</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+        </View>
       </Modal>
     </View>
   );
@@ -1992,7 +2288,7 @@ const styles = StyleSheet.create({
   },
   brick: {
     position: 'absolute',
-    borderRadius: 3,
+    borderRadius: 3.5,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -2001,7 +2297,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 3,
+    height: 2.5,
     backgroundColor: 'rgba(255,255,255,0.3)',
   },
   steelPlate: {
@@ -2009,13 +2305,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 3,
+    paddingHorizontal: 2.5,
     backgroundColor: '#343330',
   },
   steelRivet: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
+    width: 2.5,
+    height: 2.5,
+    borderRadius: 1.25,
     backgroundColor: '#8E8D88',
   },
   steelCenterLine: {
@@ -2641,5 +2937,153 @@ const styles = StyleSheet.create({
   drawerMsgHint: {
     fontSize: 12,
     color: '#5E5D59',
+  },
+  // ── First-Time Fresh User Quick Feature Tour Styles ──
+  tourBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(12, 12, 11, 0.78)',
+    zIndex: 9999,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  tourStepContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  tourSpotlightIconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    height: 52,
+    marginBottom: 6,
+  },
+  tourSpotlightHalo: {
+    position: 'absolute',
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: 'rgba(217, 119, 87, 0.28)',
+    borderWidth: 2,
+    borderColor: '#D97757',
+  },
+  tourCompanionBox: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  tourArrowWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 10,
+  },
+  tourArrowBubble: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#D97757',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#D97757',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  tourArrowHint: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#D97757',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  tourCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#FAF9F5',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E5E2DA',
+    padding: 20,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  tourCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  tourStepTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(217, 119, 87, 0.12)',
+  },
+  tourStepTagText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#D97757',
+    letterSpacing: 0.8,
+  },
+  tourDotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  tourDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#D4D0C5',
+  },
+  tourDotActive: {
+    width: 20,
+    backgroundColor: '#D97757',
+  },
+  tourTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#141413',
+    marginBottom: 8,
+  },
+  tourDesc: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: '#5E5D59',
+    marginBottom: 20,
+  },
+  tourActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  tourSkipBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  tourSkipText: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#87867F',
+  },
+  tourNextBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D97757',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+  },
+  tourNextText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

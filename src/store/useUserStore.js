@@ -35,6 +35,8 @@ export const useUserStore = create(
       myCharacter: 'panda', // 'panda' | 'cat' | 'puppy'
       gameHighScore: 0, // Brick Breaker game high score
       gameMaxUnlockedLevel: 3, // Levels 1, 2, 3 unlocked by default, higher levels unlock on level up
+      gameCurrentLevel: 1, // Present level player is currently playing / reached
+      hasSeenAppTour: false, // Whether fresh first-time user has completed or skipped the feature tour
 
       // Actions
       setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null, recoveryPin = null) =>
@@ -48,6 +50,9 @@ export const useUserStore = create(
       setGameHighScore: (score) => set((state) => ({ gameHighScore: Math.max(state.gameHighScore || 0, score) })),
       setGameMaxUnlockedLevel: (level) =>
         set((state) => ({ gameMaxUnlockedLevel: Math.max(state.gameMaxUnlockedLevel || 3, level) })),
+      setGameCurrentLevel: (level) =>
+        set({ gameCurrentLevel: Math.max(1, Number(level) || 1) }),
+      setHasSeenAppTour: (seen) => set({ hasSeenAppTour: Boolean(seen) }),
 
       setRecoveryPin: (recoveryPin) => set({ recoveryPin }),
 
@@ -84,6 +89,8 @@ export const useUserStore = create(
           myCharacter: 'panda',
           gameHighScore: 0,
           gameMaxUnlockedLevel: 3,
+          gameCurrentLevel: 1,
+          hasSeenAppTour: false,
         }),
     }),
     {
