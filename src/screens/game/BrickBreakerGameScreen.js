@@ -56,9 +56,13 @@ import gameAudioService from '../../services/gameAudioService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Game Board Dimensions (High-Density 8x8 Arcade Grid)
+// Game Board Dimensions (High-Density 8x8 Arcade Grid with Physical Bumper Containment)
 const BOARD_PADDING = 18;
-const BOARD_WIDTH = SCREEN_WIDTH - BOARD_PADDING * 2;
+const MAX_BOARD_WIDTH = 480;
+const BOARD_WIDTH = Math.min(SCREEN_WIDTH - BOARD_PADDING * 2, MAX_BOARD_WIDTH);
+const BOARD_OFFSET_X = Math.round((SCREEN_WIDTH - BOARD_WIDTH) / 2);
+const WALL_THICKNESS = 10;
+const PLAY_WIDTH = BOARD_WIDTH - WALL_THICKNESS * 2;
 const BALL_SIZE = 30;
 const PADDLE_HEIGHT = 14;
 const BASE_PADDLE_WIDTH = 96;
@@ -67,9 +71,9 @@ const BRICK_ROWS = 8;
 const BRICK_COLS = 8;
 const BRICK_GAP = 3.5;
 const BRICK_HEIGHT = 12.5;
-const BRICK_WIDTH = Math.floor((BOARD_WIDTH - 2 - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS);
+const BRICK_WIDTH = Math.floor((PLAY_WIDTH - 2 - (BRICK_COLS - 1) * BRICK_GAP) / BRICK_COLS);
 const TOTAL_GRID_WIDTH = BRICK_COLS * BRICK_WIDTH + (BRICK_COLS - 1) * BRICK_GAP;
-const GRID_OFFSET_X = Math.max(0, Math.floor((BOARD_WIDTH - 2 - TOTAL_GRID_WIDTH) / 2));
+const GRID_OFFSET_X = WALL_THICKNESS + Math.max(0, Math.floor((PLAY_WIDTH - 2 - TOTAL_GRID_WIDTH) / 2));
 const GIFT_SIZE = 26;
 
 // Pool capacities
@@ -210,7 +214,7 @@ function generateBricksData(lvl = 1) {
   const pIdx = (lvl - 1) % LEVEL_PATTERNS.length;
   const patternFn = LEVEL_PATTERNS[pIdx] || LEVEL_PATTERNS[0];
   const newBricks = [];
-  const topOffset = 18;
+  const topOffset = WALL_THICKNESS + 14;
   const tier = Math.floor((lvl - 1) / 25);
 
   for (let r = 0; r < BRICK_ROWS; r++) {
@@ -222,7 +226,7 @@ function generateBricksData(lvl = 1) {
 
       newBricks.push({
         id: `b_${r}_${c}`,
-        x: 1 + GRID_OFFSET_X + c * (BRICK_WIDTH + BRICK_GAP),
+        x: GRID_OFFSET_X + c * (BRICK_WIDTH + BRICK_GAP),
         y: topOffset + r * (BRICK_HEIGHT + BRICK_GAP),
         width: BRICK_WIDTH,
         height: BRICK_HEIGHT,
@@ -299,7 +303,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
   // ── ZERO LATENCY NATIVE REFS ──
   const paddleRef = useRef(null);
-  const paddleXRef = useRef((BOARD_WIDTH - BASE_PADDLE_WIDTH) / 2);
+  const paddleXRef = useRef(WALL_THICKNESS + (PLAY_WIDTH - BASE_PADDLE_WIDTH) / 2);
   const paddleWidthRef = useRef(BASE_PADDLE_WIDTH);
   const widePaddleTimerRef = useRef(null);
 
@@ -480,7 +484,8 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     const curWidth = getLevelPaddleWidth(levelRef.current);
     paddleWidthRef.current = curWidth;
 
-    const initPaddleX = (BOARD_WIDTH - curWidth) / 2;
+    const playWidth = BOARD_WIDTH - WALL_THICKNESS * 2;
+    const initPaddleX = WALL_THICKNESS + (playWidth - curWidth) / 2;
     paddleXRef.current = initPaddleX;
     paddleRef.current?.setNativeProps({
       style: { width: curWidth, left: initPaddleX },
@@ -538,10 +543,11 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         gameStateRef.current === 'playing' || gameStateRef.current === 'ready',
       onPanResponderGrant: (_, gestureState) => {
         if (gameStateRef.current !== 'playing' && gameStateRef.current !== 'ready') return;
-        const touchX = gestureState.x0 - BOARD_PADDING;
+        const touchX = gestureState.x0 - BOARD_OFFSET_X;
         let newX = touchX - paddleWidthRef.current / 2;
-        if (newX < 0) newX = 0;
-        const maxX = BOARD_WIDTH - paddleWidthRef.current;
+        const minX = WALL_THICKNESS;
+        const maxX = BOARD_WIDTH - WALL_THICKNESS - paddleWidthRef.current;
+        if (newX < minX) newX = minX;
         if (newX > maxX) newX = maxX;
 
         paddleXRef.current = newX;
@@ -561,10 +567,11 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       },
       onPanResponderMove: (_, gestureState) => {
         if (gameStateRef.current !== 'playing' && gameStateRef.current !== 'ready') return;
-        const touchX = gestureState.moveX - BOARD_PADDING;
+        const touchX = gestureState.moveX - BOARD_OFFSET_X;
         let newX = touchX - paddleWidthRef.current / 2;
-        if (newX < 0) newX = 0;
-        const maxX = BOARD_WIDTH - paddleWidthRef.current;
+        const minX = WALL_THICKNESS;
+        const maxX = BOARD_WIDTH - WALL_THICKNESS - paddleWidthRef.current;
+        if (newX < minX) newX = minX;
         if (newX > maxX) newX = maxX;
 
         paddleXRef.current = newX;
@@ -615,7 +622,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       if (!b.active) {
         b.active = true;
         const candidateX = pX + (spawned === 0 ? 12 : paddleWidthRef.current - BALL_SIZE - 12);
-        b.x = Math.max(0, Math.min(candidateX, BOARD_WIDTH - BALL_SIZE));
+        b.x = Math.max(WALL_THICKNESS, Math.min(candidateX, BOARD_WIDTH - WALL_THICKNESS - BALL_SIZE));
         b.y = paddleYRef.current - BALL_SIZE - 6;
         b.vx = (spawned === 0 ? -1 : 1) * (baseSpeed * 0.75);
         b.vy = -baseSpeed;
@@ -631,17 +638,17 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
   // Expand Paddle helper (dynamic ratio relative to current paddle width)
   const expandPaddle = () => {
     const baseW = getLevelPaddleWidth(levelRef.current);
-    const maxAllowed = BOARD_WIDTH - 20;
+    const maxAllowed = BOARD_WIDTH - WALL_THICKNESS * 2 - 4;
     const wideW = Math.min(baseW * 1.45, maxAllowed);
     paddleWidthRef.current = wideW;
 
     // Ensure expanded paddle stays inside screen bounds
-    const maxX = BOARD_WIDTH - wideW;
+    const maxX = BOARD_WIDTH - WALL_THICKNESS - wideW;
     if (paddleXRef.current > maxX) {
       paddleXRef.current = maxX;
     }
-    if (paddleXRef.current < 0) {
-      paddleXRef.current = 0;
+    if (paddleXRef.current < WALL_THICKNESS) {
+      paddleXRef.current = WALL_THICKNESS;
     }
 
     paddleRef.current?.setNativeProps({
@@ -751,16 +758,16 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           ball.x += ball.vx * dt;
           ball.y += ball.vy * dt;
 
-          // ── 1. Side Boundaries (Invisible Left & Right Walls) ──
-          if (ball.x <= 0) {
-            ball.x = 0;
+          // ── 1. Side Boundaries (Physical Left & Right Bumper Walls) ──
+          if (ball.x <= WALL_THICKNESS) {
+            ball.x = WALL_THICKNESS;
             ball.vx = Math.abs(ball.vx);
             gameAudioService.playWall();
             try {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             } catch (_) {}
-          } else if (ball.x + BALL_SIZE >= BOARD_WIDTH) {
-            ball.x = BOARD_WIDTH - BALL_SIZE;
+          } else if (ball.x + BALL_SIZE >= BOARD_WIDTH - WALL_THICKNESS) {
+            ball.x = BOARD_WIDTH - WALL_THICKNESS - BALL_SIZE;
             ball.vx = -Math.abs(ball.vx);
             gameAudioService.playWall();
             try {
@@ -768,9 +775,9 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             } catch (_) {}
           }
 
-          // ── 2. Top Boundary (Invisible Top Wall) ──
-          if (ball.y <= 0) {
-            ball.y = 0;
+          // ── 2. Top Boundary (Physical Top Bumper Wall) ──
+          if (ball.y <= WALL_THICKNESS) {
+            ball.y = WALL_THICKNESS;
             ball.vy = Math.abs(ball.vy);
             gameAudioService.playWall();
             try {
@@ -873,7 +880,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                 if (giftSlot) {
                   giftSlot.active = true;
                   const candidateX = b.x + b.width / 2 - GIFT_SIZE / 2;
-                  giftSlot.x = Math.max(0, Math.min(candidateX, BOARD_WIDTH - GIFT_SIZE));
+                  giftSlot.x = Math.max(WALL_THICKNESS, Math.min(candidateX, BOARD_WIDTH - WALL_THICKNESS - GIFT_SIZE));
                   giftSlot.y = b.y + b.height;
                   giftSlot.vy = 3.2 + Math.min((levelRef.current - 1) * 0.05, 2.5);
                   giftSlot.type = picked.type;
@@ -898,16 +905,16 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             continue;
           }
 
-          // Final safety bounds clamping (guarantee ball never leaves court)
-          if (ball.x < 0) {
-            ball.x = 0;
+          // Final safety bounds clamping against walls (guarantee ball never leaves court)
+          if (ball.x < WALL_THICKNESS) {
+            ball.x = WALL_THICKNESS;
             ball.vx = Math.abs(ball.vx);
-          } else if (ball.x + BALL_SIZE > BOARD_WIDTH) {
-            ball.x = BOARD_WIDTH - BALL_SIZE;
+          } else if (ball.x + BALL_SIZE > BOARD_WIDTH - WALL_THICKNESS) {
+            ball.x = BOARD_WIDTH - WALL_THICKNESS - BALL_SIZE;
             ball.vx = -Math.abs(ball.vx);
           }
-          if (ball.y < 0) {
-            ball.y = 0;
+          if (ball.y < WALL_THICKNESS) {
+            ball.y = WALL_THICKNESS;
             ball.vy = Math.abs(ball.vy);
           }
 
@@ -1331,6 +1338,27 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
           style={[styles.board, { height: boardHeight }]}
           {...panResponder.panHandlers}
         >
+          {/* Physical Left Wall Arcade Bumper */}
+          <View style={styles.leftWall} pointerEvents="none">
+            <View style={styles.wallInnerGlow} />
+            <View style={styles.wallRivetTop} />
+            <View style={styles.wallRivetBottom} />
+          </View>
+
+          {/* Physical Right Wall Arcade Bumper */}
+          <View style={styles.rightWall} pointerEvents="none">
+            <View style={styles.wallInnerGlow} />
+            <View style={styles.wallRivetTop} />
+            <View style={styles.wallRivetBottom} />
+          </View>
+
+          {/* Physical Top Wall Arcade Bumper */}
+          <View style={styles.topWall} pointerEvents="none">
+            <View style={styles.topWallInnerGlow} />
+            <View style={styles.wallRivetLeft} />
+            <View style={styles.wallRivetRight} />
+          </View>
+
           {/* Render Bricks */}
           {bricks.map((b) => (
             <View
@@ -2082,6 +2110,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: BOARD_PADDING,
+    width: '100%',
+    maxWidth: 540,
+    alignSelf: 'center',
   },
   headerLeftRow: {
     flexDirection: 'row',
@@ -2231,9 +2262,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: BOARD_PADDING,
+    paddingHorizontal: 4,
     paddingVertical: 10,
-    width: '100%',
+    width: BOARD_WIDTH,
     alignSelf: 'center',
   },
   hudCard: {
@@ -2276,15 +2307,89 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   board: {
-    marginHorizontal: BOARD_PADDING,
     width: BOARD_WIDTH,
     alignSelf: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(20,20,19,0.1)',
+    borderWidth: 1.5,
+    borderColor: '#343330',
     overflow: 'hidden',
     position: 'relative',
+  },
+  leftWall: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: WALL_THICKNESS,
+    backgroundColor: '#343330',
+    borderRightWidth: 2,
+    borderRightColor: '#D97757',
+    zIndex: 10,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  rightWall: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: WALL_THICKNESS,
+    backgroundColor: '#343330',
+    borderLeftWidth: 2,
+    borderLeftColor: '#D97757',
+    zIndex: 10,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  topWall: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: WALL_THICKNESS,
+    backgroundColor: '#343330',
+    borderBottomWidth: 2,
+    borderBottomColor: '#D97757',
+    zIndex: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+  },
+  wallInnerGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(217, 119, 87, 0.12)',
+  },
+  topWallInnerGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(217, 119, 87, 0.12)',
+  },
+  wallRivetTop: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#A09E96',
+  },
+  wallRivetBottom: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#A09E96',
+  },
+  wallRivetLeft: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#A09E96',
+  },
+  wallRivetRight: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#A09E96',
   },
   brick: {
     position: 'absolute',
@@ -2410,8 +2515,9 @@ const styles = StyleSheet.create({
   overlayCard: {
     position: 'absolute',
     top: '25%',
-    left: 24,
-    right: 24,
+    width: '88%',
+    maxWidth: 380,
+    alignSelf: 'center',
     backgroundColor: '#FAF9F5',
     borderWidth: 1,
     borderColor: 'rgba(20,20,19,0.15)',
