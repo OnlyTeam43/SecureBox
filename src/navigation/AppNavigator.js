@@ -49,14 +49,13 @@ import BrickBreakerGameScreen from '../screens/game/BrickBreakerGameScreen';
 import DecoyInboxScreen from '../screens/stealth/DecoyInboxScreen';
 import ClaudeChatScreen from '../screens/main/ClaudeChatScreen';
 
-import { MessageTabIcon, PhoneIcon, UserAvatarIcon } from '../components/Icons';
+import { MessageTabIcon, UserAvatarIcon } from '../components/Icons';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function MainTabs() {
   const unreadMessagesCount = useBadgeStore((s) => s.unreadMessagesCount);
-  const missedCallsCount = useBadgeStore((s) => s.missedCallsCount);
 
   return (
     <Tab.Navigator
@@ -84,18 +83,6 @@ function MainTabs() {
             <MessageTabIcon size={22} color={color} />
           ),
           tabBarBadge: unreadMessagesCount > 0 ? (unreadMessagesCount > 99 ? '99+' : unreadMessagesCount) : undefined,
-          tabBarBadgeStyle: { backgroundColor: Colors.accent.primary, color: '#fff', fontSize: 10, fontWeight: '700' },
-        }}
-      />
-      <Tab.Screen
-        name="Calls"
-        component={CallsScreen}
-        options={{
-          tabBarLabel: 'Calls',
-          tabBarIcon: ({ color }) => (
-            <PhoneIcon size={22} color={color} />
-          ),
-          tabBarBadge: missedCallsCount > 0 ? (missedCallsCount > 99 ? '99+' : missedCallsCount) : undefined,
           tabBarBadgeStyle: { backgroundColor: Colors.accent.primary, color: '#fff', fontSize: 10, fontWeight: '700' },
         }}
       />

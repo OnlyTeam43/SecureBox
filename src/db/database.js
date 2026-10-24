@@ -561,6 +561,82 @@ export const updateCallLogDirection = async (id, direction, seen = 0) => {
   await db.runAsync(`UPDATE call_logs SET direction = ?, seen = ? WHERE id = ?`, [direction, seen, id]);
 };
 
+export const recordCallEventMessage = async ({
+  callId,
+  partnerHandle,
+  myHandle,
+  callType = 'voice',
+  direction = 'outgoing',
+  duration = 0,
+}) => {
+  try {
+    const cleanPartner = (partnerHandle || '').replace('@', '').trim().toLowerCase();
+    const cleanMy = (myHandle || '').replace('@', '').trim().toLowerCase();
+    if (!cleanPartner || !cleanMy) return;
+
+    const participants = [cleanMy, cleanPartner].sort();
+    const convId = `chat_${participants[0]}_${participants[1]}`;
+    const isVideo = callType === 'video';
+
+    const formatDurationShort = (secs) => {
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    };
+
+    let displayTitle = '';
+    let previewText = '';
+
+    if (direction === 'missed') {
+      displayTitle = isVideo ? 'Missed video call' : 'Missed audio call';
+      previewText = isVideo ? '📹 Missed video call' : '📞 Missed audio call';
+    } else if (direction === 'declined') {
+      displayTitle = isVideo ? 'Declined video call' : 'Declined audio call';
+      previewText = isVideo ? '📹 Declined video call' : '📞 Declined audio call';
+    } else if (direction === 'no_answer') {
+      displayTitle = isVideo ? 'Unanswered video call' : 'Unanswered audio call';
+      previewText = isVideo ? '📹 Outgoing video call' : '📞 Outgoing audio call';
+    } else {
+      const durStr = duration > 0 ? formatDurationShort(duration) : null;
+      displayTitle = isVideo ? 'Video call ended' : 'Audio call ended';
+      previewText = isVideo
+        ? `📹 Video call ended${durStr ? ` (${durStr})` : ''}`
+        : `📞 Audio call ended${durStr ? ` (${durStr})` : ''}`;
+    }
+
+    const payload = JSON.stringify({
+      callId,
+      callType,
+      direction,
+      duration,
+      displayTitle,
+    });
+
+    const msgId = `call_${callId || Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const sender = direction === 'outgoing' || direction === 'no_answer' ? cleanMy : cleanPartner;
+
+    await insertMessage({
+      id: msgId,
+      conversationId: convId,
+      sender,
+      type: 'call',
+      body: payload,
+      sentAt: Date.now(),
+      delivered: 1,
+      read: direction === 'outgoing' ? 1 : 0,
+    });
+
+    await upsertConversation({
+      id: convId,
+      lastMsg: previewText,
+      lastTime: Date.now(),
+      unread: direction === 'missed' ? 1 : 0,
+    });
+  } catch (err) {
+    console.warn('[recordCallEventMessage] Error:', err);
+  }
+};
+
 export const getCallLogs = async () => {
   const db = await getDB();
   return await db.getAllAsync(`SELECT * FROM call_logs ORDER BY timestamp DESC`);

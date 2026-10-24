@@ -33,7 +33,7 @@ import { useBadgeStore } from '../../store/useBadgeStore';
 import { callService } from '../../services/callService';
 import { callAudioService } from '../../services/callAudioService';
 import { webrtcService } from '../../services/webrtcService';
-import { getContactByHandle, insertCallLog, updateCallLogDuration } from '../../db/database';
+import { getContactByHandle, insertCallLog, updateCallLogDuration, recordCallEventMessage } from '../../db/database';
 import { getAvatar } from '../../constants/avatars';
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 
@@ -365,6 +365,14 @@ export default function CallScreen({ route, navigation }) {
         if (activeCallId) {
           callService.endCall(activeCallId, contactHandle);
           updateCallLogDuration(activeCallId, durationRef.current || 0).catch(() => {});
+          recordCallEventMessage({
+            callId: activeCallId,
+            partnerHandle: contactHandle,
+            myHandle,
+            callType,
+            direction: isIncoming ? 'incoming' : 'outgoing',
+            duration: durationRef.current || 0,
+          }).catch(() => {});
         }
         useBadgeStore.getState().refreshBadges();
       }
@@ -403,9 +411,26 @@ export default function CallScreen({ route, navigation }) {
     if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
 
     const finalId = callId || initialCallId;
+    const finalDuration = durationRef.current || 0;
     if (finalId) {
-      updateCallLogDuration(finalId, durationRef.current || 0).catch(() => {});
+      updateCallLogDuration(finalId, finalDuration).catch(() => {});
     }
+
+    let direction = isIncoming ? 'incoming' : 'outgoing';
+    if (finalDuration === 0 && !isConnected) {
+      if (reason === 'No Answer') direction = 'no_answer';
+      else if (reason === 'Call Declined' || reason === 'User Busy') direction = 'declined';
+    }
+
+    recordCallEventMessage({
+      callId: finalId,
+      partnerHandle: contactHandle,
+      myHandle,
+      callType,
+      direction,
+      duration: finalDuration,
+    }).catch(() => {});
+
     useBadgeStore.getState().refreshBadges();
 
     webrtcService.cleanup();
@@ -424,10 +449,21 @@ export default function CallScreen({ route, navigation }) {
     webrtcService.cleanup();
 
     const finalId = callId || initialCallId;
+    const finalDuration = durationRef.current || 0;
     if (finalId) {
       await callService.endCall(finalId, contactHandle);
-      updateCallLogDuration(finalId, durationRef.current || 0).catch(() => {});
+      updateCallLogDuration(finalId, finalDuration).catch(() => {});
     }
+
+    recordCallEventMessage({
+      callId: finalId,
+      partnerHandle: contactHandle,
+      myHandle,
+      callType,
+      direction: isIncoming ? 'incoming' : 'outgoing',
+      duration: finalDuration,
+    }).catch(() => {});
+
     useBadgeStore.getState().refreshBadges();
     await callAudioService.playEndedChime();
 

@@ -16,9 +16,10 @@ import { PhoneIcon, PhoneOffIcon, UserAvatarIcon } from './Icons';
 import { callAudioService } from '../services/callAudioService';
 import { callService } from '../services/callService';
 import { navigate } from '../navigation/navigationRef';
-import { getContactByHandle, insertCallLog } from '../db/database';
+import { getContactByHandle, insertCallLog, recordCallEventMessage } from '../db/database';
 import { notifyMissedCall } from '../services/notificationService';
 import { useBadgeStore } from '../store/useBadgeStore';
+import { useUserStore } from '../store/useUserStore';
 import { getAvatar } from '../constants/avatars';
 import { CharacterBall } from '../animal_ui/components/CharacterBall.js';
 
@@ -105,6 +106,15 @@ export default function IncomingCallModal({ callData, onDismiss }) {
           seen: 0,
         }).catch(() => {});
 
+        recordCallEventMessage({
+          callId: callData.callId,
+          partnerHandle: callData.callerHandle,
+          myHandle: useUserStore.getState().handle,
+          callType: callData.callType || 'voice',
+          direction: 'missed',
+          duration: 0,
+        }).catch(() => {});
+
         notifyMissedCall({
           callerHandle: callData.callerHandle,
           callerNickname: callData.callerNickname,
@@ -168,10 +178,19 @@ export default function IncomingCallModal({ callData, onDismiss }) {
       contactNickname: callData.callerNickname,
       contactAvatarId: callerAvatarUri || callData.callerAvatarId,
       callType: callData.callType || 'voice',
-      direction: 'missed',
+      direction: isMissed ? 'missed' : 'declined',
       timestamp: Date.now(),
       duration: 0,
       seen: isMissed ? 0 : 1,
+    }).catch(() => {});
+
+    recordCallEventMessage({
+      callId: callData.callId,
+      partnerHandle: callData.callerHandle,
+      myHandle: useUserStore.getState().handle,
+      callType: callData.callType || 'voice',
+      direction: isMissed ? 'missed' : 'declined',
+      duration: 0,
     }).catch(() => {});
 
     if (isMissed) {

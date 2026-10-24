@@ -29,11 +29,14 @@ import * as ScreenCapture from 'expo-screen-capture';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ArrowUp,
   Plus,
   Phone,
+  PhoneOff,
   Video,
+  VideoOff,
   ChevronLeft,
   Lock,
   MoreVertical,
@@ -88,6 +91,7 @@ import {
   notifySecurityAlert,
   notifyScreenshotRequest,
 } from '../../services/notificationService';
+import { callService } from '../../services/callService';
 
 // Claude Theme Palette
 const PALETTE = {
@@ -255,6 +259,54 @@ export default function ChatScreen({ route, navigation }) {
       console.warn('ChatScreen loadMessages note:', err.message);
     }
   }, [conversationId, contactHandle, contactNickname, contactAvatarId, myHandle]);
+
+  // Reload messages when screen comes into focus (e.g. Returning from CallScreen)
+  useFocusEffect(
+    useCallback(() => {
+      loadMessages();
+    }, [loadMessages])
+  );
+
+  // Active ongoing call state tracking (Instagram style)
+  const [activeCall, setActiveCall] = useState(null);
+  const [activeCallDuration, setActiveCallDuration] = useState(0);
+  const callPulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const unsub = callService.subscribeToActiveCall((call) => {
+      setActiveCall(call);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!activeCall || activeCall.status !== 'connected') {
+      setActiveCallDuration(0);
+      return;
+    }
+    const compute = () => {
+      if (activeCall.startTime) {
+        setActiveCallDuration(Math.max(0, Math.floor((Date.now() - activeCall.startTime) / 1000)));
+      } else {
+        setActiveCallDuration((prev) => prev + 1);
+      }
+    };
+    compute();
+    const interval = setInterval(compute, 1000);
+    return () => clearInterval(interval);
+  }, [activeCall]);
+
+  useEffect(() => {
+    if (!activeCall || activeCall.status !== 'connected') return;
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(callPulseAnim, { toValue: 1.25, duration: 800, useNativeDriver: true }),
+        Animated.timing(callPulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [activeCall, callPulseAnim]);
 
   // Realtime listeners & setup
   useEffect(() => {
@@ -697,6 +749,69 @@ export default function ChatScreen({ route, navigation }) {
       minute: '2-digit',
     });
 
+    // Instagram-style Inline Call Bubble
+    if (item.type === 'call') {
+      let callData = null;
+      try {
+        callData = typeof item.body === 'string' && item.body.startsWith('{') ? JSON.parse(item.body) : null;
+      } catch (_) {}
+
+      const cType = callData?.callType || (item.body && item.body.toLowerCase().includes('video') ? 'video' : 'voice');
+      const cDir = callData?.direction || (isMe ? 'outgoing' : 'incoming');
+      const cDur = callData?.duration || 0;
+      const isMissed = cDir === 'missed' || cDir === 'declined' || cDir === 'no_answer';
+
+      const m = Math.floor(cDur / 60);
+      const s = cDur % 60;
+      const durStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
+
+      const title = callData?.displayTitle || (
+        isMissed
+          ? (cType === 'video' ? 'Missed video call' : 'Missed audio call')
+          : (cType === 'video' ? 'Video call ended' : 'Audio call ended')
+      );
+
+      const sub = isMissed
+        ? timeStr
+        : (cDur > 0 ? `${durStr} · ${timeStr}` : timeStr);
+
+      return (
+        <View style={styles.callBubbleRow}>
+          <View style={[styles.callBubbleCard, isMissed && styles.callBubbleCardMissed]}>
+            <View style={[styles.callIconWrap, isMissed ? styles.callIconWrapMissed : styles.callIconWrapNormal]}>
+              {cType === 'video' ? (
+                isMissed ? <VideoOff size={18} color="#DC2626" /> : <Video size={18} color="#D97757" />
+              ) : (
+                isMissed ? <PhoneOff size={18} color="#DC2626" /> : <Phone size={18} color="#D97757" />
+              )}
+            </View>
+
+            <View style={styles.callContentCol}>
+              <Text style={[styles.callTitleText, isMissed && styles.callTitleMissed]}>
+                {title}
+              </Text>
+              <Text style={styles.callSubText}>{sub}</Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.callBackBtn}
+              activeOpacity={0.7}
+              onPress={() => {
+                navigation.navigate('Call', {
+                  contactHandle,
+                  contactNickname,
+                  contactAvatarId,
+                  callType: cType,
+                });
+              }}
+            >
+              <Text style={styles.callBackBtnText}>Call Back</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
     let replyData = null;
     if (item.replyTo || item.reply_to) {
       try {
@@ -881,6 +996,37 @@ export default function ChatScreen({ route, navigation }) {
           <MoreVertical size={19} color={PALETTE.text} />
         </TouchableOpacity>
       </View>
+
+      {/* Active Call Floating Capsule Banner (Instagram style) */}
+      {activeCall && activeCall.status === 'connected' && (
+        <TouchableOpacity
+          activeOpacity={0.88}
+          style={styles.activeCallBanner}
+          onPress={() => {
+            navigation.navigate('Call', {
+              callId: activeCall.callId,
+              contactHandle: activeCall.partnerHandle || contactHandle,
+              contactNickname: activeCall.partnerNickname || contactNickname,
+              contactAvatarId: activeCall.partnerAvatarId || contactAvatarId,
+              callType: activeCall.callType || 'voice',
+              isResume: true,
+            });
+          }}
+        >
+          <View style={styles.activeCallLeftRow}>
+            <Animated.View style={[styles.activeCallDot, { transform: [{ scale: callPulseAnim }] }]} />
+            {activeCall.callType === 'video' ? (
+              <Video size={16} color="#ffffff" style={{ marginRight: 6 }} />
+            ) : (
+              <Phone size={16} color="#ffffff" style={{ marginRight: 6 }} />
+            )}
+            <Text style={styles.activeCallTitle} numberOfLines={1}>
+              Ongoing call · {Math.floor(activeCallDuration / 60)}:{String(activeCallDuration % 60).padStart(2, '0')}
+            </Text>
+          </View>
+          <Text style={styles.activeCallResume}>Return to call ›</Text>
+        </TouchableOpacity>
+      )}
 
       <KeyboardAvoidingView
         style={styles.chatArea}
@@ -1634,5 +1780,122 @@ const styles = StyleSheet.create({
   photoFullImage: {
     width: '100%',
     height: '80%',
+  },
+
+  // Instagram-style Call Bubble
+  callBubbleRow: {
+    width: '100%',
+    alignItems: 'center',
+    marginVertical: 8,
+    paddingHorizontal: 16,
+  },
+  callBubbleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(20, 20, 19, 0.08)',
+    borderRadius: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    maxWidth: 320,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  callBubbleCardMissed: {
+    backgroundColor: '#FFFBFB',
+    borderColor: 'rgba(220, 38, 38, 0.15)',
+  },
+  callIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  callIconWrapNormal: {
+    backgroundColor: 'rgba(217, 119, 87, 0.12)',
+  },
+  callIconWrapMissed: {
+    backgroundColor: 'rgba(220, 38, 38, 0.12)',
+  },
+  callContentCol: {
+    flex: 1,
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  callTitleText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: PALETTE.text,
+    marginBottom: 2,
+  },
+  callTitleMissed: {
+    color: '#DC2626',
+  },
+  callSubText: {
+    fontSize: 11,
+    color: PALETTE.textMuted,
+  },
+  callBackBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(20, 20, 19, 0.05)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(20, 20, 19, 0.10)',
+  },
+  callBackBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: PALETTE.brand,
+  },
+
+  // Active ongoing call top floating banner
+  activeCallBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#16A34A',
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginTop: 6,
+    marginBottom: 2,
+    borderRadius: 14,
+    shadowColor: '#16A34A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  activeCallLeftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  activeCallDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+    marginRight: 8,
+  },
+  activeCallTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  activeCallResume: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginLeft: 8,
   },
 });

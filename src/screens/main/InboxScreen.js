@@ -41,7 +41,7 @@ import { formatDistanceToNow } from 'date-fns';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as ScreenCapture from 'expo-screen-capture';
-import { TrashIcon, UserAvatarIcon, CheckIcon, DoubleCheckIcon, ShareIcon } from '../../components/Icons';
+import { TrashIcon, UserAvatarIcon, CheckIcon, DoubleCheckIcon, ShareIcon, PhoneIcon, VideoIcon } from '../../components/Icons';
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
 import {
   notifyConnectionRequest,
@@ -50,6 +50,7 @@ import {
 } from '../../services/notificationService';
 import { shareProfileInvite } from '../../services/inviteService';
 import { useBadgeStore } from '../../store/useBadgeStore';
+import { callService } from '../../services/callService';
 
 export default function InboxScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -69,6 +70,47 @@ export default function InboxScreen({ navigation }) {
   const myNickname = useUserStore((s) => s.nickname);
   const myAvatarId = useUserStore((s) => s.avatarId);
   const inSelectionMode = selectedConvIds.length > 0;
+
+  // Active ongoing call state tracking (Instagram style floating banner)
+  const [activeCall, setActiveCall] = useState(null);
+  const [activeCallDuration, setActiveCallDuration] = useState(0);
+  const callPulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const unsub = callService.subscribeToActiveCall((call) => {
+      setActiveCall(call);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!activeCall || activeCall.status !== 'connected') {
+      setActiveCallDuration(0);
+      return;
+    }
+    const compute = () => {
+      if (activeCall.startTime) {
+        setActiveCallDuration(Math.max(0, Math.floor((Date.now() - activeCall.startTime) / 1000)));
+      } else {
+        setActiveCallDuration((prev) => prev + 1);
+      }
+    };
+    compute();
+    const interval = setInterval(compute, 1000);
+    return () => clearInterval(interval);
+  }, [activeCall]);
+
+  useEffect(() => {
+    if (!activeCall || activeCall.status !== 'connected') return;
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(callPulseAnim, { toValue: 1.25, duration: 800, useNativeDriver: true }),
+        Animated.timing(callPulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [activeCall, callPulseAnim]);
 
   const loadConversations = async () => {
     try {
@@ -655,6 +697,37 @@ export default function InboxScreen({ navigation }) {
         </View>
       )}
 
+      {/* Active Ongoing Call Banner (Instagram style) */}
+      {activeCall && activeCall.status === 'connected' && (
+        <TouchableOpacity
+          activeOpacity={0.88}
+          style={styles.activeCallBanner}
+          onPress={() => {
+            navigation.navigate('Call', {
+              callId: activeCall.callId,
+              contactHandle: activeCall.partnerHandle,
+              contactNickname: activeCall.partnerNickname,
+              contactAvatarId: activeCall.partnerAvatarId,
+              callType: activeCall.callType || 'voice',
+              isResume: true,
+            });
+          }}
+        >
+          <View style={styles.activeCallLeftRow}>
+            <Animated.View style={[styles.activeCallDot, { transform: [{ scale: callPulseAnim }] }]} />
+            {activeCall.callType === 'video' ? (
+              <VideoIcon size={16} color="#ffffff" />
+            ) : (
+              <PhoneIcon size={16} color="#ffffff" />
+            )}
+            <Text style={styles.activeCallTitle} numberOfLines={1}>
+              Ongoing call with @{activeCall.partnerHandle || 'contact'} · {Math.floor(activeCallDuration / 60)}:{String(activeCallDuration % 60).padStart(2, '0')}
+            </Text>
+          </View>
+          <Text style={styles.activeCallResume}>Return to call ›</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Horizontal Search Box */}
       <View style={styles.searchSection}>
         <View style={styles.searchRow}>
@@ -972,5 +1045,47 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     paddingHorizontal: 16,
+  },
+  activeCallBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#16A34A',
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginTop: 6,
+    marginBottom: 4,
+    borderRadius: 14,
+    shadowColor: '#16A34A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  activeCallLeftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 6,
+  },
+  activeCallDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+    marginRight: 4,
+  },
+  activeCallTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  activeCallResume: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginLeft: 8,
   },
 });
