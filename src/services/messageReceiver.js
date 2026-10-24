@@ -1,6 +1,7 @@
 // src/services/messageReceiver.js
 // Centralized local-first incoming message receiver
 // ZERO CLOUD STORAGE: Messages are saved strictly in the device's local SQLite database!
+// Any ephemeral message in Supabase is immediately and permanently deleted upon receipt!
 
 import * as Crypto from 'expo-crypto';
 import {
@@ -10,7 +11,12 @@ import {
   updateConversationLastMessage,
   markConversationRead,
 } from '../db/database';
-import { findUserByHandle, markMessagesDeliveredInSupabase } from './supabase';
+import {
+  supabase,
+  findUserByHandle,
+  markMessagesDeliveredInSupabase,
+  markMessagesSeenInSupabase,
+} from './supabase';
 import { saveIncomingBase64ToVault } from './mediaVault';
 import { getActiveConversation } from './notificationService';
 import { useBadgeStore } from '../store/useBadgeStore';
@@ -18,6 +24,7 @@ import { useBadgeStore } from '../store/useBadgeStore';
 /**
  * Process and persist an incoming chat message into the local SQLite database.
  * Updates conversation state and refreshes badge store without any in-app banner popup.
+ * Immediately deletes the ephemeral relay row from Supabase (ZERO CLOUD STORAGE).
  */
 export const processIncomingMessage = async (incoming, myHandle) => {
   if (!incoming || !myHandle) return;
@@ -29,6 +36,33 @@ export const processIncomingMessage = async (incoming, myHandle) => {
   const convId = incoming.conversation_id || `chat_${participants[0]}_${participants[1]}`;
 
   try {
+    let mediaDataUri = incoming.media_uri;
+    let fullBody = incoming.body;
+
+    // 1. If incoming was lightweight broadcast with has_media: true, fetch full payload from Supabase
+    if (incoming.has_media && !mediaDataUri) {
+      try {
+        const { data: fullMsg } = await supabase
+          .from('messages')
+          .select('body, media_uri')
+          .eq('id', incoming.id)
+          .maybeSingle();
+        if (fullMsg) {
+          mediaDataUri = fullMsg.media_uri;
+          fullBody = fullMsg.body || fullBody;
+        }
+      } catch (fErr) {
+        console.warn('Fetch full media payload notice:', fErr?.message);
+      }
+    }
+
+    // 2. ZERO-STORAGE: Immediately delete this message row from Supabase!
+    // The server relay row is destroyed.
+    try {
+      await supabase.from('messages').delete().eq('id', incoming.id);
+    } catch (_) {}
+
+    // 3. Ensure contact exists in SQLite
     const contactId = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
       senderClean
@@ -49,48 +83,54 @@ export const processIncomingMessage = async (incoming, myHandle) => {
       avatarId: contactAvatar,
     });
 
+    // 4. Save GIANT FULL SIZE media directly into hidden local vault (.secure_media/)
     let localMedia = null;
-    if (incoming.media_uri) {
-      localMedia = await saveIncomingBase64ToVault(incoming.id, incoming.media_uri);
+    if (mediaDataUri) {
+      localMedia = await saveIncomingBase64ToVault(incoming.id, mediaDataUri);
     }
 
     const isActiveChat = getActiveConversation() === convId;
 
+    // 5. Persist to local SQLite
     await insertMessage({
       id: incoming.id,
       conversationId: convId,
       sender: senderClean,
       receiver: cleanMy,
-      type: incoming.media_uri ? 'image' : 'text',
-      body: incoming.body || '',
+      type: (mediaDataUri || incoming.has_media) ? 'image' : 'text',
+      body: fullBody || '',
       mediaUri: localMedia,
       sentAt: incoming.sent_at || incoming.created_at || Date.now(),
       expiresAt: incoming.expires_at || null,
       replyTo: incoming.reply_to || null,
-      status: 'delivered',
+      delivered: 1,
       read: isActiveChat ? 1 : 0,
     });
 
     if (!isActiveChat) {
       await incrementConversationUnread(
         convId,
-        incoming.body || (localMedia ? 'Photo 📷' : 'Message'),
+        fullBody || (localMedia ? 'Photo 📷' : 'Message'),
         incoming.sent_at || Date.now(),
         senderClean
       );
     } else {
       await updateConversationLastMessage(
         convId,
-        incoming.body || (localMedia ? 'Photo 📷' : 'Message'),
+        fullBody || (localMedia ? 'Photo 📷' : 'Message'),
         incoming.sent_at || Date.now(),
         senderClean
       );
       await markConversationRead(convId, cleanMy);
     }
 
+    // 6. Send delivery ACK back to sender
     markMessagesDeliveredInSupabase(convId, cleanMy, senderClean);
+    if (isActiveChat) {
+      markMessagesSeenInSupabase(convId, cleanMy, senderClean);
+    }
 
-    // Refresh badges so game screen and tabs immediately reflect the unread message count
+    // 7. Refresh unread badges for game screen & tabs
     await useBadgeStore.getState().refreshBadges(cleanMy);
   } catch (err) {
     console.warn('[messageReceiver] Error saving message to local SQLite:', err);

@@ -2,7 +2,12 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getContactByHandle } from '../db/database';
+import {
+  getContactByHandle,
+  deleteMessagesBatch,
+  markSentMessagesDelivered,
+  markSentMessagesRead,
+} from '../db/database';
 
 export const SUPABASE_URL = 'https://mhqtqcjceklbtnfaqhqj.supabase.co';
 export const SUPABASE_ANON_KEY =
@@ -278,8 +283,9 @@ export const verifyLoginCredentials = async (handle, password) => {
 };
 
 /**
- * Send message in real-time purely via WebSocket broadcast
- * ZERO-STORAGE POLICY: Messages are NEVER saved into Supabase database.
+ * Send message via ephemeral relay and real-time WebSocket broadcast.
+ * ZERO-STORAGE POLICY: Messages are queued strictly as ephemeral relay packets.
+ * Once fetched/delivered, they are IMMEDIATELY deleted from Supabase.
  */
 export const sendMessageToSupabase = async ({
   id,
@@ -295,23 +301,44 @@ export const sendMessageToSupabase = async ({
   const cleanSender = sender.replace('@', '').trim().toLowerCase();
   const receiverClean = receiver ? receiver.replace('@', '').trim().toLowerCase() : '';
 
-  const payload = {
+  // 1. Ephemeral Cloud Relay:
+  // Post message to temporary relay queue in Supabase.
+  // The row will be IMMEDIATELY deleted by recipient device upon receipt or fetch!
+  // Fallback expires_at (48 hours) ensures server auto-purges if recipient never connects.
+  try {
+    await supabase.from('messages').insert({
+      id,
+      conversation_id: conversationId,
+      sender: cleanSender,
+      receiver: receiverClean,
+      body: body || null,
+      media_uri: mediaUri || null,
+      created_at: sentAt || Date.now(),
+      expires_at: expiresAt || (Date.now() + 86400000 * 2),
+      reply_to: replyTo || null,
+      type: mediaUri ? 'image' : 'text',
+    });
+  } catch (dbErr) {
+    console.warn('Ephemeral relay queue insert note:', dbErr?.message);
+  }
+
+  // 2. Realtime WebSocket payload:
+  // Strip heavy base64 to keep payload tiny (<10KB) and prevent 256KB WebSocket drops.
+  const wsPayload = {
     id,
     conversation_id: conversationId,
     sender: cleanSender,
     receiver: receiverClean,
-    body,
-    media_uri: mediaUri || null,
-    sent_at: sentAt,
+    body: body || null,
+    media_uri: null, // do not bloat websocket payload
+    has_media: Boolean(mediaUri),
+    sent_at: sentAt || Date.now(),
     expires_at: expiresAt || null,
     reply_to: replyTo || null,
+    type: mediaUri ? 'image' : 'text',
   };
 
-  // 1. Zero Cloud Storage Policy:
-  // Messages are NEVER stored in Supabase database. They exist strictly in local device SQLite.
-  // Realtime WebSocket broadcasts are ephemeral in-memory delivery packets.
-
-  // 2. Direct instantaneous delivery to the active chat room via WebSocket broadcast
+  // 3. Direct instantaneous delivery to the active chat room via WebSocket broadcast
   try {
     let roomChannel = supabase.getChannels().find((c) => c.topic === `realtime:room_${conversationId}`);
     if (!roomChannel) {
@@ -329,13 +356,13 @@ export const sendMessageToSupabase = async ({
     await roomChannel.send({
       type: 'broadcast',
       event: 'new_message',
-      payload,
+      payload: wsPayload,
     });
   } catch (err) {
     console.warn('Room broadcast error:', err);
   }
 
-  // 3. Direct delivery to the partner's inbox channel via WebSocket broadcast
+  // 4. Direct delivery to the partner's inbox channel via WebSocket broadcast
   if (receiverClean) {
     try {
       const userChannelName = `user_${receiverClean}`;
@@ -355,7 +382,7 @@ export const sendMessageToSupabase = async ({
       await userChannel.send({
         type: 'broadcast',
         event: 'incoming_msg',
-        payload,
+        payload: wsPayload,
       });
     } catch (err) {
       console.warn('User broadcast error:', err);
@@ -492,6 +519,7 @@ export const sendExpoPushNotification = async ({
 /**
  * Fetch and clear pending queued messages for this user (e.g. sent while app was minimized/offline)
  * Once fetched, immediately removed from server relay queue for zero-storage privacy.
+ * Processes offline deletion commands and delivery/read ACKs before returning chat messages.
  */
 export const fetchAndClearPendingMessages = async (myHandle) => {
   if (!myHandle) return [];
@@ -509,11 +537,50 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
 
     if (error || !data || data.length === 0) return [];
 
-    // Immediately remove retrieved messages from server relay queue
-    const ids = data.map((m) => m.id);
-    await supabase.from('messages').delete().in('id', ids);
+    const chatMessages = [];
+    const idsToDelete = [];
 
-    return data;
+    for (const row of data) {
+      idsToDelete.push(row.id);
+
+      if (row.type === 'delete_cmd') {
+        try {
+          const payload = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
+          if (payload?.messageIds && payload.messageIds.length > 0) {
+            await deleteMessagesBatch(payload.messageIds);
+          }
+        } catch (e) {
+          console.warn('Process offline delete_cmd error:', e);
+        }
+      } else if (row.type === 'ack_delivered') {
+        try {
+          const payload = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
+          if (payload?.conversationId) {
+            await markSentMessagesDelivered(payload.conversationId, clean);
+          }
+        } catch (e) {
+          console.warn('Process offline ack_delivered error:', e);
+        }
+      } else if (row.type === 'ack_seen') {
+        try {
+          const payload = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
+          if (payload?.conversationId) {
+            await markSentMessagesRead(payload.conversationId, clean);
+          }
+        } catch (e) {
+          console.warn('Process offline ack_seen error:', e);
+        }
+      } else {
+        chatMessages.push(row);
+      }
+    }
+
+    // Immediately remove ALL retrieved rows from server relay queue (ZERO-STORAGE)
+    if (idsToDelete.length > 0) {
+      await supabase.from('messages').delete().in('id', idsToDelete);
+    }
+
+    return chatMessages;
   } catch (err) {
     console.log('fetchAndClearPendingMessages notice:', err.message);
     return [];
@@ -832,25 +899,36 @@ export const subscribeToGlobalPresence = (myHandle, partnerHandle, onPresenceUpd
  * Mark messages in a conversation as seen in real-time
  */
 export const markMessagesSeenInSupabase = async (conversationId, viewerHandle, partnerHandle = null) => {
+  const cleanViewer = viewerHandle ? viewerHandle.replace('@', '').trim().toLowerCase() : '';
+  const cleanPartner = partnerHandle ? partnerHandle.replace('@', '').trim().toLowerCase() : '';
+
   try {
     const roomChannel = supabase.getChannels().find((c) => c.topic === `realtime:room_${conversationId}`);
     if (roomChannel) {
       roomChannel.send({
         type: 'broadcast',
         event: 'messages_seen',
-        payload: { viewerHandle, conversationId, seenAt: Date.now() },
+        payload: { viewerHandle: cleanViewer, conversationId, seenAt: Date.now() },
       });
     }
-    if (partnerHandle) {
-      const clean = partnerHandle.replace('@', '').trim().toLowerCase();
-      const userChannel = supabase.getChannels().find((c) => c.topic === `realtime:user_${clean}`);
+    if (cleanPartner) {
+      const userChannel = supabase.getChannels().find((c) => c.topic === `realtime:user_${cleanPartner}`);
       if (userChannel) {
         userChannel.send({
           type: 'broadcast',
           event: 'messages_seen',
-          payload: { viewerHandle, conversationId, seenAt: Date.now() },
+          payload: { viewerHandle: cleanViewer, conversationId, seenAt: Date.now() },
         });
       }
+      // Ephemeral ACK row for partner in case they are offline
+      supabase.from('messages').insert({
+        id: `ack_seen_${conversationId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'ack_seen',
+        sender: cleanViewer,
+        receiver: cleanPartner,
+        body: JSON.stringify({ conversationId }),
+        created_at: Date.now(),
+      }).then(() => {}).catch(() => {});
     }
   } catch (err) {
     console.log('Seen broadcast error:', err.message);
@@ -861,25 +939,36 @@ export const markMessagesSeenInSupabase = async (conversationId, viewerHandle, p
  * Mark messages in a conversation as delivered in real-time
  */
 export const markMessagesDeliveredInSupabase = async (conversationId, receiverHandle, partnerHandle = null) => {
+  const cleanReceiver = receiverHandle ? receiverHandle.replace('@', '').trim().toLowerCase() : '';
+  const cleanPartner = partnerHandle ? partnerHandle.replace('@', '').trim().toLowerCase() : '';
+
   try {
     const roomChannel = supabase.getChannels().find((c) => c.topic === `realtime:room_${conversationId}`);
     if (roomChannel) {
       roomChannel.send({
         type: 'broadcast',
         event: 'messages_delivered',
-        payload: { receiverHandle, conversationId, deliveredAt: Date.now() },
+        payload: { receiverHandle: cleanReceiver, conversationId, deliveredAt: Date.now() },
       });
     }
-    if (partnerHandle) {
-      const clean = partnerHandle.replace('@', '').trim().toLowerCase();
-      const userChannel = supabase.getChannels().find((c) => c.topic === `realtime:user_${clean}`);
+    if (cleanPartner) {
+      const userChannel = supabase.getChannels().find((c) => c.topic === `realtime:user_${cleanPartner}`);
       if (userChannel) {
         userChannel.send({
           type: 'broadcast',
           event: 'messages_delivered',
-          payload: { receiverHandle, conversationId, deliveredAt: Date.now() },
+          payload: { receiverHandle: cleanReceiver, conversationId, deliveredAt: Date.now() },
         });
       }
+      // Ephemeral ACK row for partner in case they are offline
+      supabase.from('messages').insert({
+        id: `ack_deliv_${conversationId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'ack_delivered',
+        sender: cleanReceiver,
+        receiver: cleanPartner,
+        body: JSON.stringify({ conversationId }),
+        created_at: Date.now(),
+      }).then(() => {}).catch(() => {});
     }
   } catch (err) {
     console.log('Delivered broadcast error:', err.message);
@@ -887,17 +976,39 @@ export const markMessagesDeliveredInSupabase = async (conversationId, receiverHa
 };
 
 /**
- * Broadcast message deletion in real-time
+ * Broadcast message deletion in real-time and post ephemeral tombstone
  */
-export const broadcastMessageDelete = async (conversationId, messageIds) => {
+export const broadcastMessageDelete = async (conversationId, messageIds, partnerHandle = null) => {
+  if (!messageIds || messageIds.length === 0) return;
+  const cleanPartner = partnerHandle ? partnerHandle.replace('@', '').trim().toLowerCase() : null;
+
   try {
     const roomChannel = supabase.getChannels().find((c) => c.topic === `realtime:room_${conversationId}`);
     if (roomChannel) {
       roomChannel.send({
         type: 'broadcast',
         event: 'delete_messages',
-        payload: { messageIds },
+        payload: { messageIds, conversationId },
       });
+    }
+    if (cleanPartner) {
+      const userChannel = supabase.getChannels().find((c) => c.topic === `realtime:user_${cleanPartner}`);
+      if (userChannel) {
+        userChannel.send({
+          type: 'broadcast',
+          event: 'delete_messages',
+          payload: { messageIds, conversationId },
+        });
+      }
+      // Ephemeral deletion command for offline partner
+      supabase.from('messages').insert({
+        id: `del_cmd_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'delete_cmd',
+        sender: 'system',
+        receiver: cleanPartner,
+        body: JSON.stringify({ conversationId, messageIds }),
+        created_at: Date.now(),
+      }).then(() => {}).catch(() => {});
     }
     // Permanently remove from Supabase
     await supabase
@@ -1074,6 +1185,11 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
     .on('broadcast', { event: 'messages_delivered' }, ({ payload }) => {
       try {
         notifyMessageStatusListeners({ event: 'messages_delivered', ...payload });
+      } catch (_) {}
+    })
+    .on('broadcast', { event: 'delete_messages' }, ({ payload }) => {
+      try {
+        notifyMessageStatusListeners({ event: 'delete_messages', ...payload });
       } catch (_) {}
     })
     .on('broadcast', { event: 'incoming_connection_request' }, ({ payload }) => {

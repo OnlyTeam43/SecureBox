@@ -13,6 +13,7 @@ import { useBadgeStore } from '../store/useBadgeStore';
 import { navigationRef } from './navigationRef';
 import { initCallReceiver, callService, processIncomingCallPayload } from '../services/callService';
 import { subscribeToMyMessages, fetchPendingCallInvite } from '../services/supabase';
+import { purgeExpiredMessages } from '../db/database';
 import IncomingCallModal from '../components/IncomingCallModal';
 import ActiveCallBanner from '../components/ActiveCallBanner';
 import { processIncomingMessage } from '../services/messageReceiver';
@@ -279,6 +280,9 @@ export default function AppNavigator() {
 
         // Refresh badges
         useBadgeStore.getState().refreshBadges(myHandle);
+
+        // Purge expired disappearing messages & their vault media
+        purgeExpiredMessages().catch(() => {});
 
         // Check if an incoming call invite arrived while backgrounded or closed (<35s)
         fetchPendingCallInvite(myHandle).then((pending) => {

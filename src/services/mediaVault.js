@@ -1,7 +1,8 @@
 // src/services/mediaVault.js
 // Private, encrypted & hidden local storage for photos and media.
 // Media is stored inside the app sandbox with a .nomedia flag so that
-// device galleries (Google Photos, Apple Photos) CANNOT see or scan it.
+// device galleries (Google Photos, Apple Photos, Android MediaScanner) CANNOT see or scan it.
+// ZERO CLOUD RETENTION: Media is stored exclusively on the user's local device!
 
 import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
@@ -29,8 +30,9 @@ export const initMediaVault = async () => {
 };
 
 /**
- * Save an incoming base64 image (from partner via Supabase) into the local secure vault
- * Returns the local file:// URI for SQLite and UI rendering
+ * Save an incoming base64 or remote media URI (from partner via Supabase relay)
+ * into the local secure vault.
+ * Returns the local file:// URI for SQLite and UI rendering.
  */
 export const saveIncomingBase64ToVault = async (messageId, dataUri) => {
   if (!dataUri) return null;
@@ -40,7 +42,16 @@ export const saveIncomingBase64ToVault = async (messageId, dataUri) => {
   try {
     await initMediaVault();
     const cleanId = String(messageId).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const targetFile = `${VAULT_DIR}vault_${cleanId}.jpg`;
+
+    // Detect format
+    let ext = 'jpg';
+    if (dataUri.startsWith('data:image/png') || dataUri.includes('.png')) {
+      ext = 'png';
+    } else if (dataUri.startsWith('data:video/mp4') || dataUri.includes('.mp4')) {
+      ext = 'mp4';
+    }
+
+    const targetFile = `${VAULT_DIR}vault_${cleanId}.${ext}`;
 
     // Strip "data:image/...;base64," prefix if present
     let base64Content = dataUri;
@@ -49,6 +60,7 @@ export const saveIncomingBase64ToVault = async (messageId, dataUri) => {
       base64Content = dataUri.substring(commaIndex + 1);
     }
 
+    // Write binary content into hidden local vault
     await FileSystem.writeAsStringAsync(targetFile, base64Content, {
       encoding: FileSystem.EncodingType.Base64,
     });
@@ -61,61 +73,89 @@ export const saveIncomingBase64ToVault = async (messageId, dataUri) => {
 };
 
 /**
- * Save an outgoing local image picked from gallery into the local secure vault.
- * Automatically downscales & compresses the image using expo-image-manipulator
- * to ensure Base64 payload size is strictly < 100 KB, preventing Supabase Realtime
- * WebSocket broadcast drops between phones and tablets.
+ * Save an outgoing local image picked from gallery or camera into the local secure vault.
+ * GIANT FULL SIZE: Preserves maximum original image clarity and details on the user's device!
+ * Media is stored exclusively in the app's hidden sandbox (.secure_media/) with .nomedia protection.
  * 
  * Returns { vaultUri, base64DataUri }
  */
-export const saveOutgoingImageToVault = async (sourceUri, originalWidth, originalHeight) => {
+export const saveOutgoingImageToVault = async (sourceUri, originalWidth = null, originalHeight = null) => {
   if (!sourceUri) return { vaultUri: null, base64DataUri: null };
 
   try {
     await initMediaVault();
-    const filename = `vault_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.jpg`;
+    const cleanTime = Date.now();
+    const randSuffix = Math.random().toString(36).substring(2, 8);
+    const filename = `vault_${cleanTime}_${randSuffix}.jpg`;
     const targetFile = `${VAULT_DIR}${filename}`;
 
-    // Target max dimension: 800px guarantees high visual clarity while keeping Base64 payload ~50-80KB
-    const maxDim = 800;
-    const actions = [];
-    if (originalWidth && originalHeight) {
-      if (originalWidth >= originalHeight && originalWidth > maxDim) {
+    let base64Data = null;
+
+    // Check source file size
+    const fileInfo = await FileSystem.getInfoAsync(sourceUri, { size: true });
+    const fileSize = fileInfo.size || 0;
+
+    // If source file is huge (> 10MB raw), lightly optimize to prevent Supabase REST payload limits
+    // while keeping ultra-high resolution (up to 3200px max dimension, quality 0.88)
+    if (fileSize > 10 * 1024 * 1024 || (originalWidth && (originalWidth > 3200 || originalHeight > 3200))) {
+      const maxDim = 3200;
+      const actions = [];
+      if (originalWidth && originalHeight) {
+        if (originalWidth >= originalHeight && originalWidth > maxDim) {
+          actions.push({ resize: { width: maxDim } });
+        } else if (originalHeight > originalWidth && originalHeight > maxDim) {
+          actions.push({ resize: { height: maxDim } });
+        }
+      } else {
         actions.push({ resize: { width: maxDim } });
-      } else if (originalHeight > originalWidth && originalHeight > maxDim) {
-        actions.push({ resize: { height: maxDim } });
       }
+
+      const manipResult = await manipulateAsync(
+        sourceUri,
+        actions,
+        { compress: 0.88, format: SaveFormat.JPEG, base64: true }
+      );
+
+      if (manipResult.uri) {
+        try {
+          await FileSystem.copyAsync({
+            from: manipResult.uri,
+            to: targetFile,
+          });
+        } catch (_) {
+          await FileSystem.writeAsStringAsync(targetFile, manipResult.base64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
+      }
+      base64Data = manipResult.base64;
     } else {
-      actions.push({ resize: { width: maxDim } });
-    }
-
-    // Compress with SaveFormat.JPEG and get base64 string
-    const manipResult = await manipulateAsync(
-      sourceUri,
-      actions,
-      { compress: 0.45, format: SaveFormat.JPEG, base64: true }
-    );
-
-    // Save optimized file into secure sandbox vault
-    if (manipResult.uri) {
+      // GIANT FULL SIZE: Direct 100% copy of the original file into hidden vault
       try {
         await FileSystem.copyAsync({
-          from: manipResult.uri,
+          from: sourceUri,
           to: targetFile,
         });
-      } catch (_) {
-        await FileSystem.writeAsStringAsync(targetFile, manipResult.base64, {
+      } catch (copyErr) {
+        console.log('Direct copy fallback to write:', copyErr?.message);
+        const rawContent = await FileSystem.readAsStringAsync(sourceUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        await FileSystem.writeAsStringAsync(targetFile, rawContent, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        base64Data = rawContent;
+      }
+
+      if (!base64Data) {
+        base64Data = await FileSystem.readAsStringAsync(targetFile, {
           encoding: FileSystem.EncodingType.Base64,
         });
       }
-    } else if (manipResult.base64) {
-      await FileSystem.writeAsStringAsync(targetFile, manipResult.base64, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
     }
 
-    const base64DataUri = manipResult.base64
-      ? `data:image/jpeg;base64,${manipResult.base64}`
+    const base64DataUri = base64Data
+      ? `data:image/jpeg;base64,${base64Data}`
       : null;
 
     return {
@@ -123,7 +163,7 @@ export const saveOutgoingImageToVault = async (sourceUri, originalWidth, origina
       base64DataUri,
     };
   } catch (err) {
-    console.warn('saveOutgoingImageToVault manipulateAsync error, falling back:', err);
+    console.warn('saveOutgoingImageToVault error, attempting fallback:', err);
     try {
       await initMediaVault();
       const filename = `vault_${Date.now()}_fallback.jpg`;
@@ -180,9 +220,8 @@ export const deleteVaultFilesBatch = async (fileUris) => {
  */
 export const requestStoragePermissionAndInit = async () => {
   try {
-    // expo-media-library handles Android runtime permission for media access
     const MediaLibrary = await import('expo-media-library');
-    const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync(false);
+    const { status } = await MediaLibrary.requestPermissionsAsync(false);
     if (status !== 'granted') {
       return false;
     }

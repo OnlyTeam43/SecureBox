@@ -69,6 +69,7 @@ import {
   requestStoragePermissionAndInit,
 } from '../../services/mediaVault';
 import {
+  supabase,
   sendMessageToSupabase,
   fetchAndClearPendingMessages,
   subscribeToConversation,
@@ -261,24 +262,47 @@ export default function ChatScreen({ route, navigation }) {
     setActiveConversation(conversationId);
     loadMessages();
 
-    // 1. Subscribe to realtime messages & typing status
+    // 1. Subscribe to realtime messages, typing status, delivery/read ACKs & deletions
     const unsubscribeMessages = subscribeToConversation(
       conversationId,
       async (newMsg) => {
         if (newMsg && newMsg.sender !== myHandle) {
+          let mediaDataUri = newMsg.media_uri;
+          let fullBody = newMsg.body;
+
+          // If incoming was lightweight broadcast with has_media: true, fetch full payload
+          if (newMsg.has_media && !mediaDataUri) {
+            try {
+              const { data: fullMsg } = await supabase
+                .from('messages')
+                .select('body, media_uri')
+                .eq('id', newMsg.id)
+                .maybeSingle();
+              if (fullMsg) {
+                mediaDataUri = fullMsg.media_uri;
+                fullBody = fullMsg.body || fullBody;
+              }
+            } catch (_) {}
+          }
+
+          // ZERO-STORAGE: Immediately delete message row from Supabase!
+          try {
+            await supabase.from('messages').delete().eq('id', newMsg.id);
+          } catch (_) {}
+
           let localMedia = null;
-          if (newMsg.media_uri) {
-            localMedia = await saveIncomingBase64ToVault(newMsg.id, newMsg.media_uri);
+          if (mediaDataUri) {
+            localMedia = await saveIncomingBase64ToVault(newMsg.id, mediaDataUri);
           }
           const storedMsg = {
             id: newMsg.id,
             conversationId: newMsg.conversation_id || conversationId,
             sender: newMsg.sender,
-            type: newMsg.media_uri ? 'image' : 'text',
-            body: newMsg.body,
+            type: (mediaDataUri || newMsg.has_media) ? 'image' : 'text',
+            body: fullBody,
             mediaUri: localMedia,
-            sentAt: newMsg.sent_at,
-            expiresAt: newMsg.expires_at,
+            sentAt: newMsg.sent_at || Date.now(),
+            expiresAt: newMsg.expires_at || null,
             replyTo: newMsg.reply_to || null,
             read: 1,
             delivered: 1,
@@ -286,14 +310,14 @@ export default function ChatScreen({ route, navigation }) {
           await insertMessage(storedMsg);
           await updateConversationLastMessage(
             conversationId,
-            newMsg.media_uri ? 'Photo' : (newMsg.body || ''),
-            newMsg.sent_at,
+            localMedia ? 'Photo' : (fullBody || ''),
+            newMsg.sent_at || Date.now(),
             newMsg.sender
           );
           await markConversationRead(conversationId, myHandle);
           useBadgeStore.getState().refreshBadges(myHandle);
 
-          setFriendLastMessage(newMsg.body || '📷 Photo');
+          setFriendLastMessage(fullBody || '📷 Photo');
           setMessages((prev) => {
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             return [...prev, storedMsg];
@@ -309,6 +333,35 @@ export default function ChatScreen({ route, navigation }) {
       },
       async (secEvent) => {
         if (!secEvent) return;
+
+        // Delivery ACK event (double tick)
+        if (secEvent.event === 'messages_delivered') {
+          setMessages((prev) =>
+            prev.map((m) => (m.sender === myHandle && m.delivered === 0 ? { ...m, delivered: 1 } : m))
+          );
+          await markSentMessagesDelivered(conversationId, myHandle);
+          return;
+        }
+
+        // Read ACK event (blue double tick)
+        if (secEvent.event === 'messages_seen') {
+          setMessages((prev) =>
+            prev.map((m) => (m.sender === myHandle ? { ...m, read: 1, delivered: 1 } : m))
+          );
+          await markSentMessagesRead(conversationId, myHandle);
+          return;
+        }
+
+        // Deletion event ("Delete for Everyone")
+        if (secEvent.event === 'delete_messages') {
+          const delIds = secEvent.payload?.messageIds || secEvent.messageIds || [];
+          if (delIds.length > 0) {
+            setMessages((prev) => prev.filter((m) => !delIds.includes(m.id)));
+            await deleteMessagesBatch(delIds);
+            loadMessages();
+          }
+          return;
+        }
 
         // Typing event
         if (secEvent.event === 'typing_status') {
@@ -396,8 +449,10 @@ export default function ChatScreen({ route, navigation }) {
               type: msg.media_uri ? 'image' : 'text',
               body: msg.body,
               mediaUri: localMedia,
-              sentAt: msg.sent_at,
-              expiresAt: msg.expires_at,
+              sentAt: msg.sent_at || msg.created_at || Date.now(),
+              expiresAt: msg.expires_at || null,
+              delivered: 1,
+              read: 1,
             });
           }
           await loadMessages();
@@ -505,7 +560,7 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-  // Send photo
+  // Send photo / media (GIANT FULL SIZE - user device local storage)
   const handlePickPhoto = async () => {
     try {
       const permitted = await requestStoragePermissionAndInit();
@@ -518,9 +573,8 @@ export default function ChatScreen({ route, navigation }) {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 0.5,
-        base64: true,
+        mediaTypes: ['images', 'videos'],
+        quality: 1.0, // GIANT FULL SIZE: 1.0 full original resolution!
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {
@@ -531,12 +585,13 @@ export default function ChatScreen({ route, navigation }) {
           `${myHandle}-${now}-${Math.random()}`
         );
 
-        let vaultUri = null;
-        if (asset.uri) {
-          vaultUri = await saveOutgoingImageToVault(id, asset.uri);
-        }
+        // Save giant full-size media directly into private local vault (.secure_media/)
+        const { vaultUri, base64DataUri } = await saveOutgoingImageToVault(
+          asset.uri,
+          asset.width,
+          asset.height
+        );
 
-        const base64DataUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : vaultUri;
         const msg = {
           id,
           conversationId,
@@ -545,7 +600,7 @@ export default function ChatScreen({ route, navigation }) {
           body: 'Photo',
           mediaUri: vaultUri || asset.uri,
           sentAt: now,
-          read: 1,
+          read: 0,
           delivered: 0,
         };
 
@@ -569,6 +624,45 @@ export default function ChatScreen({ route, navigation }) {
     } catch (err) {
       console.warn('Send image error:', err);
     }
+  };
+
+  const handleMessageLongPress = (msgItem) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (_) {}
+
+    const isMyMsg = msgItem.sender === myHandle;
+    const options = [];
+
+    if (isMyMsg) {
+      options.push({
+        text: 'Delete for Everyone',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteMessagesBatch([msgItem.id]);
+          await broadcastMessageDelete(conversationId, [msgItem.id], contactHandle);
+          setMessages((prev) => prev.filter((m) => m.id !== msgItem.id));
+          loadMessages();
+        },
+      });
+    }
+
+    options.push({
+      text: 'Delete for Me',
+      style: 'destructive',
+      onPress: async () => {
+        await deleteMessagesBatch([msgItem.id]);
+        setMessages((prev) => prev.filter((m) => m.id !== msgItem.id));
+        loadMessages();
+      },
+    });
+
+    options.push({
+      text: 'Cancel',
+      style: 'cancel',
+    });
+
+    Alert.alert('Message Options', isMyMsg ? 'Delete this message?' : 'Delete message from this device?', options);
   };
 
   // Render individual chat bubble
@@ -605,7 +699,9 @@ export default function ChatScreen({ route, navigation }) {
         inSelectionMode={inSelectionMode}
         onSwipeReply={setReplyingTo}
       >
-        <View
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onLongPress={() => handleMessageLongPress(item)}
           style={[
             styles.bubbleWrap,
             isMe ? styles.bubbleWrapMe : styles.bubbleWrapThem,
@@ -675,7 +771,7 @@ export default function ChatScreen({ route, navigation }) {
               </>
             )}
           </View>
-        </View>
+        </TouchableOpacity>
       </SwipeableMessageRow>
     );
   };

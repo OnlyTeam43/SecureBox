@@ -16,6 +16,7 @@ import {
   insertMessage,
   incrementConversationUnread,
   deleteConversationsBatch,
+  deleteMessagesBatch,
   markSentMessagesRead,
   markSentMessagesDelivered,
   markConversationRead,
@@ -231,6 +232,12 @@ export default function InboxScreen({ navigation }) {
       } else if (statusEvent.event === 'messages_delivered') {
         if (statusEvent.conversationId) {
           await markSentMessagesDelivered(statusEvent.conversationId, myHandle);
+          loadConversations();
+        }
+      } else if (statusEvent.event === 'delete_messages') {
+        const delIds = statusEvent.payload?.messageIds || statusEvent.messageIds || [];
+        if (delIds.length > 0) {
+          await deleteMessagesBatch(delIds);
           loadConversations();
         }
       } else if (statusEvent.event === 'connection_request_accepted') {
