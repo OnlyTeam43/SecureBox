@@ -4,7 +4,6 @@ import {
   getTotalUnreadMessagesCount,
   getUnseenMissedCallsCount,
 } from '../db/database';
-import { fetchPendingConnectionRequests } from '../services/supabase';
 
 export const useBadgeStore = create((set, get) => ({
   unreadMessagesCount: 0,
@@ -33,18 +32,10 @@ export const useBadgeStore = create((set, get) => ({
         getUnseenMissedCallsCount().catch(() => 0),
       ]);
 
-      let pendingReqs = get().pendingRequestsCount;
-      if (myHandle) {
-        try {
-          const reqs = await fetchPendingConnectionRequests(myHandle);
-          pendingReqs = Array.isArray(reqs) ? reqs.length : 0;
-        } catch (_) {}
-      }
-
       set({
         unreadMessagesCount: Number(unreadMsgs) || 0,
         missedCallsCount: Number(unseenCalls) || 0,
-        pendingRequestsCount: Number(pendingReqs) || 0,
+        pendingRequestsCount: 0,
       });
     } catch (err) {
       console.warn('refreshBadges error:', err);

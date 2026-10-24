@@ -10,6 +10,7 @@ import {
   incrementConversationUnread,
   updateConversationLastMessage,
   markConversationRead,
+  upsertConversation,
 } from '../db/database';
 import {
   supabase,
@@ -134,5 +135,105 @@ export const processIncomingMessage = async (incoming, myHandle) => {
     await useBadgeStore.getState().refreshBadges(cleanMy);
   } catch (err) {
     console.warn('[messageReceiver] Error saving message to local SQLite:', err);
+  }
+};
+
+/**
+ * Process and persist an incoming connection request directly into the local SQLite Messages chat window.
+ * Contact is saved, conversation is created/updated, initial request message is inserted, and Supabase relay row is removed.
+ * No separate requests screen or manual acceptance needed!
+ */
+export const processIncomingConnectionRequest = async (requestData, myHandle) => {
+  if (!requestData || !myHandle) return;
+  const cleanMy = myHandle.replace('@', '').trim().toLowerCase();
+  const fromHandle = (requestData.fromHandle || requestData.sender || '').replace('@', '').trim().toLowerCase();
+  if (!fromHandle || fromHandle === cleanMy) return;
+
+  const participants = [cleanMy, fromHandle].sort();
+  const convId = `chat_${participants[0]}_${participants[1]}`;
+
+  try {
+    // 1. Ensure contact exists in SQLite
+    const contactId = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      fromHandle
+    );
+
+    let contactAvatar = requestData.fromAvatar || 'avatar_rose';
+    let contactNick = requestData.fromNickname || fromHandle;
+    try {
+      const remoteUser = await findUserByHandle(fromHandle);
+      if (remoteUser?.avatar_id) contactAvatar = remoteUser.avatar_id;
+      if (remoteUser?.nickname) contactNick = remoteUser.nickname;
+    } catch (_) {}
+
+    await insertContact({
+      id: contactId,
+      handle: fromHandle,
+      nickname: contactNick,
+      avatarId: contactAvatar,
+    });
+
+    const isActiveChat = getActiveConversation() === convId;
+    const initialBody = 'Chat request received 💌';
+    const msgId = requestData.reqId || `msg_req_${fromHandle}_${Date.now()}`;
+
+    // 2. Persist initial request message to local SQLite
+    await insertMessage({
+      id: msgId,
+      conversationId: convId,
+      sender: fromHandle,
+      receiver: cleanMy,
+      type: 'text',
+      body: initialBody,
+      mediaUri: null,
+      sentAt: Date.now(),
+      expiresAt: null,
+      delivered: 1,
+      read: isActiveChat ? 1 : 0,
+    });
+
+    // 3. Upsert conversation in Messages list
+    if (!isActiveChat) {
+      await incrementConversationUnread(
+        convId,
+        initialBody,
+        Date.now(),
+        fromHandle
+      );
+    } else {
+      await updateConversationLastMessage(
+        convId,
+        initialBody,
+        Date.now(),
+        fromHandle
+      );
+      await markConversationRead(convId, cleanMy);
+    }
+
+    // 4. ZERO CLOUD STORAGE: Delete the ephemeral request from Supabase relay
+    if (requestData.reqId) {
+      try {
+        await supabase.from('messages').delete().eq('id', requestData.reqId);
+      } catch (_) {}
+    }
+
+    // 5. Establish mutual connection in Supabase so reciprocal searches show connected
+    const connId = `conn_${participants[0]}_${participants[1]}`;
+    try {
+      await supabase.from('messages').upsert({
+        id: connId,
+        type: 'connection',
+        sender: fromHandle,
+        receiver: cleanMy,
+        body: JSON.stringify({ status: 'connected', timestamp: Date.now() }),
+        created_at: Date.now(),
+      });
+    } catch (_) {}
+
+    // 6. Refresh unread badges for companion icon and Messages tab
+    await useBadgeStore.getState().refreshBadges(cleanMy);
+  } catch (err) {
+    console.warn('[processIncomingConnectionRequest] Error saving request to Messages:', err);
   }
 };

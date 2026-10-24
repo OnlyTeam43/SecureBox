@@ -32,7 +32,9 @@ import {
   fetchAndClearPendingMessages,
   fetchAndProcessPendingAcceptances,
   checkConnectionStatus,
+  fetchPendingConnectionRequests,
 } from '../../services/supabase';
+import { processIncomingConnectionRequest } from '../../services/messageReceiver';
 import { saveIncomingBase64ToVault } from '../../services/mediaVault';
 import { useUserStore } from '../../store/useUserStore';
 import { formatDistanceToNow } from 'date-fns';
@@ -81,6 +83,23 @@ export default function InboxScreen({ navigation }) {
   const syncPendingMessages = useCallback(async () => {
     if (!myHandle) return;
     try {
+      // 0. Process any pending connection requests directly into messages chat list
+      const pendingReqs = await fetchPendingConnectionRequests(myHandle);
+      if (pendingReqs && pendingReqs.length > 0) {
+        for (const req of pendingReqs) {
+          await processIncomingConnectionRequest(
+            {
+              fromHandle: req.sender,
+              fromNickname: req.nickname,
+              fromAvatar: req.avatar,
+              reqId: req.id,
+            },
+            myHandle
+          );
+        }
+        await loadConversations();
+      }
+
       // 1. Process any pending connection acceptances
       const acceptedList = await fetchAndProcessPendingAcceptances(myHandle);
       if (acceptedList && acceptedList.length > 0) {
@@ -280,16 +299,21 @@ export default function InboxScreen({ navigation }) {
           `@${partnerHandle} accepted your chat request! You can now start chatting.`
         );
       } else if (statusEvent.event === 'incoming_connection_request') {
+        await processIncomingConnectionRequest(
+          {
+            fromHandle: statusEvent.fromHandle,
+            fromNickname: statusEvent.fromNickname,
+            fromAvatar: statusEvent.fromAvatar,
+            reqId: statusEvent.reqId,
+          },
+          myHandle
+        );
         notifyConnectionRequest({
           fromHandle: statusEvent.fromHandle,
           fromNickname: statusEvent.fromNickname,
           reqId: statusEvent.reqId,
         });
-
-        Alert.alert(
-          'New Chat Request 💌',
-          `@${statusEvent.fromHandle} sent you a connection request! Check the Requests tab to accept.`
-        );
+        await loadConversations();
       }
     });
 
@@ -334,7 +358,7 @@ export default function InboxScreen({ navigation }) {
       // 1. Check comprehensive connection status (local contacts + pending sent + pending received)
       const connStatus = await checkConnectionStatus(myHandle, clean);
 
-      if (connStatus.status === 'connected' || connStatus.status === 'pending_sent') {
+      if (connStatus.status === 'connected' || connStatus.status === 'pending_sent' || connStatus.status === 'pending_received') {
         const contact = connStatus.contact || { handle: clean, nickname: clean, avatar_id: 'avatar_rose' };
         const participants = [myHandle.toLowerCase(), clean].sort();
         const convId = `chat_${participants[0]}_${participants[1]}`;
@@ -363,18 +387,6 @@ export default function InboxScreen({ navigation }) {
         });
       }
 
-      if (connStatus.status === 'pending_received') {
-        setSearching(false);
-        return Alert.alert(
-          'Request Waiting! 💌',
-          `@${clean} has already sent you a connection request! Go to your Requests tab to accept.`,
-          [
-            { text: 'Go to Requests', onPress: () => navigation.navigate('Requests') },
-            { text: 'Cancel', style: 'cancel' },
-          ]
-        );
-      }
-
       // 2. Search in Supabase for user identity
       const remoteUser = await findUserByHandle(clean);
       if (!remoteUser) {
@@ -386,14 +398,14 @@ export default function InboxScreen({ navigation }) {
       }
 
       setSearching(false);
-      // 3. Prompt to send connection request
+      // 3. Connect directly into chat window
       Alert.alert(
-        'Connect with @' + clean,
-        `Would you like to send a chat request to ${remoteUser.nickname || clean} (@${clean})? Your chat will begin immediately!`,
+        'Chat with @' + clean,
+        `Start private chatting with ${remoteUser.nickname || clean} (@${clean})?`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Send Request 💕',
+            text: 'Start Chat 💕',
             onPress: async () => {
               try {
                 await sendConnectionRequest({
@@ -414,7 +426,7 @@ export default function InboxScreen({ navigation }) {
                 await upsertConversation({
                   id: convId,
                   contactId,
-                  lastMsg: 'Chat request sent 💌',
+                  lastMsg: 'Chat started 💕',
                   lastTime: Date.now(),
                   unread: 0,
                 });
@@ -427,7 +439,7 @@ export default function InboxScreen({ navigation }) {
                   contactAvatarId: remoteUser.avatar_id || 'avatar_rose',
                 });
               } catch (reqErr) {
-                Alert.alert('Error', reqErr.message || 'Could not send request');
+                Alert.alert('Error', reqErr.message || 'Could not start chat');
               }
             },
           },

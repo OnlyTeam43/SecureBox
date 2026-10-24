@@ -38,7 +38,7 @@ export default function AddContactScreen({ navigation }) {
       // 1. Check existing connection or pending status
       const connStatus = await checkConnectionStatus(myHandle, cleanHandle);
 
-      if (connStatus.status === 'connected' || connStatus.status === 'pending_sent') {
+      if (connStatus.status === 'connected' || connStatus.status === 'pending_sent' || connStatus.status === 'pending_received') {
         setLoading(false);
         const contact = connStatus.contact || { handle: cleanHandle, nickname: cleanHandle, avatar_id: 'avatar_rose' };
         const participants = [myHandle.toLowerCase(), cleanHandle].sort();
@@ -63,18 +63,6 @@ export default function AddContactScreen({ navigation }) {
           contactNickname: contact.nickname || cleanHandle,
           contactAvatarId: contact.avatar_id || 'avatar_rose',
         });
-      }
-
-      if (connStatus.status === 'pending_received') {
-        setLoading(false);
-        return Alert.alert(
-          'Request Waiting! 💌',
-          `@${cleanHandle} has already sent you a connection request! Go to your Requests tab to accept.`,
-          [
-            { text: 'Go to Requests', onPress: () => navigation.navigate('Requests') },
-            { text: 'Cancel', style: 'cancel' },
-          ]
-        );
       }
 
       // 2. Verify if handle exists in Supabase

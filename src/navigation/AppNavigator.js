@@ -20,7 +20,7 @@ import BubbleAlertModal, { installBubbleAlert } from '../components/BubbleAlert'
 
 // Automatically route all alerts across the app into our signature bubble style
 installBubbleAlert();
-import { processIncomingMessage } from '../services/messageReceiver';
+import { processIncomingMessage, processIncomingConnectionRequest } from '../services/messageReceiver';
 import * as Notifications from 'expo-notifications';
 import {
   initNotifications,
@@ -44,13 +44,12 @@ import ProfileScreen from '../screens/main/ProfileScreen';
 import AddContactScreen from '../screens/main/AddContactScreen';
 import CallScreen from '../screens/main/CallScreen';
 import MediaGalleryScreen from '../screens/main/MediaGalleryScreen';
-import RequestsScreen from '../screens/main/RequestsScreen';
 import CalculatorScreen from '../screens/stealth/CalculatorScreen';
 import BrickBreakerGameScreen from '../screens/game/BrickBreakerGameScreen';
 import DecoyInboxScreen from '../screens/stealth/DecoyInboxScreen';
 import ClaudeChatScreen from '../screens/main/ClaudeChatScreen';
 
-import { MessageTabIcon, PhoneIcon, UserAvatarIcon, UserCheckIcon } from '../components/Icons';
+import { MessageTabIcon, PhoneIcon, UserAvatarIcon } from '../components/Icons';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -58,7 +57,6 @@ const Tab = createBottomTabNavigator();
 function MainTabs() {
   const unreadMessagesCount = useBadgeStore((s) => s.unreadMessagesCount);
   const missedCallsCount = useBadgeStore((s) => s.missedCallsCount);
-  const pendingRequestsCount = useBadgeStore((s) => s.pendingRequestsCount);
 
   return (
     <Tab.Navigator
@@ -98,18 +96,6 @@ function MainTabs() {
             <PhoneIcon size={22} color={color} />
           ),
           tabBarBadge: missedCallsCount > 0 ? (missedCallsCount > 99 ? '99+' : missedCallsCount) : undefined,
-          tabBarBadgeStyle: { backgroundColor: Colors.accent.primary, color: '#fff', fontSize: 10, fontWeight: '700' },
-        }}
-      />
-      <Tab.Screen
-        name="Requests"
-        component={RequestsScreen}
-        options={{
-          tabBarLabel: 'Requests',
-          tabBarIcon: ({ color }) => (
-            <UserCheckIcon size={22} color={color} />
-          ),
-          tabBarBadge: pendingRequestsCount > 0 ? (pendingRequestsCount > 99 ? '99+' : pendingRequestsCount) : undefined,
           tabBarBadgeStyle: { backgroundColor: Colors.accent.primary, color: '#fff', fontSize: 10, fontWeight: '700' },
         }}
       />
@@ -257,10 +243,13 @@ export default function AppNavigator() {
         if (statusEvent.event === 'incoming_call') {
           console.log('AppNavigator: Received durable incoming_call event:', statusEvent);
           await processIncomingCallPayload(statusEvent);
-        } else if (
-          statusEvent.event === 'incoming_connection_request' ||
-          statusEvent.event === 'connection_request_accepted'
-        ) {
+        } else if (statusEvent.event === 'incoming_connection_request') {
+          try {
+            await processIncomingConnectionRequest(statusEvent, myHandle);
+          } catch (err) {
+            console.warn('[AppNavigator] Incoming connection request error:', err);
+          }
+        } else if (statusEvent.event === 'connection_request_accepted') {
           useBadgeStore.getState().refreshBadges(myHandle);
         }
       }

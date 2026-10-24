@@ -167,9 +167,19 @@ export const handleNotificationClick = (response) => {
         contactAvatarId: data.contactAvatarId || 'avatar_rose',
       });
     } else if (data.type === 'request') {
-      navigate('MainTabs', {
-        screen: 'Requests',
-      });
+      const from = (data.fromHandle || '').replace('@', '').trim().toLowerCase();
+      if (from) {
+        navigate('Chat', {
+          conversationId: data.conversationId || `chat_${from}`,
+          contactHandle: from,
+          contactNickname: data.fromNickname || from,
+          contactAvatarId: data.contactAvatarId || 'avatar_rose',
+        });
+      } else {
+        navigate('MainTabs', {
+          screen: 'Inbox',
+        });
+      }
     } else if (data.type === 'call') {
       // If user tapped on an incoming call notification, open call view
       if (data.callId) {
@@ -286,16 +296,17 @@ export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId 
 
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'New Connection Request 💌',
-        body: `${displayName} wants to connect with you!`,
+        title: 'New Chat 💌',
+        body: `${displayName} started a chat with you!`,
         data: {
-          type: 'request',
-          fromHandle: cleanHandle,
-          fromNickname: cleanNick || cleanHandle,
+          type: 'chat',
+          contactHandle: cleanHandle,
+          contactNickname: cleanNick || cleanHandle,
+          contactAvatarId: 'avatar_rose',
           reqId: String(reqId || ''),
         },
         sound: 'default',
-        channelId: NOTIFICATION_CHANNELS.REQUESTS,
+        channelId: NOTIFICATION_CHANNELS.MESSAGES,
         priority: Notifications.AndroidNotificationPriority.DEFAULT,
       },
       trigger: null,

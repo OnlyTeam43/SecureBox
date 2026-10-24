@@ -168,21 +168,32 @@ export const handleIncomingInvite = async (
     }
 
     if (connStatus.status === 'pending_received') {
-      return Alert.alert(
-        'Request Waiting! 💌',
-        `@${cleanTarget} has already sent you a connection request! Go to your Requests tab to accept.`,
-        [
-          {
-            text: 'Go to Requests',
-            onPress: () => {
-              if (navigationRef.isReady()) {
-                navigationRef.navigate('MainTabs', { screen: 'Requests' });
-              }
-            },
-          },
-          { text: 'Cancel', style: 'cancel' },
-        ]
-      );
+      const contact = connStatus.contact || { handle: cleanTarget, nickname: cleanTarget, avatar_id: 'avatar_rose' };
+      const participants = [cleanMy, cleanTarget].sort();
+      const convId = `chat_${participants[0]}_${participants[1]}`;
+      const contactId = `contact_${cleanTarget}`;
+      await insertContact({
+        id: contactId,
+        handle: cleanTarget,
+        nickname: contact.nickname || cleanTarget,
+        avatarId: contact.avatar_id || 'avatar_rose',
+      });
+      await upsertConversation({
+        id: convId,
+        contactId,
+        lastMsg: 'Connected! Say hi 💕',
+        lastTime: Date.now(),
+        unread: 0,
+      });
+      if (navigationRef.isReady()) {
+        navigationRef.navigate('Chat', {
+          conversationId: convId,
+          contactHandle: contact.handle || cleanTarget,
+          contactNickname: contact.nickname || cleanTarget,
+          contactAvatarId: contact.avatar_id || 'avatar_rose',
+        });
+      }
+      return;
     }
 
     // 2. Lookup remote user in Supabase

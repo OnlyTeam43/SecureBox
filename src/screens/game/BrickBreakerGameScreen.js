@@ -2044,7 +2044,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
                 <Text style={styles.tourTitle}>Silent Message Counter 💬</Text>
                 <Text style={styles.tourDesc}>
-                  When private messages or requests arrive, a subtle counter appears directly on your companion icon. Zero loud notification popups will ever give you away!
+                  When private messages arrive, a subtle counter appears directly on your companion icon. Zero loud notification popups will ever give you away!
                 </Text>
 
                 <View style={styles.tourActionRow}>
