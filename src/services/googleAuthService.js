@@ -166,10 +166,22 @@ export const initiateGoogleAuth = async () => {
       },
     };
   } catch (err) {
-    if (err.code === 'SIGN_IN_CANCELLED') {
+    if (err.code === 'SIGN_IN_CANCELLED' || err.code === '12501') {
       return { success: false, cancelled: true };
     }
     console.error('[GoogleAuth] Error:', err);
+    if (
+      err.code === '10' ||
+      err.code === 'DEVELOPER_ERROR' ||
+      err.message?.includes('DEVELOPER_ERROR') ||
+      err.message?.includes('10:')
+    ) {
+      return {
+        success: false,
+        error:
+          'Google Sign-In DEVELOPER_ERROR: Add the EAS build SHA-1 fingerprint (E2:E9:BD:AC:43:8C:19:6A:BF:3A:C6:6B:F2:AC:50:14:B5:C3:80:A6) to Firebase Console under your Android app.',
+      };
+    }
     return {
       success: false,
       error: err.message || 'Google Sign-In failed. Please check Google Play Services.',
