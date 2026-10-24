@@ -160,17 +160,92 @@ export const incrementConversationUnread = async (conversationId, text, time, se
   );
 };
 
-export const getAllConversations = async () => {
+export const getAllConversations = async (currentHandle = null) => {
   const db = await getDB();
-  return await db.getAllAsync(`
+  const rows = await db.getAllAsync(`
     SELECT c.*, ct.handle, ct.nickname, ct.avatar_id,
       (SELECT m.sender FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ORDER BY m.sent_at DESC LIMIT 1) as latest_sender,
       (SELECT m.read FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ORDER BY m.sent_at DESC LIMIT 1) as latest_read,
       (SELECT m.delivered FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ORDER BY m.sent_at DESC LIMIT 1) as latest_delivered
     FROM conversations c
-    JOIN contacts ct ON ct.id = c.contact_id
+    LEFT JOIN contacts ct ON ct.id = c.contact_id
     ORDER BY c.last_time DESC
   `);
+
+  // Auto-heal any conversations where contact join was null so chat is NEVER lost or disappeared
+  for (const r of rows) {
+    if (!r.handle && r.id && r.id.startsWith('chat_')) {
+      const parts = r.id.replace('chat_', '').split('_');
+      let partner = parts[0];
+      if (currentHandle && parts[0]?.toLowerCase() === currentHandle?.toLowerCase()) {
+        partner = parts[1] || parts[0];
+      } else if (parts.length > 1) {
+        partner = parts[1];
+      }
+      r.handle = partner;
+      r.nickname = partner;
+      r.avatar_id = 'avatar_rose';
+
+      try {
+        const contactId = `contact_${partner}`;
+        db.runAsync(
+          `INSERT OR IGNORE INTO contacts (id, handle, nickname, avatar_id, added_at) VALUES (?, ?, ?, ?, ?)`,
+          [contactId, partner, partner, 'avatar_rose', Date.now()]
+        ).then(() => {
+          db.runAsync(`UPDATE conversations SET contact_id = ? WHERE id = ?`, [contactId, r.id]).catch(() => {});
+        }).catch(() => {});
+      } catch (_) {}
+    }
+  }
+
+  return rows;
+};
+
+export const getConversationById = async (conversationId) => {
+  const db = await getDB();
+  return await db.getFirstAsync(
+    `SELECT c.*, ct.handle, ct.nickname, ct.avatar_id
+     FROM conversations c
+     LEFT JOIN contacts ct ON ct.id = c.contact_id
+     WHERE c.id = ?`,
+    [conversationId]
+  );
+};
+
+export const isConversationOrContactConnected = async (myHandle, partnerHandle) => {
+  if (!myHandle || !partnerHandle) return false;
+  try {
+    const db = await getDB();
+    const cleanTarget = partnerHandle.replace('@', '').trim().toLowerCase();
+    const cleanMy = myHandle.replace('@', '').trim().toLowerCase();
+
+    // 1. Check contact in SQLite
+    const contact = await db.getFirstAsync(
+      `SELECT id FROM contacts WHERE LOWER(handle) = ?`,
+      [cleanTarget]
+    );
+    if (contact) return true;
+
+    // 2. Check conversation in SQLite
+    const participants = [cleanMy, cleanTarget].sort();
+    const convId = `chat_${participants[0]}_${participants[1]}`;
+    const conv = await db.getFirstAsync(
+      `SELECT id FROM conversations WHERE id = ?`,
+      [convId]
+    );
+    if (conv) return true;
+
+    // 3. Check if any message ever existed in SQLite
+    const msg = await db.getFirstAsync(
+      `SELECT id FROM messages WHERE conversation_id = ? LIMIT 1`,
+      [convId]
+    );
+    if (msg) return true;
+
+    return false;
+  } catch (_) {
+    return false;
+  }
 };
 
 export const markConversationRead = async (conversationId, myHandle = null) => {

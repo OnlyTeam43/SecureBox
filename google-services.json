@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "457377823284-v9rg56opu0ppgudgiv7qupjo6pf5hjqi.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.securebox.app",
+            "certificate_hash": "e2e9bdac438c196abf3ac66bf2ac5014b5c380a6"
+          }
+        },
+        {
           "client_id": "457377823284-kbak1tq6qg91rsa1g7hi7ku546nj15m6.apps.googleusercontent.com",
           "client_type": 3
         }

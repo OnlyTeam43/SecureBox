@@ -7,6 +7,7 @@ import {
   checkConnectionStatus,
   sendConnectionRequest,
 } from './supabase';
+import { insertContact, upsertConversation } from '../db/database';
 
 export const WEB_INVITE_BASE_URL = 'https://onlyteam43.github.io/SecureBox';
 
@@ -137,48 +138,33 @@ export const handleIncomingInvite = async (
     // 1. Check existing connection status
     const connStatus = await checkConnectionStatus(myHandle, cleanTarget);
 
-    if (connStatus.status === 'connected') {
-      const contact = connStatus.contact;
+    if (connStatus.status === 'connected' || connStatus.status === 'pending_sent') {
+      const contact = connStatus.contact || { handle: cleanTarget, nickname: cleanTarget, avatar_id: 'avatar_rose' };
       const participants = [myHandle.toLowerCase(), cleanTarget].sort();
       const convId = `chat_${participants[0]}_${participants[1]}`;
-      return Alert.alert(
-        'Already Connected 💕',
-        `You and @${cleanTarget} are already connected!`,
-        [
-          { text: 'Close', style: 'cancel' },
-          {
-            text: 'Open Chat',
-            onPress: () => {
-              if (navigationRef.isReady()) {
-                navigationRef.navigate('Chat', {
-                  conversationId: convId,
-                  contactHandle: contact.handle,
-                  contactNickname: contact.nickname,
-                  contactAvatarId: contact.avatar_id,
-                });
-              }
-            },
-          },
-        ]
-      );
-    }
-
-    if (connStatus.status === 'pending_sent') {
-      return Alert.alert(
-        'Request Already Sent ⏳',
-        `You've already sent a connection request to @${cleanTarget}. Waiting for them to accept!`,
-        [
-          {
-            text: 'View Requests',
-            onPress: () => {
-              if (navigationRef.isReady()) {
-                navigationRef.navigate('MainTabs', { screen: 'Requests' });
-              }
-            },
-          },
-          { text: 'OK', style: 'cancel' },
-        ]
-      );
+      const contactId = `contact_${cleanTarget}`;
+      await insertContact({
+        id: contactId,
+        handle: cleanTarget,
+        nickname: contact.nickname || cleanTarget,
+        avatarId: contact.avatar_id || 'avatar_rose',
+      });
+      await upsertConversation({
+        id: convId,
+        contactId,
+        lastMsg: 'Connected! Say hi 💕',
+        lastTime: Date.now(),
+        unread: 0,
+      });
+      if (navigationRef.isReady()) {
+        navigationRef.navigate('Chat', {
+          conversationId: convId,
+          contactHandle: contact.handle || cleanTarget,
+          contactNickname: contact.nickname || cleanTarget,
+          contactAvatarId: contact.avatar_id || 'avatar_rose',
+        });
+      }
+      return;
     }
 
     if (connStatus.status === 'pending_received') {
@@ -213,11 +199,11 @@ export const handleIncomingInvite = async (
     // 3. Prompt user to send request
     Alert.alert(
       `Connect with ${partnerName}! 💌`,
-      `You followed an invite link from @${cleanTarget} (${partnerName}). Would you like to send a chat request now?`,
+      `You followed an invite link from @${cleanTarget} (${partnerName}). Start chatting now?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Send Request 💕',
+          text: 'Chat Now 💕',
           onPress: async () => {
             try {
               await sendConnectionRequest({
@@ -227,21 +213,31 @@ export const handleIncomingInvite = async (
                 fromAvatar: myAvatarId,
               });
 
-              Alert.alert(
-                'Request Sent! 💌',
-                `Connection request sent to @${cleanTarget}! Once they accept, they will appear in your Messages.`,
-                [
-                  {
-                    text: 'View Requests',
-                    onPress: () => {
-                      if (navigationRef.isReady()) {
-                        navigationRef.navigate('MainTabs', { screen: 'Requests' });
-                      }
-                    },
-                  },
-                  { text: 'OK' },
-                ]
-              );
+              const participants = [myHandle.toLowerCase(), cleanTarget].sort();
+              const convId = `chat_${participants[0]}_${participants[1]}`;
+              const contactId = `contact_${cleanTarget}`;
+              await insertContact({
+                id: contactId,
+                handle: cleanTarget,
+                nickname: partnerName,
+                avatarId: remoteUser.avatar_id || 'avatar_rose',
+              });
+              await upsertConversation({
+                id: convId,
+                contactId,
+                lastMsg: 'Chat request sent 💌',
+                lastTime: Date.now(),
+                unread: 0,
+              });
+
+              if (navigationRef.isReady()) {
+                navigationRef.navigate('Chat', {
+                  conversationId: convId,
+                  contactHandle: cleanTarget,
+                  contactNickname: partnerName,
+                  contactAvatarId: remoteUser.avatar_id || 'avatar_rose',
+                });
+              }
             } catch (err) {
               Alert.alert('Error', err.message || 'Could not send request.');
             }

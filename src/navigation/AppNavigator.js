@@ -16,6 +16,10 @@ import { subscribeToMyMessages, fetchPendingCallInvite } from '../services/supab
 import { purgeExpiredMessages } from '../db/database';
 import IncomingCallModal from '../components/IncomingCallModal';
 import ActiveCallBanner from '../components/ActiveCallBanner';
+import BubbleAlertModal, { installBubbleAlert } from '../components/BubbleAlert';
+
+// Automatically route all alerts across the app into our signature bubble style
+installBubbleAlert();
 import { processIncomingMessage } from '../services/messageReceiver';
 import * as Notifications from 'expo-notifications';
 import {
@@ -400,6 +404,9 @@ export default function AppNavigator() {
           setIncomingCallData(null);
         }}
       />
+
+      {/* Global Bubble Alert Modal */}
+      <BubbleAlertModal />
     </View>
   );
 }

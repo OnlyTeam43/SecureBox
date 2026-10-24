@@ -70,7 +70,7 @@ export default function InboxScreen({ navigation }) {
 
   const loadConversations = async () => {
     try {
-      const data = await getAllConversations();
+      const data = await getAllConversations(myHandle);
       setConversations(data || []);
       useBadgeStore.getState().refreshBadges(myHandle);
     } catch (e) {
@@ -334,30 +334,33 @@ export default function InboxScreen({ navigation }) {
       // 1. Check comprehensive connection status (local contacts + pending sent + pending received)
       const connStatus = await checkConnectionStatus(myHandle, clean);
 
-      if (connStatus.status === 'connected') {
-        const contact = connStatus.contact;
+      if (connStatus.status === 'connected' || connStatus.status === 'pending_sent') {
+        const contact = connStatus.contact || { handle: clean, nickname: clean, avatar_id: 'avatar_rose' };
         const participants = [myHandle.toLowerCase(), clean].sort();
         const convId = `chat_${participants[0]}_${participants[1]}`;
+        const contactId = `contact_${clean}`;
+        await insertContact({
+          id: contactId,
+          handle: clean,
+          nickname: contact.nickname || clean,
+          avatarId: contact.avatar_id || 'avatar_rose',
+        });
+        await upsertConversation({
+          id: convId,
+          contactId,
+          lastMsg: 'Connected! Say hi 💕',
+          lastTime: Date.now(),
+          unread: 0,
+        });
         setSearchHandle('');
         setSearching(false);
+        await loadConversations();
         return navigation.navigate('Chat', {
           conversationId: convId,
-          contactHandle: contact.handle,
-          contactNickname: contact.nickname,
-          contactAvatarId: contact.avatar_id,
+          contactHandle: contact.handle || clean,
+          contactNickname: contact.nickname || clean,
+          contactAvatarId: contact.avatar_id || 'avatar_rose',
         });
-      }
-
-      if (connStatus.status === 'pending_sent') {
-        setSearching(false);
-        return Alert.alert(
-          'Request Pending ⏳',
-          `You already sent a chat request to @${clean}. Waiting for them to accept!`,
-          [
-            { text: 'View Requests', onPress: () => navigation.navigate('Requests') },
-            { text: 'OK', style: 'cancel' },
-          ]
-        );
       }
 
       if (connStatus.status === 'pending_received') {
@@ -386,7 +389,7 @@ export default function InboxScreen({ navigation }) {
       // 3. Prompt to send connection request
       Alert.alert(
         'Connect with @' + clean,
-        `Would you like to send a chat request to ${remoteUser.nickname || clean} (@${clean})? Once they accept in their Requests tab, your private chat will begin!`,
+        `Would you like to send a chat request to ${remoteUser.nickname || clean} (@${clean})? Your chat will begin immediately!`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -399,18 +402,30 @@ export default function InboxScreen({ navigation }) {
                   fromNickname: myNickname,
                   fromAvatar: myAvatarId,
                 });
+                const participants = [myHandle.toLowerCase(), clean].sort();
+                const convId = `chat_${participants[0]}_${participants[1]}`;
+                const contactId = `contact_${clean}`;
+                await insertContact({
+                  id: contactId,
+                  handle: clean,
+                  nickname: remoteUser.nickname || clean,
+                  avatarId: remoteUser.avatar_id || 'avatar_rose',
+                });
+                await upsertConversation({
+                  id: convId,
+                  contactId,
+                  lastMsg: 'Chat request sent 💌',
+                  lastTime: Date.now(),
+                  unread: 0,
+                });
                 setSearchHandle('');
-                Alert.alert(
-                  'Request Sent! 💌',
-                  `Connection request sent to @${clean}! Once they accept, they will appear here in your Messages.`,
-                  [
-                    {
-                      text: 'View Requests',
-                      onPress: () => navigation.navigate('Requests'),
-                    },
-                    { text: 'OK', style: 'cancel' },
-                  ]
-                );
+                await loadConversations();
+                navigation.navigate('Chat', {
+                  conversationId: convId,
+                  contactHandle: clean,
+                  contactNickname: remoteUser.nickname || clean,
+                  contactAvatarId: remoteUser.avatar_id || 'avatar_rose',
+                });
               } catch (reqErr) {
                 Alert.alert('Error', reqErr.message || 'Could not send request');
               }

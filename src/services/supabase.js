@@ -2,11 +2,15 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Crypto from 'expo-crypto';
 import {
   getContactByHandle,
   deleteMessagesBatch,
   markSentMessagesDelivered,
   markSentMessagesRead,
+  isConversationOrContactConnected,
+  insertContact,
+  upsertConversation,
 } from '../db/database';
 
 export const SUPABASE_URL = 'https://mhqtqcjceklbtnfaqhqj.supabase.co';
@@ -1257,7 +1261,41 @@ export const sendConnectionRequest = async ({ fromHandle, toHandle, fromNickname
     throw error;
   }
 
-  // 2. Broadcast realtime notice to recipient
+  // 2. Persist permanent connection record in Supabase so chat is never removed
+  const participants = [cleanFrom, cleanTo].sort();
+  const connId = `conn_${participants[0]}_${participants[1]}`;
+  supabase
+    .from('messages')
+    .upsert({
+      id: connId,
+      type: 'connection',
+      sender: cleanFrom,
+      receiver: cleanTo,
+      body: JSON.stringify({ status: 'connected', initiatedBy: cleanFrom, timestamp: Date.now() }),
+      created_at: Date.now(),
+    })
+    .then(() => {})
+    .catch(() => {});
+
+  // 3. Ensure local SQLite contact & conversation exist immediately so chat is never missing
+  try {
+    const contactId = `contact_${cleanTo}`;
+    await insertContact({
+      id: contactId,
+      handle: cleanTo,
+      nickname: fromNickname || cleanTo,
+      avatarId: fromAvatar || 'avatar_rose',
+    });
+    await upsertConversation({
+      id: `chat_${participants[0]}_${participants[1]}`,
+      contactId,
+      lastMsg: 'Chat request sent 💌',
+      lastTime: Date.now(),
+      unread: 0,
+    });
+  } catch (_) {}
+
+  // 4. Broadcast realtime notice to recipient
   try {
     let userChannel = supabase.getChannels().find((c) => c.topic === `realtime:user_${cleanTo}`);
     if (!userChannel) {
@@ -1454,7 +1492,41 @@ export const acceptConnectionRequest = async ({ reqId, fromHandle, toHandle, myN
     console.warn('[acceptConnectionRequest] Durable receipt note:', err.message);
   }
 
-  // 2. Remove the pending request from Supabase
+  // 2. Persist permanent connection record in Supabase so neither user is EVER asked to connect again
+  const participants = [cleanFrom, cleanTo].sort();
+  const connId = `conn_${participants[0]}_${participants[1]}`;
+  supabase
+    .from('messages')
+    .upsert({
+      id: connId,
+      type: 'connection',
+      sender: cleanTo,
+      receiver: cleanFrom,
+      body: JSON.stringify({ status: 'connected', acceptedBy: cleanTo, timestamp: Date.now() }),
+      created_at: Date.now(),
+    })
+    .then(() => {})
+    .catch(() => {});
+
+  // 3. Ensure local SQLite contact & conversation exist
+  try {
+    const contactId = `contact_${cleanFrom}`;
+    await insertContact({
+      id: contactId,
+      handle: cleanFrom,
+      nickname: cleanFrom,
+      avatarId: 'avatar_rose',
+    });
+    await upsertConversation({
+      id: `chat_${participants[0]}_${participants[1]}`,
+      contactId,
+      lastMsg: 'Connected! Say hi 💕',
+      lastTime: Date.now(),
+      unread: 0,
+    });
+  } catch (_) {}
+
+  // 4. Remove the pending request from Supabase
   if (reqId) {
     await supabase.from('messages').delete().eq('id', reqId);
   }
@@ -1465,7 +1537,7 @@ export const acceptConnectionRequest = async ({ reqId, fromHandle, toHandle, myN
     .eq('receiver', cleanTo)
     .eq('sender', cleanFrom);
 
-  // 3. Broadcast realtime acceptance to sender's user channel
+  // 5. Broadcast realtime acceptance to sender's user channel
   try {
     let userChannel = supabase.getChannels().find((c) => c.topic === `realtime:user_${cleanFrom}`);
     if (!userChannel) {
@@ -1527,7 +1599,53 @@ export const checkConnectionStatus = async (myHandle, targetHandle) => {
     }
   } catch (_) {}
 
-  // 2. Check if cleanTarget sent a pending request to cleanMy
+  // 2. Check local SQLite conversations or messages
+  try {
+    const isConn = await isConversationOrContactConnected(cleanMy, cleanTarget);
+    if (isConn) {
+      const contact = {
+        handle: cleanTarget,
+        nickname: cleanTarget,
+        avatar_id: 'avatar_rose',
+      };
+      return { status: 'connected', contact };
+    }
+  } catch (_) {}
+
+  // 3. Check permanent connection record in Supabase (type: 'connection')
+  try {
+    const participants = [cleanMy, cleanTarget].sort();
+    const connId = `conn_${participants[0]}_${participants[1]}`;
+    const { data: permConn } = await supabase
+      .from('messages')
+      .select('id, body')
+      .eq('id', connId)
+      .maybeSingle();
+
+    if (permConn) {
+      // Auto-heal local SQLite
+      const contactId = `contact_${cleanTarget}`;
+      await insertContact({
+        id: contactId,
+        handle: cleanTarget,
+        nickname: cleanTarget,
+        avatarId: 'avatar_rose',
+      });
+      await upsertConversation({
+        id: `chat_${participants[0]}_${participants[1]}`,
+        contactId,
+        lastMsg: 'Connected! Say hi 💕',
+        lastTime: Date.now(),
+        unread: 0,
+      });
+      return {
+        status: 'connected',
+        contact: { handle: cleanTarget, nickname: cleanTarget, avatar_id: 'avatar_rose' },
+      };
+    }
+  } catch (_) {}
+
+  // 4. Check if cleanTarget sent a pending request to cleanMy
   try {
     const { data: incoming } = await supabase
       .from('messages')
@@ -1542,7 +1660,7 @@ export const checkConnectionStatus = async (myHandle, targetHandle) => {
     }
   } catch (_) {}
 
-  // 3. Check if cleanMy sent a pending request to cleanTarget
+  // 5. Check if cleanMy sent a pending request to cleanTarget
   try {
     const { data: outgoing } = await supabase
       .from('messages')

@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
 import { AVATARS } from '../../constants/avatars';
 import { findUserByHandle, sendConnectionRequest, checkConnectionStatus } from '../../services/supabase';
+import { insertContact, upsertConversation } from '../../db/database';
 import { useUserStore } from '../../store/useUserStore';
 
 export default function AddContactScreen({ navigation }) {
@@ -37,41 +38,31 @@ export default function AddContactScreen({ navigation }) {
       // 1. Check existing connection or pending status
       const connStatus = await checkConnectionStatus(myHandle, cleanHandle);
 
-      if (connStatus.status === 'connected') {
+      if (connStatus.status === 'connected' || connStatus.status === 'pending_sent') {
         setLoading(false);
-        const contact = connStatus.contact;
+        const contact = connStatus.contact || { handle: cleanHandle, nickname: cleanHandle, avatar_id: 'avatar_rose' };
         const participants = [myHandle.toLowerCase(), cleanHandle].sort();
         const convId = `chat_${participants[0]}_${participants[1]}`;
-        return Alert.alert(
-          'Already Connected 💕',
-          `You and @${cleanHandle} are already connected!`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Chat Now',
-              onPress: () => {
-                navigation.navigate('Chat', {
-                  conversationId: convId,
-                  contactHandle: contact.handle,
-                  contactNickname: contact.nickname,
-                  contactAvatarId: contact.avatar_id,
-                });
-              },
-            },
-          ]
-        );
-      }
-
-      if (connStatus.status === 'pending_sent') {
-        setLoading(false);
-        return Alert.alert(
-          'Request Pending ⏳',
-          `You already sent a connection request to @${cleanHandle}. Waiting for them to accept!`,
-          [
-            { text: 'View Requests', onPress: () => navigation.navigate('Requests') },
-            { text: 'OK', style: 'cancel' },
-          ]
-        );
+        const contactId = `contact_${cleanHandle}`;
+        await insertContact({
+          id: contactId,
+          handle: cleanHandle,
+          nickname: contact.nickname || cleanHandle,
+          avatarId: contact.avatar_id || 'avatar_rose',
+        });
+        await upsertConversation({
+          id: convId,
+          contactId,
+          lastMsg: 'Connected! Say hi 💕',
+          lastTime: Date.now(),
+          unread: 0,
+        });
+        return navigation.navigate('Chat', {
+          conversationId: convId,
+          contactHandle: cleanHandle,
+          contactNickname: contact.nickname || cleanHandle,
+          contactAvatarId: contact.avatar_id || 'avatar_rose',
+        });
       }
 
       if (connStatus.status === 'pending_received') {
@@ -101,17 +92,38 @@ export default function AddContactScreen({ navigation }) {
         fromAvatar: myAvatarId,
       });
 
+      const participants = [myHandle.toLowerCase(), cleanHandle].sort();
+      const convId = `chat_${participants[0]}_${participants[1]}`;
+      const contactId = `contact_${cleanHandle}`;
+      await insertContact({
+        id: contactId,
+        handle: cleanHandle,
+        nickname: nickname.trim() || remoteUser.nickname || cleanHandle,
+        avatarId: selectedAvatar || remoteUser.avatar_id || 'avatar_rose',
+      });
+      await upsertConversation({
+        id: convId,
+        contactId,
+        lastMsg: 'Chat request sent 💌',
+        lastTime: Date.now(),
+        unread: 0,
+      });
+
+      setLoading(false);
       Alert.alert(
-        'Request Sent! 💌',
-        `Chat request sent to @${cleanHandle}! Once they accept your request in the Requests tab, your private chat will begin.`,
+        'Connected! 💌',
+        `Chat created with @${cleanHandle}! You can start chatting right away.`,
         [
           {
-            text: 'Go to Requests',
-            onPress: () => navigation.navigate('Requests'),
-          },
-          {
-            text: 'OK',
-            onPress: () => navigation.goBack(),
+            text: 'Chat Now 💕',
+            onPress: () => {
+              navigation.navigate('Chat', {
+                conversationId: convId,
+                contactHandle: cleanHandle,
+                contactNickname: nickname.trim() || remoteUser.nickname || cleanHandle,
+                contactAvatarId: selectedAvatar || remoteUser.avatar_id || 'avatar_rose',
+              });
+            },
           },
         ]
       );
