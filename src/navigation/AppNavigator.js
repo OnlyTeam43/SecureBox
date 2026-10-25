@@ -12,7 +12,9 @@ import { useUserStore } from '../store/useUserStore';
 import { useBadgeStore } from '../store/useBadgeStore';
 import { navigationRef } from './navigationRef';
 import { initCallReceiver, callService, processIncomingCallPayload } from '../services/callService';
-import { subscribeToMyMessages, fetchPendingCallInvite } from '../services/supabase';
+import { subscribeToMyMessages, fetchPendingCallInvite, fetchAndClearPendingMessages } from '../services/supabase';
+import { releaseIncoming } from '../services/incomingGuard';
+import { startOutboxWorker, flushOutbox } from '../services/outbox';
 import { purgeExpiredMessages } from '../db/database';
 import IncomingCallModal from '../components/IncomingCallModal';
 import ActiveCallBanner from '../components/ActiveCallBanner';
@@ -209,6 +211,10 @@ export default function AppNavigator() {
           processIncomingCallPayload(pending);
         }
       }).catch(() => {});
+
+      // Outbox: keep re-trying messages that could not be uploaded (every 15s, with back-off)
+      const stopOutbox = startOutboxWorker();
+      return () => stopOutbox();
     }
   }, [isSetup, myHandle]);
 
@@ -260,6 +266,28 @@ export default function AppNavigator() {
 
         // Refresh badges
         useBadgeStore.getState().refreshBadges(myHandle);
+
+        // Messages sent while this phone was in the background / offline are NOT replayed by the
+        // realtime stream. Pull them from the relay queue now (duplicate-safe), oldest first.
+        fetchAndClearPendingMessages(myHandle)
+          .then(async (queued) => {
+            for (const m of queued || []) {
+              // fetchAndClearPendingMessages claimed the id; hand it over to the receiver.
+              releaseIncoming(m.id);
+              try {
+                await processIncomingMessage(m, myHandle);
+              } catch (err) {
+                console.warn('[AppNavigator] Resume message process error:', err);
+              }
+            }
+          })
+          .catch(() => {});
+
+        // Try to upload messages that were waiting (e.g. internet came back while backgrounded)
+        flushOutbox();
+
+        // Keep the push token fresh (it can rotate, and was previously only saved at app start).
+        registerPushToken(myHandle);
 
         // Purge expired disappearing messages & their vault media
         purgeExpiredMessages().catch(() => {});

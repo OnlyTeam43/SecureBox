@@ -14,7 +14,10 @@ import {
   markSentMessagesDelivered,
   markSentMessagesRead,
   deleteMessagesBatch,
+  messageExists,
+  isMessageTombstoned,
 } from '../db/database';
+import { tryClaimIncoming, releaseIncoming } from './incomingGuard';
 import {
   supabase,
   findUserByHandle,
@@ -42,7 +45,7 @@ export const processIncomingMessage = async (incoming, myHandle) => {
       const payload = typeof incoming.body === 'string' ? JSON.parse(incoming.body) : incoming.body;
       const targetConvId = payload?.conversationId || incoming.conversation_id;
       if (targetConvId) {
-        await markSentMessagesDelivered(targetConvId, cleanMy);
+        await markSentMessagesDelivered(targetConvId, cleanMy, payload?.messageIds);
       }
       if (incoming.id) {
         await supabase.from('messages').delete().eq('id', incoming.id);
@@ -57,7 +60,7 @@ export const processIncomingMessage = async (incoming, myHandle) => {
       const payload = typeof incoming.body === 'string' ? JSON.parse(incoming.body) : incoming.body;
       const targetConvId = payload?.conversationId || incoming.conversation_id;
       if (targetConvId) {
-        await markSentMessagesRead(targetConvId, cleanMy);
+        await markSentMessagesRead(targetConvId, cleanMy, payload?.messageIds);
       }
       if (incoming.id) {
         await supabase.from('messages').delete().eq('id', incoming.id);
@@ -108,7 +111,32 @@ export const processIncomingMessage = async (incoming, myHandle) => {
   const participants = [cleanMy, senderClean].sort();
   const convId = incoming.conversation_id || `chat_${participants[0]}_${participants[1]}`;
 
+  // DUPLICATE GUARD: the same message arrives through several paths (user broadcast,
+  // Postgres Changes, pending fetch). Only the first one to claim the id may process it,
+  // otherwise unread counts double and read messages get reset to unread.
+  if (!tryClaimIncoming(incoming.id)) return;
+  let stored = false;
+
   try {
+    // Already saved earlier (e.g. by the pending fetch)? Just make sure the relay row is gone.
+    if (await messageExists(incoming.id)) {
+      stored = true;
+      try {
+        await supabase.from('messages').delete().eq('id', incoming.id);
+      } catch (_) {}
+      return false;
+    }
+
+    // "Delete for everyone" can arrive BEFORE the message itself (this phone was offline).
+    // The message must then never appear.
+    if (await isMessageTombstoned(incoming.id)) {
+      stored = true; // keep the claim: nothing more to do for this id
+      try {
+        await supabase.from('messages').delete().eq('id', incoming.id);
+      } catch (_) {}
+      return false;
+    }
+
     let mediaDataUri = incoming.media_uri;
     let fullBody = incoming.body;
 
@@ -127,15 +155,16 @@ export const processIncomingMessage = async (incoming, myHandle) => {
       } catch (fErr) {
         console.warn('Fetch full media payload notice:', fErr?.message);
       }
+
+      // Could not get the photo (network hiccup). Do NOT save a blank photo message and do NOT
+      // delete the relay row: leave it so the next pending fetch can retry.
+      if (!mediaDataUri) {
+        console.warn('[messageReceiver] Media not available yet, will retry later:', incoming.id);
+        return false;
+      }
     }
 
-    // 2. ZERO-STORAGE: Immediately delete this message row from Supabase!
-    // The server relay row is destroyed.
-    try {
-      await supabase.from('messages').delete().eq('id', incoming.id);
-    } catch (_) {}
-
-    // 3. Ensure contact exists in SQLite
+    // 2. Ensure contact exists in SQLite
     const contactId = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
       senderClean
@@ -179,6 +208,13 @@ export const processIncomingMessage = async (incoming, myHandle) => {
       delivered: 1,
       read: isActiveChat ? 1 : 0,
     });
+    stored = true;
+
+    // ZERO-STORAGE: only now that the message is safely saved on this phone, destroy the
+    // relay row (deleting earlier meant a crash or a failed save lost the message forever).
+    try {
+      await supabase.from('messages').delete().eq('id', incoming.id);
+    } catch (_) {}
 
     if (!isActiveChat) {
       await incrementConversationUnread(
@@ -198,15 +234,21 @@ export const processIncomingMessage = async (incoming, myHandle) => {
     }
 
     // 6. Send delivery ACK back to sender
-    markMessagesDeliveredInSupabase(convId, cleanMy, senderClean);
+    markMessagesDeliveredInSupabase(convId, cleanMy, senderClean, [incoming.id]);
     if (isActiveChat) {
-      markMessagesSeenInSupabase(convId, cleanMy, senderClean);
+      markMessagesSeenInSupabase(convId, cleanMy, senderClean, [incoming.id]);
     }
 
     // 7. Refresh unread badges for game screen & tabs
     await useBadgeStore.getState().refreshBadges(cleanMy);
+    return true; // a NEW message was stored (screens use this to refresh)
   } catch (err) {
     console.warn('[messageReceiver] Error saving message to local SQLite:', err);
+    return false;
+  } finally {
+    // If the message was not saved, give the id back so another path (or the next pending
+    // fetch) can try again instead of the message being dropped for good.
+    if (!stored) releaseIncoming(incoming.id);
   }
 };
 

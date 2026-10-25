@@ -191,6 +191,25 @@ export const saveOutgoingImageToVault = async (sourceUri, originalWidth = null, 
 /**
  * Delete a media file from the secure vault
  */
+/**
+ * Read a vault file back as a data URI. Used when an unsent photo must be uploaded again
+ * (the original base64 only exists in memory during the first attempt).
+ */
+export const readVaultFileAsDataUri = async (fileUri) => {
+  if (!fileUri) return null;
+  try {
+    const info = await FileSystem.getInfoAsync(fileUri);
+    if (!info.exists) return null;
+    const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    const lower = fileUri.toLowerCase();
+    const mime = lower.endsWith('.png') ? 'image/png' : lower.endsWith('.webp') ? 'image/webp' : lower.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg';
+    return `data:${mime};base64,${b64}`;
+  } catch (err) {
+    console.warn('readVaultFileAsDataUri error:', err?.message);
+    return null;
+  }
+};
+
 export const deleteVaultFile = async (fileUri) => {
   if (!fileUri || !fileUri.startsWith('file://')) return;
   try {

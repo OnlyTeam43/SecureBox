@@ -93,6 +93,9 @@ import {
   notifyScreenshotRequest,
 } from '../../services/notificationService';
 import { callService } from '../../services/callService';
+import { processIncomingMessage } from '../../services/messageReceiver';
+import { releaseIncoming } from '../../services/incomingGuard';
+import { attemptSend, retryFailedMessage, subscribeOutboxChanges } from '../../services/outbox';
 
 // Claude Theme Palette
 const PALETTE = {
@@ -271,6 +274,9 @@ export default function ChatScreen({ route, navigation }) {
     }
   }, [conversationId, contactHandle, contactNickname, contactAvatarId, myHandle]);
 
+  // The outbox moves messages pending -> sent / failed in the background: refresh the ticks
+  useEffect(() => subscribeOutboxChanges(() => loadMessages()), [loadMessages]);
+
   // Reload messages when screen comes into focus (e.g. Returning from CallScreen)
   useFocusEffect(
     useCallback(() => {
@@ -329,121 +335,36 @@ export default function ChatScreen({ route, navigation }) {
     const unsubscribeMessages = subscribeToConversation(
       conversationId,
       async (newMsg) => {
-        if (newMsg && newMsg.sender !== myHandle) {
-          // Never process or display raw connection/status/ACK payloads as chat messages
-          if (
-            newMsg.type === 'connection' ||
-            newMsg.type === 'contact_req' ||
-            newMsg.type === 'contact_accepted' ||
-            newMsg.type === 'ack_seen' ||
-            newMsg.type === 'ack_delivered' ||
-            newMsg.type === 'delete_cmd' ||
-            newMsg.id?.startsWith('ack_') ||
-            newMsg.id?.startsWith('del_cmd_') ||
-            (newMsg.body && (
-              newMsg.body.startsWith('{"conversationId"') ||
-              newMsg.body.includes('"conversationId"') ||
-              newMsg.body.startsWith('{"status"') ||
-              newMsg.body.includes('"status":"connected"')
-            ))
-          ) {
-            try {
-              await supabase.from('messages').delete().eq('id', newMsg.id);
-            } catch (_) {}
-            return;
-          }
-
-          let mediaDataUri = newMsg.media_uri;
-          let fullBody = newMsg.body;
-
-          // If incoming was lightweight broadcast with has_media: true, fetch full payload
-          if (newMsg.has_media && !mediaDataUri) {
-            try {
-              const { data: fullMsg } = await supabase
-                .from('messages')
-                .select('body, media_uri')
-                .eq('id', newMsg.id)
-                .maybeSingle();
-              if (fullMsg) {
-                mediaDataUri = fullMsg.media_uri;
-                fullBody = fullMsg.body || fullBody;
-              }
-            } catch (_) {}
-          }
-
-          // ZERO-STORAGE: Immediately delete message row from Supabase!
-          try {
-            await supabase.from('messages').delete().eq('id', newMsg.id);
-          } catch (_) {}
-
-          let localMedia = null;
-          if (mediaDataUri) {
-            localMedia = await saveIncomingBase64ToVault(newMsg.id, mediaDataUri);
-          }
-          if (
-            fullBody &&
-            (fullBody.startsWith('{"conversationId"') ||
-              fullBody.includes('"conversationId"') ||
-              fullBody.startsWith('{"status"'))
-          ) {
-            return;
-          }
-
-          const storedMsg = {
-            id: newMsg.id,
-            conversationId: newMsg.conversation_id || conversationId,
-            sender: newMsg.sender,
-            type: (mediaDataUri || newMsg.has_media) ? 'image' : 'text',
-            body: fullBody,
-            mediaUri: localMedia,
-            sentAt: newMsg.sent_at || Date.now(),
-            expiresAt: newMsg.expires_at || null,
-            replyTo: newMsg.reply_to || null,
-            read: 1,
-            delivered: 1,
-          };
-          await insertMessage(storedMsg);
-          await updateConversationLastMessage(
-            conversationId,
-            localMedia ? 'Photo' : (fullBody || ''),
-            newMsg.sent_at || Date.now(),
-            newMsg.sender
-          );
-          await markConversationRead(conversationId, myHandle);
-          useBadgeStore.getState().refreshBadges(myHandle);
-
-          setFriendLastMessage(fullBody || '📷 Photo');
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, storedMsg];
-          });
-          markMessagesDeliveredInSupabase(conversationId, myHandle, contactHandle);
-          markMessagesSeenInSupabase(conversationId, myHandle, contactHandle);
-
+        if (!newMsg || newMsg.sender === myHandle) return;
+        try {
+          // Same single pipeline as every other delivery path: duplicate-safe, saves the message,
+          // counts unread, sends the delivered/seen receipt for THIS message and cleans the relay row.
+          // (This screen used to have its own copy that skipped the duplicate check.)
+          const isNew = await processIncomingMessage(newMsg, myHandle);
+          if (!isNew) return;
+          await loadMessages();
           setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
           try {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           } catch (_) {}
+        } catch (err) {
+          console.warn('ChatScreen incoming message error:', err?.message || err);
         }
       },
       async (secEvent) => {
         if (!secEvent) return;
 
-        // Delivery ACK event (double tick)
+        // Delivery receipt: only the exact messages named in it get two grey ticks
         if (secEvent.event === 'messages_delivered') {
-          setMessages((prev) =>
-            prev.map((m) => (m.sender === myHandle && m.delivered === 0 ? { ...m, delivered: 1 } : m))
-          );
-          await markSentMessagesDelivered(conversationId, myHandle);
+          await markSentMessagesDelivered(conversationId, myHandle, secEvent.messageIds);
+          loadMessages();
           return;
         }
 
-        // Read ACK event (blue double tick)
+        // Read receipt: only the exact messages named in it get blue ticks
         if (secEvent.event === 'messages_seen') {
-          setMessages((prev) =>
-            prev.map((m) => (m.sender === myHandle ? { ...m, read: 1, delivered: 1 } : m))
-          );
-          await markSentMessagesRead(conversationId, myHandle);
+          await markSentMessagesRead(conversationId, myHandle, secEvent.messageIds);
+          loadMessages();
           return;
         }
 
@@ -526,34 +447,23 @@ export default function ChatScreen({ route, navigation }) {
     };
   }, [conversationId, contactHandle, loadMessages, myHandle]);
 
-  // Sync queued pending messages on resume
+  // Sync queued pending messages when the chat opens, through the same pipeline as every other path
   useEffect(() => {
     const sync = async () => {
       try {
         const queued = await fetchAndClearPendingMessages(myHandle);
-        if (queued && queued.length > 0) {
-          for (const msg of queued) {
-            let localMedia = null;
-            if (msg.media_uri) {
-              localMedia = await saveIncomingBase64ToVault(msg.id, msg.media_uri);
-            }
-            await insertMessage({
-              id: msg.id,
-              conversationId: msg.conversation_id || conversationId,
-              sender: msg.sender,
-              type: msg.media_uri ? 'image' : 'text',
-              body: msg.body,
-              mediaUri: localMedia,
-              sentAt: msg.sent_at || msg.created_at || Date.now(),
-              expiresAt: msg.expires_at || null,
-              delivered: 1,
-              read: 1,
-            });
-          }
-          await loadMessages();
+        for (const msg of queued || []) {
+          // fetchAndClearPendingMessages claimed the id; hand it over to the receiver.
+          releaseIncoming(msg.id);
+          await processIncomingMessage(msg, myHandle);
         }
-        markMessagesDeliveredInSupabase(conversationId, myHandle, contactHandle);
-        markMessagesSeenInSupabase(conversationId, myHandle, contactHandle);
+        // The chat is open: everything from this contact is now seen. Tell them exactly which messages.
+        const seenIds = await markConversationRead(conversationId, myHandle);
+        if (seenIds && seenIds.length > 0) {
+          markMessagesSeenInSupabase(conversationId, myHandle, contactHandle, seenIds);
+        }
+        useBadgeStore.getState().refreshBadges(myHandle);
+        await loadMessages();
       } catch (_) {}
     };
     sync();
@@ -624,27 +534,20 @@ export default function ChatScreen({ route, navigation }) {
       expiresAt,
       delivered: 0,
       read: 0,
+      sendState: 'pending', // saved here first; the outbox uploads it and moves it to "sent"
+      send_state: 'pending',
     };
 
     setMyLastMessage(text);
     try {
       await ensureConversationExists(conversationId, contactHandle, contactNickname, contactAvatarId);
       await insertMessage(msg);
-      await updateConversationLastMessage(conversationId, text, now, myHandle, 'sent');
+      await updateConversationLastMessage(conversationId, text, now, myHandle, 'pending');
       setMessages((prev) => [...prev, msg]);
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
 
-      sendMessageToSupabase({
-        id,
-        conversationId,
-        sender: myHandle,
-        receiver: contactHandle,
-        body: text,
-        mediaUri: null,
-        sentAt: now,
-        expiresAt,
-        replyTo: replyPayload ? JSON.stringify(replyPayload) : null,
-      });
+      // Upload through the outbox: retried automatically if it fails, never silently lost.
+      attemptSend(id);
 
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -697,24 +600,19 @@ export default function ChatScreen({ route, navigation }) {
           sentAt: now,
           read: 0,
           delivered: 0,
+          sendState: 'pending',
+          send_state: 'pending',
         };
 
         setMyLastMessage('📷 Photo');
         await ensureConversationExists(conversationId, contactHandle, contactNickname, contactAvatarId);
         await insertMessage(msg);
-        await updateConversationLastMessage(conversationId, 'Photo', now, myHandle, 'sent');
+        await updateConversationLastMessage(conversationId, 'Photo', now, myHandle, 'pending');
         setMessages((prev) => [...prev, msg]);
         setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
 
-        sendMessageToSupabase({
-          id,
-          conversationId,
-          sender: myHandle,
-          receiver: contactHandle,
-          body: 'Photo',
-          mediaUri: base64DataUri,
-          sentAt: now,
-        });
+        // First attempt uses the photo already in memory; retries re-read it from the vault.
+        attemptSend(id, { mediaDataUri: base64DataUri });
       }
     } catch (err) {
       console.warn('Send image error:', err);
@@ -758,6 +656,28 @@ export default function ChatScreen({ route, navigation }) {
     });
 
     Alert.alert('Message Options', isMyMsg ? 'Delete this message?' : 'Delete message from this device?', options);
+  };
+
+  // One status per message (never guessed from other messages):
+  //   clock = waiting to upload, 1 grey tick = on the server, 2 grey = delivered, 2 blue = read,
+  //   red "!" = could not be sent (tap to retry)
+  const handleRetry = (id) => {
+    retryFailedMessage(id).catch(() => {});
+    loadMessages();
+  };
+  const renderTicks = (m) => {
+    if (m.read === 1) return <CheckCheck size={13} color={PALETTE.brand} />;
+    if (m.delivered === 1) return <CheckCheck size={13} color={PALETTE.textMuted} />;
+    const state = m.send_state || m.sendState;
+    if (state === 'pending') return <Clock size={12} color={PALETTE.textMuted} />;
+    if (state === 'failed') {
+      return (
+        <TouchableOpacity onPress={() => handleRetry(m.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Text style={{ color: '#D14343', fontSize: 11, fontWeight: '700' }}>! Tap to retry</Text>
+        </TouchableOpacity>
+      );
+    }
+    return <Check size={13} color={PALETTE.textMuted} />;
   };
 
   // Render individual chat bubble
@@ -907,15 +827,7 @@ export default function ChatScreen({ route, navigation }) {
                 <View style={styles.metaRowInline}>
                   {item.expires_at ? <Clock size={10} color={PALETTE.textMuted} /> : null}
                   <Text style={styles.timeText}>{timeStr}</Text>
-                  {isMe && (
-                    item.read === 1 ? (
-                      <CheckCheck size={13} color={PALETTE.brand} />
-                    ) : item.delivered === 1 ? (
-                      <CheckCheck size={13} color={PALETTE.textMuted} />
-                    ) : (
-                      <Check size={13} color={PALETTE.textMuted} />
-                    )
-                  )}
+                  {isMe && renderTicks(item)}
                 </View>
               </View>
             ) : (
@@ -926,15 +838,7 @@ export default function ChatScreen({ route, navigation }) {
                 <View style={styles.metaRow}>
                   {item.expires_at ? <Clock size={10} color={PALETTE.textMuted} /> : null}
                   <Text style={styles.timeText}>{timeStr}</Text>
-                  {isMe && (
-                    item.read === 1 ? (
-                      <CheckCheck size={13} color={PALETTE.brand} />
-                    ) : item.delivered === 1 ? (
-                      <CheckCheck size={13} color={PALETTE.textMuted} />
-                    ) : (
-                      <Check size={13} color={PALETTE.textMuted} />
-                    )
-                  )}
+                  {isMe && renderTicks(item)}
                 </View>
               </>
             )}

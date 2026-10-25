@@ -12,6 +12,26 @@ let userCallInboxChannel = null;
 let currentSubscribedHandle = null;
 let activeCallRoomChannel = null;
 
+// Calls that already ended on this device. A late or repeated invite (retry broadcast, durable
+// call_req row re-read on app resume) for one of these must never ring again, and must never
+// be treated as a new call.
+const endedCallIds = new Set();
+const markCallEnded = (callId) => {
+  if (!callId) return;
+  endedCallIds.add(callId);
+  if (endedCallIds.size > 100) endedCallIds.delete(endedCallIds.values().next().value);
+};
+
+// What happened to each call. The caller screen registers its listener only AFTER startCall()
+// resolves (it can take up to ~15s). Anything that happened meanwhile (accepted, declined, ended)
+// used to be lost, leaving the caller ringing forever after the other person picked up.
+const callOutcomes = new Map(); // callId -> { type: 'accepted' | 'rejected' | 'ended', data }
+const recordOutcome = (callId, type, data) => {
+  if (!callId) return;
+  callOutcomes.set(callId, { type, data });
+  if (callOutcomes.size > 50) callOutcomes.delete(callOutcomes.keys().next().value);
+};
+
 const setActiveCallInfo = (info) => {
   activeCallInfo = info;
   activeCallStateListeners.forEach((cb) => {
@@ -62,6 +82,8 @@ export const initCallReceiver = (myHandle, onIncomingCall) => {
     })
     .on('broadcast', { event: 'call_ended' }, ({ payload }) => {
       console.log('CallService: Received call_ended for callId:', payload?.callId);
+      markCallEnded(payload?.callId);
+      recordOutcome(payload?.callId, 'ended', payload);
       if (activeCallInfo && (!payload?.callId || activeCallInfo.callId === payload.callId)) {
         setActiveCallInfo(null);
       }
@@ -88,16 +110,25 @@ export const processIncomingCallPayload = async (payload) => {
   const callerClean = clean(payload.callerHandle);
   if (callerClean === currentSubscribedHandle) return;
 
-  // If user is already on another call, automatically respond busy
-  if (activeCallInfo && activeCallInfo.status === 'connected') {
-    callService.rejectCall(payload.callId, 'busy');
+  // Late/duplicate invite for a call that already ended: never ring again.
+  if (endedCallIds.has(payload.callId)) {
+    console.log('CallService: Ignoring invite for already-ended callId', payload.callId);
     return;
   }
 
-  // Deduplicate: ignore if we already have this callId incoming
+  // Duplicate invite for the call we already know about (broadcast retries, durable row, resume).
+  // This check MUST come before the busy check: if we already accepted this call, a repeated invite
+  // used to be answered with "busy", which hung up the call that had just been picked up.
   if (activeCallInfo && activeCallInfo.callId === payload.callId) {
     console.log('CallService: Duplicate invite ignored for callId', payload.callId);
-    callService.sendRinging(payload.callId);
+    if (activeCallInfo.status === 'incoming') callService.sendRinging(payload.callId);
+    return;
+  }
+
+  // A DIFFERENT call while we are on a call: tell that caller we are busy, without touching
+  // the call that is in progress.
+  if (activeCallInfo && activeCallInfo.status === 'connected') {
+    callService.sendBusy(payload.callId);
     return;
   }
 
@@ -170,6 +201,7 @@ export const callService = {
       })
       .on('broadcast', { event: 'call_accepted' }, ({ payload }) => {
         console.log('CallService: Received call_accepted');
+        recordOutcome(callId, 'accepted', payload);
         if (activeCallInfo && activeCallInfo.callId === callId) {
           setActiveCallInfo({
             ...activeCallInfo,
@@ -181,6 +213,8 @@ export const callService = {
       })
       .on('broadcast', { event: 'call_rejected' }, ({ payload }) => {
         console.log('CallService: Received call_rejected');
+        markCallEnded(callId);
+        recordOutcome(callId, 'rejected', payload);
         if (activeCallInfo && activeCallInfo.callId === callId) {
           setActiveCallInfo(null);
         }
@@ -188,6 +222,8 @@ export const callService = {
       })
       .on('broadcast', { event: 'call_ended' }, ({ payload }) => {
         console.log('CallService: Received call_ended');
+        markCallEnded(callId);
+        recordOutcome(callId, 'ended', payload);
         if (activeCallInfo && activeCallInfo.callId === callId) {
           setActiveCallInfo(null);
         }
@@ -395,6 +431,43 @@ export const callService = {
   },
 
   /**
+   * Tell a caller we are busy WITHOUT touching the call that is in progress.
+   * (The old code sent "rejected" into the room of the current call, so a second caller made the
+   * person you were talking to see "Call Declined" and hung your call up.)
+   */
+  async sendBusy(callId) {
+    if (!callId) return;
+    markCallEnded(callId);
+    clearPendingCallInvite(callId);
+    try {
+      const busyChannel = supabase.channel(`call_room_${callId}`, {
+        config: { broadcast: { ack: true } },
+      });
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 3000);
+        busyChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+      });
+      await busyChannel.send({
+        type: 'broadcast',
+        event: 'call_rejected',
+        payload: { callId, reason: 'busy', receiverHandle: currentSubscribedHandle, timestamp: Date.now() },
+      });
+      setTimeout(() => {
+        try {
+          supabase.removeChannel(busyChannel);
+        } catch (_) {}
+      }, 1500);
+    } catch (err) {
+      console.warn('Failed to send busy reply:', err);
+    }
+  },
+
+  /**
    * Accept an incoming call
    */
   async acceptCall(callId) {
@@ -426,6 +499,7 @@ export const callService = {
    * Reject / decline an incoming call
    */
   async rejectCall(callId, reason = 'declined') {
+    markCallEnded(callId);
     dismissAllCallNotifications();
     clearPendingCallInvite(callId);
 
@@ -450,6 +524,7 @@ export const callService = {
    * Hang up an active or ringing call
    */
   async endCall(callId, partnerHandle = null) {
+    markCallEnded(callId);
     dismissAllCallNotifications();
     clearPendingCallInvite(callId);
 
@@ -538,6 +613,11 @@ export const callService = {
 
   getActiveCall() {
     return activeCallInfo;
+  },
+
+  /** Last known outcome of a call ({ type, data }) or undefined. Lets a screen catch up on events it missed. */
+  getCallOutcome(callId) {
+    return callOutcomes.get(callId);
   },
 
   clearActiveCall() {

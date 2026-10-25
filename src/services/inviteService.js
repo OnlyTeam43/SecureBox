@@ -169,7 +169,9 @@ export const handleIncomingInvite = async (
 
     if (connStatus.status === 'pending_received') {
       const contact = connStatus.contact || { handle: cleanTarget, nickname: cleanTarget, avatar_id: 'avatar_rose' };
-      const participants = [cleanMy, cleanTarget].sort();
+      // (was `cleanMy`, a variable that does not exist: opening an invite from someone who had already
+      // sent you a request crashed here)
+      const participants = [myHandle.toLowerCase(), cleanTarget].sort();
       const convId = `chat_${participants[0]}_${participants[1]}`;
       const contactId = `contact_${cleanTarget}`;
       await insertContact({

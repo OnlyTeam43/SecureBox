@@ -1,10 +1,10 @@
 // src/screens/main/InboxScreen.js
 // Clean White/Light Pink conversation list with last seen, text status, and multi-select delete
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  StatusBar, RefreshControl, Alert, ActivityIndicator, Image, AppState,
+  StatusBar, RefreshControl, Alert, ActivityIndicator, Image, AppState, Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -34,7 +34,8 @@ import {
   checkConnectionStatus,
   fetchPendingConnectionRequests,
 } from '../../services/supabase';
-import { processIncomingConnectionRequest } from '../../services/messageReceiver';
+import { processIncomingConnectionRequest, processIncomingMessage } from '../../services/messageReceiver';
+import { releaseIncoming } from '../../services/incomingGuard';
 import { saveIncomingBase64ToVault } from '../../services/mediaVault';
 import { useUserStore } from '../../store/useUserStore';
 import { formatDistanceToNow } from 'date-fns';
@@ -187,67 +188,14 @@ export default function InboxScreen({ navigation }) {
 
       for (const msg of queued) {
         if (!msg.sender || msg.sender.toLowerCase() === myHandle.toLowerCase()) continue;
-        const senderHandle = msg.sender.toLowerCase();
-        const participants = [myHandle.toLowerCase(), senderHandle].sort();
-        const convId = msg.conversation_id || `chat_${participants[0]}_${participants[1]}`;
-
-        const contactId = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          senderHandle
-        );
-
-        let contactAvatar = 'avatar_rose';
-        let contactNick = senderHandle;
+        // fetchAndClearPendingMessages claimed the id; hand it to the one shared receiver, which
+        // saves it once, counts unread correctly, sends the receipt for this message and creates the contact.
+        releaseIncoming(msg.id);
         try {
-          const remoteUser = await findUserByHandle(senderHandle);
-          if (remoteUser?.avatar_id) contactAvatar = remoteUser.avatar_id;
-          if (remoteUser?.nickname) contactNick = remoteUser.nickname;
-        } catch (_) {}
-
-        await insertContact({
-          id: contactId,
-          handle: senderHandle,
-          nickname: contactNick,
-          avatarId: contactAvatar,
-        });
-
-        let localMedia = null;
-        if (msg.media_uri) {
-          localMedia = await saveIncomingBase64ToVault(msg.id, msg.media_uri);
+          await processIncomingMessage(msg, myHandle);
+        } catch (err) {
+          console.log('syncPendingMessages process error:', err);
         }
-
-        const isActiveChat = getActiveConversation() === convId;
-
-        await insertMessage({
-          id: msg.id,
-          conversationId: convId,
-          sender: msg.sender,
-          type: msg.media_uri ? 'image' : 'text',
-          body: msg.body,
-          mediaUri: localMedia,
-          sentAt: msg.sent_at,
-          expiresAt: msg.expires_at,
-          read: isActiveChat ? 1 : 0,
-        });
-
-        if (!isActiveChat) {
-          await incrementConversationUnread(
-            convId,
-            msg.body || 'Photo',
-            msg.sent_at,
-            msg.sender
-          );
-        } else {
-          await updateConversationLastMessage(
-            convId,
-            msg.body || 'Photo',
-            msg.sent_at,
-            msg.sender
-          );
-          await markConversationRead(convId, myHandle);
-        }
-
-        markMessagesDeliveredInSupabase(convId, myHandle, msg.sender);
       }
       await loadConversations();
     } catch (err) {
@@ -287,12 +235,12 @@ export default function InboxScreen({ navigation }) {
       if (!statusEvent) return;
       if (statusEvent.event === 'messages_seen') {
         if (statusEvent.conversationId) {
-          await markSentMessagesRead(statusEvent.conversationId, myHandle);
+          await markSentMessagesRead(statusEvent.conversationId, myHandle, statusEvent.messageIds);
           loadConversations();
         }
       } else if (statusEvent.event === 'messages_delivered') {
         if (statusEvent.conversationId) {
-          await markSentMessagesDelivered(statusEvent.conversationId, myHandle);
+          await markSentMessagesDelivered(statusEvent.conversationId, myHandle, statusEvent.messageIds);
           loadConversations();
         }
       } else if (statusEvent.event === 'delete_messages') {
@@ -533,7 +481,15 @@ export default function InboxScreen({ navigation }) {
     let statusType = 'sent'; // 'sent' | 'delivered' | 'seen'
 
     if (isMeSender) {
-      if (item.latest_read === 1 || item.last_status === 'seen') {
+      if (item.latest_send_state === 'failed' && item.latest_delivered !== 1) {
+        statusText = 'not sent';
+        statusColor = '#D14343';
+        statusType = 'failed';
+      } else if (item.latest_send_state === 'pending' && item.latest_delivered !== 1) {
+        statusText = 'sending…';
+        statusColor = '#8a8187';
+        statusType = 'pending';
+      } else if (item.latest_read === 1 || item.last_status === 'seen') {
         statusText = 'seen';
         statusColor = '#e0527a';
         statusType = 'seen';
@@ -633,7 +589,7 @@ export default function InboxScreen({ navigation }) {
               {isMeSender && statusText ? (
                 <View style={styles.statusRow}>
                   <Text style={[styles.statusText, { color: statusColor }]}>{statusText}</Text>
-                  {statusType === 'seen' ? (
+                  {statusType === 'failed' || statusType === 'pending' ? null : statusType === 'seen' ? (
                     <DoubleCheckIcon size={14} color="#e0527a" />
                   ) : statusType === 'delivered' ? (
                     <DoubleCheckIcon size={14} color="#8a8187" />

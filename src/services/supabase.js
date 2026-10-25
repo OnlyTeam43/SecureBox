@@ -11,7 +11,9 @@ import {
   isConversationOrContactConnected,
   insertContact,
   upsertConversation,
+  messageExists,
 } from '../db/database';
+import { tryClaimIncoming } from './incomingGuard';
 
 export const SUPABASE_URL = 'https://mhqtqcjceklbtnfaqhqj.supabase.co';
 export const SUPABASE_ANON_KEY =
@@ -301,6 +303,7 @@ export const sendMessageToSupabase = async ({
   sentAt,
   expiresAt,
   replyTo,
+  retry = false, // true when the outbox is re-trying: only re-upload, do not re-broadcast
 }) => {
   const cleanSender = sender.replace('@', '').trim().toLowerCase();
   const receiverClean = receiver ? receiver.replace('@', '').trim().toLowerCase() : '';
@@ -309,21 +312,37 @@ export const sendMessageToSupabase = async ({
   // Post message to temporary relay queue in Supabase.
   // The row will be IMMEDIATELY deleted by recipient device upon receipt or fetch!
   // Fallback expires_at (48 hours) ensures server auto-purges if recipient never connects.
-  try {
-    await supabase.from('messages').insert({
-      id,
-      conversation_id: conversationId,
-      sender: cleanSender,
-      receiver: receiverClean,
-      body: body || null,
-      media_uri: mediaUri || null,
-      created_at: sentAt || Date.now(),
-      expires_at: expiresAt || (Date.now() + 86400000 * 2),
-      reply_to: replyTo || null,
-      type: mediaUri ? 'image' : 'text',
-    });
-  } catch (dbErr) {
-    console.warn('Ephemeral relay queue insert note:', dbErr?.message);
+  // NOTE: supabase-js does NOT throw on failure, it returns { error }. The old code only had a
+  // try/catch, so a failed insert was completely silent and the message looked "sent" forever.
+  const relayRow = {
+    id,
+    conversation_id: conversationId,
+    sender: cleanSender,
+    receiver: receiverClean,
+    body: body || null,
+    media_uri: mediaUri || null,
+    created_at: sentAt || Date.now(),
+    expires_at: expiresAt || (Date.now() + 86400000 * 2),
+    reply_to: replyTo || null,
+    type: mediaUri ? 'image' : 'text',
+  };
+
+  let relayed = false;
+  for (let attempt = 0; attempt < 3 && !relayed; attempt++) {
+    try {
+      const { error } = await supabase.from('messages').insert(relayRow);
+      // A duplicate key means an earlier attempt already reached the server: that counts as relayed.
+      if (!error || error.code === '23505') {
+        relayed = true;
+      } else {
+        console.warn(`Relay insert failed (attempt ${attempt + 1}):`, error.message);
+      }
+    } catch (dbErr) {
+      console.warn(`Relay insert threw (attempt ${attempt + 1}):`, dbErr?.message);
+    }
+    if (!relayed && attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+    }
   }
 
   // 2. Realtime WebSocket payload:
@@ -343,7 +362,8 @@ export const sendMessageToSupabase = async ({
   };
 
   // 3. Direct instantaneous delivery to the active chat room via WebSocket broadcast
-  try {
+  // (skipped on outbox retries: the realtime INSERT event of the relay row delivers it instead)
+  if (!retry) try {
     let roomChannel = supabase.getChannels().find((c) => c.topic === `realtime:room_${conversationId}`);
     if (!roomChannel) {
       roomChannel = supabase.channel(`room_${conversationId}`);
@@ -367,7 +387,7 @@ export const sendMessageToSupabase = async ({
   }
 
   // 4. Direct delivery to the partner's inbox channel via WebSocket broadcast
-  if (receiverClean) {
+  if (!retry && receiverClean) {
     try {
       const userChannelName = `user_${receiverClean}`;
       let userChannel = supabase.getChannels().find((c) => c.topic === `realtime:${userChannelName}`);
@@ -395,7 +415,8 @@ export const sendMessageToSupabase = async ({
 
   // 4. Remote Push Notification to recipient's phone via Expo/FCM
   // Ensures recipient gets sound & notification even if their app is completely closed!
-  if (receiverClean) {
+  // On a retry only notify once the upload finally worked.
+  if (receiverClean && (!retry || relayed)) {
     getUserPushToken(receiverClean)
       .then((tokenData) => {
         if (tokenData && (tokenData.token || typeof tokenData === 'string')) {
@@ -423,7 +444,10 @@ export const sendMessageToSupabase = async ({
       .catch(() => {});
   }
 
-  return payload;
+  // (Was `return payload;`, an undefined variable that threw a ReferenceError after every send.)
+  // `relayed` tells the caller whether the server accepted the message, so the UI can later show
+  // a pending / failed state and retry instead of pretending it was sent.
+  return { id, relayed };
 };
 
 /**
@@ -538,6 +562,9 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
       .neq('type', 'contact_accepted')
       .neq('type', 'call_req')
       .neq('type', 'connection')
+      // The push token is stored as a row addressed to the user themselves. It used to be fetched
+      // and DELETED here every time the inbox opened, which silently killed all push notifications.
+      .neq('type', 'push_tokens')
       .order('created_at', { ascending: true });
 
     if (error || !data || data.length === 0) return [];
@@ -546,6 +573,31 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
     const idsToDelete = [];
 
     for (const row of data) {
+      // Never touch the user's own push token row, whatever its type says.
+      if (row.id && row.id.startsWith('push_token_')) continue;
+
+      // Chat messages are only deleted/returned if this call is the one that owns them
+      // (see incomingGuard). Control rows below are always safe to consume.
+      const isChatRow = !(
+        row.type === 'connection' ||
+        row.type === 'contact_req' ||
+        row.type === 'contact_accepted' ||
+        row.type === 'delete_cmd' ||
+        row.type === 'ack_delivered' ||
+        row.type === 'ack_seen' ||
+        (row.body && (row.body.startsWith('{"status"') || row.body.includes('"status":"connected"')))
+      );
+      if (isChatRow) {
+        if (await messageExists(row.id)) {
+          // Already saved by another path: just remove the leftover relay row.
+          idsToDelete.push(row.id);
+          continue;
+        }
+        if (!tryClaimIncoming(row.id)) {
+          // Another path is processing it right now and will delete the relay row itself.
+          continue;
+        }
+      }
       idsToDelete.push(row.id);
 
       if (
@@ -570,7 +622,7 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
         try {
           const payload = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
           if (payload?.conversationId) {
-            await markSentMessagesDelivered(payload.conversationId, clean);
+            await markSentMessagesDelivered(payload.conversationId, clean, payload.messageIds);
           }
         } catch (e) {
           console.warn('Process offline ack_delivered error:', e);
@@ -579,7 +631,7 @@ export const fetchAndClearPendingMessages = async (myHandle) => {
         try {
           const payload = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
           if (payload?.conversationId) {
-            await markSentMessagesRead(payload.conversationId, clean);
+            await markSentMessagesRead(payload.conversationId, clean, payload.messageIds);
           }
         } catch (e) {
           console.warn('Process offline ack_seen error:', e);
@@ -954,7 +1006,10 @@ export const subscribeToGlobalPresence = (myHandle, partnerHandle, onPresenceUpd
 /**
  * Mark messages in a conversation as seen in real-time
  */
-export const markMessagesSeenInSupabase = async (conversationId, viewerHandle, partnerHandle = null) => {
+export const markMessagesSeenInSupabase = async (conversationId, viewerHandle, partnerHandle = null, messageIds = null) => {
+  // Receipts name the exact messages they are about. Without ids the sender could only guess, and a
+  // slow "seen" receipt used to blue-tick messages the person had not opened yet.
+  const ids = Array.isArray(messageIds) ? messageIds.filter(Boolean) : [];
   const cleanViewer = viewerHandle ? viewerHandle.replace('@', '').trim().toLowerCase() : '';
   const cleanPartner = partnerHandle ? partnerHandle.replace('@', '').trim().toLowerCase() : '';
 
@@ -964,7 +1019,7 @@ export const markMessagesSeenInSupabase = async (conversationId, viewerHandle, p
       roomChannel.send({
         type: 'broadcast',
         event: 'messages_seen',
-        payload: { viewerHandle: cleanViewer, conversationId, seenAt: Date.now() },
+        payload: { viewerHandle: cleanViewer, conversationId, messageIds: ids, seenAt: Date.now() },
       });
     }
     if (cleanPartner) {
@@ -973,7 +1028,7 @@ export const markMessagesSeenInSupabase = async (conversationId, viewerHandle, p
         userChannel.send({
           type: 'broadcast',
           event: 'messages_seen',
-          payload: { viewerHandle: cleanViewer, conversationId, seenAt: Date.now() },
+          payload: { viewerHandle: cleanViewer, conversationId, messageIds: ids, seenAt: Date.now() },
         });
       }
       // Ephemeral ACK row for partner in case they are offline
@@ -982,7 +1037,7 @@ export const markMessagesSeenInSupabase = async (conversationId, viewerHandle, p
         type: 'ack_seen',
         sender: cleanViewer,
         receiver: cleanPartner,
-        body: JSON.stringify({ conversationId }),
+        body: JSON.stringify({ conversationId, messageIds: ids }),
         created_at: Date.now(),
       }).then(() => {}).catch(() => {});
     }
@@ -994,7 +1049,8 @@ export const markMessagesSeenInSupabase = async (conversationId, viewerHandle, p
 /**
  * Mark messages in a conversation as delivered in real-time
  */
-export const markMessagesDeliveredInSupabase = async (conversationId, receiverHandle, partnerHandle = null) => {
+export const markMessagesDeliveredInSupabase = async (conversationId, receiverHandle, partnerHandle = null, messageIds = null) => {
+  const ids = Array.isArray(messageIds) ? messageIds.filter(Boolean) : [];
   const cleanReceiver = receiverHandle ? receiverHandle.replace('@', '').trim().toLowerCase() : '';
   const cleanPartner = partnerHandle ? partnerHandle.replace('@', '').trim().toLowerCase() : '';
 
@@ -1004,7 +1060,7 @@ export const markMessagesDeliveredInSupabase = async (conversationId, receiverHa
       roomChannel.send({
         type: 'broadcast',
         event: 'messages_delivered',
-        payload: { receiverHandle: cleanReceiver, conversationId, deliveredAt: Date.now() },
+        payload: { receiverHandle: cleanReceiver, conversationId, messageIds: ids, deliveredAt: Date.now() },
       });
     }
     if (cleanPartner) {
@@ -1013,7 +1069,7 @@ export const markMessagesDeliveredInSupabase = async (conversationId, receiverHa
         userChannel.send({
           type: 'broadcast',
           event: 'messages_delivered',
-          payload: { receiverHandle: cleanReceiver, conversationId, deliveredAt: Date.now() },
+          payload: { receiverHandle: cleanReceiver, conversationId, messageIds: ids, deliveredAt: Date.now() },
         });
       }
       // Ephemeral ACK row for partner in case they are offline
@@ -1022,7 +1078,7 @@ export const markMessagesDeliveredInSupabase = async (conversationId, receiverHa
         type: 'ack_delivered',
         sender: cleanReceiver,
         receiver: cleanPartner,
-        body: JSON.stringify({ conversationId }),
+        body: JSON.stringify({ conversationId, messageIds: ids }),
         created_at: Date.now(),
       }).then(() => {}).catch(() => {});
     }
@@ -1230,7 +1286,7 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
                   ...bodyObj,
                 });
                 if (bodyObj?.conversationId) {
-                  markSentMessagesDelivered(bodyObj.conversationId, clean);
+                  markSentMessagesDelivered(bodyObj.conversationId, clean, bodyObj.messageIds);
                 }
                 supabase.from('messages').delete().eq('id', payload.new.id).then(() => {}).catch(() => {});
               } catch (_) {}
@@ -1246,7 +1302,7 @@ export const subscribeToMyMessages = (myHandle, onIncomingMessage, onMessageStat
                   ...bodyObj,
                 });
                 if (bodyObj?.conversationId) {
-                  markSentMessagesRead(bodyObj.conversationId, clean);
+                  markSentMessagesRead(bodyObj.conversationId, clean, bodyObj.messageIds);
                 }
                 supabase.from('messages').delete().eq('id', payload.new.id).then(() => {}).catch(() => {});
               } catch (_) {}

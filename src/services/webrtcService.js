@@ -73,6 +73,14 @@ class WebRTCManager {
     this.isVideoEnabled = true;
     this.streamListeners = new Set();
     this.isStarting = false;
+    // Incremented by every startCall() and cleanup(). A startCall() that is still waiting for the
+    // camera/microphone when the call ends (hang up, decline, quick retry) sees that its session is
+    // stale and releases the hardware instead of keeping it locked for the next call.
+    this.sessionId = 0;
+    this.offerRetryTimer = null;
+    this.offerRetryCount = 0;
+    this.mediaError = null;       // 'camera_unavailable' when we had to fall back to audio only
+    this.connectionState = 'new'; // real peer connection state (not just "the other side tapped accept")
   }
 
   isAvailable() {
@@ -114,6 +122,10 @@ class WebRTCManager {
       return true;
     }
     this.isStarting = true;
+    const session = ++this.sessionId;
+    this.offerRetryCount = 0;
+    this.mediaError = null;
+    this.connectionState = 'new';
 
     this.currentCallId = callId;
     this.partnerHandle = partnerHandle;
@@ -142,7 +154,29 @@ class WebRTCManager {
           : false,
       };
 
-      this.localStream = await mediaDevices.getUserMedia(constraints);
+      let stream;
+      try {
+        stream = await mediaDevices.getUserMedia(constraints);
+      } catch (mediaErr) {
+        if (!this.isVideoCall) throw mediaErr;
+        // Camera busy / denied / not ready: still give the person a working voice call
+        // instead of a "Connected" screen with no media at all.
+        console.warn('WebRTC: camera unavailable, falling back to audio only:', mediaErr?.message || mediaErr);
+        this.mediaError = 'camera_unavailable';
+        this.isVideoEnabled = false;
+        stream = await mediaDevices.getUserMedia({ audio: constraints.audio, video: false });
+      }
+
+      // The call ended while we were waiting for the camera/mic: release it right away.
+      if (session !== this.sessionId) {
+        console.log('WebRTC: Call ended while acquiring media, releasing it.');
+        try {
+          stream.getTracks().forEach((track) => track.stop());
+        } catch (_) {}
+        return false;
+      }
+
+      this.localStream = stream;
       this.notifyStreamUpdate();
       console.log('WebRTC: Local mediaStream acquired successfully.');
 
@@ -193,7 +227,8 @@ class WebRTCManager {
       };
 
       this.peerConnection.onconnectionstatechange = () => {
-        console.log('WebRTC Connection state:', this.peerConnection?.connectionState);
+        this.connectionState = this.peerConnection?.connectionState || 'closed';
+        console.log('WebRTC Connection state:', this.connectionState);
       };
 
       this.peerConnection.oniceconnectionstatechange = () => {
@@ -219,13 +254,40 @@ class WebRTCManager {
         );
       }
 
-      this.isStarting = false;
+      if (session === this.sessionId) this.isStarting = false;
       return true;
     } catch (err) {
       console.warn('WebRTC start error:', err);
-      this.isStarting = false;
+      // Only reset the flag if a newer call has not already taken over.
+      if (session === this.sessionId) this.isStarting = false;
       return false;
     }
+  }
+
+  /**
+   * Broadcast signals are fire-and-forget: if the offer is sent before the other phone is
+   * listening, it is lost and the call stays silent. Keep re-sending the offer every 3s
+   * (max 5 times) until an answer arrives.
+   */
+  scheduleOfferRetry() {
+    if (this.offerRetryTimer) {
+      clearTimeout(this.offerRetryTimer);
+      this.offerRetryTimer = null;
+    }
+    if (!this.isInitiator || this.offerRetryCount >= 5) return;
+    const session = this.sessionId;
+    this.offerRetryTimer = setTimeout(async () => {
+      this.offerRetryTimer = null;
+      if (session !== this.sessionId || !this.peerConnection) return;
+      if (
+        this.peerConnection.signalingState === 'have-local-offer' &&
+        !this.peerConnection.remoteDescription
+      ) {
+        this.offerRetryCount += 1;
+        console.log(`WebRTC: No answer yet, re-sending offer (retry ${this.offerRetryCount}/5)`);
+        await this.createAndSendOffer();
+      }
+    }, 3000);
   }
 
   async createAndSendOffer() {
@@ -240,6 +302,7 @@ class WebRTCManager {
           { type: 'offer', sdp: this.peerConnection.localDescription.sdp },
           this.myHandle
         );
+        this.scheduleOfferRetry();
         return;
       }
 
@@ -261,6 +324,7 @@ class WebRTCManager {
         { type: 'offer', sdp: offer.sdp },
         this.myHandle
       );
+      this.scheduleOfferRetry();
     } catch (err) {
       console.warn('WebRTC createOffer error:', err);
     }
@@ -287,13 +351,23 @@ class WebRTCManager {
     try {
       if (signalData.type === 'peer_ready') {
         console.log('WebRTC: Received peer_ready from receiver, sending offer');
-        if (this.isInitiator) {
+        // Only (re)send the offer while we are still waiting for an answer. A late peer_ready used
+        // to start a second offer on an already-connected call.
+        if (this.isInitiator && !this.peerConnection.remoteDescription) {
           await this.createAndSendOffer();
         }
       } else if (signalData.type === 'offer') {
         console.log('WebRTC: Processing received offer');
         if (this.peerConnection.remoteDescription && this.peerConnection.remoteDescription.type === 'offer') {
-          console.log('WebRTC: Remote offer already processed, skipping duplicate');
+          console.log('WebRTC: Remote offer already processed, re-sending our answer in case it was lost');
+          if (this.peerConnection.localDescription?.type === 'answer') {
+            await callService.sendSignal(
+              this.currentCallId,
+              this.partnerHandle,
+              { type: 'answer', sdp: this.peerConnection.localDescription.sdp },
+              this.myHandle
+            );
+          }
           return;
         }
 
@@ -405,6 +479,15 @@ class WebRTCManager {
    * Clean up tracks and close peer connection
    */
   cleanup() {
+    // Invalidate any startCall() that is still waiting for the camera/microphone.
+    this.sessionId += 1;
+    if (this.offerRetryTimer) {
+      clearTimeout(this.offerRetryTimer);
+      this.offerRetryTimer = null;
+    }
+    this.offerRetryCount = 0;
+    this.connectionState = 'closed';
+
     if (this.localStream) {
       try {
         this.localStream.getTracks().forEach((track) => track.stop());

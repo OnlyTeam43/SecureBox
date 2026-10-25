@@ -317,10 +317,15 @@ export default function CallScreen({ route, navigation }) {
 
       // Listen for call signaling events
       if (activeCallId) {
-        const unsubscribe = callService.subscribeToCall(activeCallId, (eventType, data) => {
+        let acceptedHandled = false;
+
+        const handleCallEvent = (eventType, data) => {
           if (eventType === 'ringing') {
-            setCallStatus('Ringing...');
+            if (!acceptedHandled) setCallStatus('Ringing...');
           } else if (eventType === 'accepted') {
+            // Guard: the live event and the catch-up below can both report the same accept.
+            if (acceptedHandled) return;
+            acceptedHandled = true;
             if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
             setIsConnected(true);
             setCallStatus('Connected');
@@ -338,7 +343,21 @@ export default function CallScreen({ route, navigation }) {
           } else if (eventType === 'ended') {
             handleCallTermination('Call Ended');
           }
-        });
+        };
+
+        const unsubscribe = callService.subscribeToCall(activeCallId, handleCallEvent);
+
+        // CATCH UP (outgoing calls): callService.startCall() can take several seconds (it retries the
+        // invite until the other phone confirms ringing). If the other person accepted, declined or
+        // hung up during that time, the event fired before this screen was listening and was lost,
+        // so the caller kept "ringing" forever even though the call had been picked up.
+        if (!isIncoming && !isResumingOngoingCall) {
+          const missed = callService.getCallOutcome(activeCallId);
+          if (missed) {
+            console.log('CallScreen: Catching up on missed call event:', missed.type);
+            handleCallEvent(missed.type, missed.data);
+          }
+        }
 
         return unsubscribe;
       }

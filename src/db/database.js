@@ -89,6 +89,39 @@ const initSchema = async () => {
     // Column already exists
   }
 
+  // --- Message state, ordering and tombstones (batch 2) ---------------------------------------
+  // send_state : 'pending' | 'sent' | 'failed' for messages I sent (NULL = old message, treated as sent)
+  // send_attempts : how many times the outbox tried to upload it
+  // sort_key : the order messages are shown in (see computeSortKey)
+  for (const sql of [
+    `ALTER TABLE messages ADD COLUMN send_state TEXT;`,
+    `ALTER TABLE messages ADD COLUMN send_attempts INTEGER DEFAULT 0;`,
+    `ALTER TABLE messages ADD COLUMN sort_key REAL;`,
+  ]) {
+    try {
+      await db.execAsync(sql);
+    } catch (_) {
+      // Column already exists
+    }
+  }
+  try {
+    await db.execAsync(`
+      UPDATE messages SET sort_key = sent_at WHERE sort_key IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_messages_conv_sort ON messages(conversation_id, sort_key DESC);
+
+      -- ids of messages that were deleted. If a "delete for everyone" arrives BEFORE the message
+      -- itself (offline phone), the message is dropped instead of appearing after it was deleted.
+      CREATE TABLE IF NOT EXISTS deleted_messages (
+        id          TEXT PRIMARY KEY,
+        deleted_at  INTEGER NOT NULL
+      );
+
+      -- Answered / outgoing call entries are not "unread messages" (only missed calls are).
+      UPDATE messages SET read = 1
+        WHERE type = 'call' AND read = 0 AND body NOT LIKE '%"direction":"missed"%';
+    `);
+  } catch (_) {}
+
   // Automatic clean-up: Purge any raw connection/status/ACK JSON strings so they never render as messages
   try {
     await db.execAsync(`
@@ -206,9 +239,14 @@ export const getAllConversations = async (currentHandle = null) => {
 
   const rows = await db.getAllAsync(`
     SELECT c.*, ct.handle, ct.nickname, ct.avatar_id,
-      (SELECT m.sender FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY m.sent_at DESC LIMIT 1) as latest_sender,
-      (SELECT m.read FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY m.sent_at DESC LIMIT 1) as latest_read,
-      (SELECT m.delivered FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY m.sent_at DESC LIMIT 1) as latest_delivered
+      (SELECT m.sender FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY COALESCE(m.sort_key, m.sent_at) DESC LIMIT 1) as latest_sender,
+      (SELECT m.read FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY COALESCE(m.sort_key, m.sent_at) DESC LIMIT 1) as latest_read,
+      (SELECT m.delivered FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY COALESCE(m.sort_key, m.sent_at) DESC LIMIT 1) as latest_delivered,
+      (SELECT m.send_state FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 ${notMsgSql} ORDER BY COALESCE(m.sort_key, m.sent_at) DESC LIMIT 1) as latest_send_state,
+      -- UNREAD IS COUNTED, NEVER STORED: incoming messages (sent by the contact) not yet read.
+      -- The old stored counter drifted whenever a message was processed twice or a screen forgot to reset it.
+      (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.deleted = 0 AND m.read = 0
+         AND ct.handle IS NOT NULL AND LOWER(m.sender) = LOWER(ct.handle) ${notMsgSql}) as unread_count
     FROM conversations c
     LEFT JOIN contacts ct ON ct.id = c.contact_id
     ORDER BY c.last_time DESC
@@ -216,6 +254,7 @@ export const getAllConversations = async (currentHandle = null) => {
 
   // Auto-heal any conversations where contact join was null so chat is NEVER lost or disappeared
   for (const r of rows) {
+    r.unread = Number(r.unread_count) || 0;
     if (!r.handle && r.id && r.id.startsWith('chat_')) {
       const parts = r.id.replace('chat_', '').split('_');
       let partner = parts[0];
@@ -290,50 +329,171 @@ export const isConversationOrContactConnected = async (myHandle, partnerHandle) 
   }
 };
 
+/**
+ * Mark everything the CONTACT sent in this conversation as read.
+ * Returns the ids that were newly marked, so a per-message "seen" receipt can be sent.
+ * (Without a handle this used to set read = 1 on ALL messages including my own, which
+ * turned my own outgoing ticks blue without the other person reading anything.)
+ */
 export const markConversationRead = async (conversationId, myHandle = null) => {
   const db = await getDB();
   await db.runAsync(
     `UPDATE conversations SET unread = 0 WHERE id = ?`,
     [conversationId]
   );
-  if (myHandle) {
+
+  let partnerHandle = null;
+  if (!myHandle) {
+    partnerHandle = await getConversationPartnerHandle(conversationId);
+    if (!partnerHandle) return [];
+  }
+
+  const whereIncoming = myHandle
+    ? `conversation_id = ? AND LOWER(sender) != LOWER(?) AND read = 0 AND deleted = 0`
+    : `conversation_id = ? AND LOWER(sender) = LOWER(?) AND read = 0 AND deleted = 0`;
+  const arg = myHandle || partnerHandle;
+
+  const unreadRows = await db.getAllAsync(`SELECT id FROM messages WHERE ${whereIncoming}`, [conversationId, arg]);
+  if (unreadRows.length > 0) {
+    await db.runAsync(`UPDATE messages SET read = 1 WHERE ${whereIncoming}`, [conversationId, arg]);
+  }
+  return unreadRows.map((r) => r.id);
+};
+
+/** Handle of the other person in a conversation (from the contacts table). */
+export const getConversationPartnerHandle = async (conversationId) => {
+  const db = await getDB();
+  const row = await db.getFirstAsync(
+    `SELECT ct.handle AS handle FROM conversations c JOIN contacts ct ON ct.id = c.contact_id WHERE c.id = ?`,
+    [conversationId]
+  );
+  return row?.handle || null;
+};
+
+const toIdList = (ids) => (Array.isArray(ids) ? ids.filter(Boolean) : []);
+
+/**
+ * Re-derive the status shown on the conversation row from the real latest message,
+ * so it can never get stuck on an old value.
+ */
+const refreshConversationLastStatus = async (db, conversationId) => {
+  const last = await db.getFirstAsync(
+    `SELECT delivered, read, send_state FROM messages
+     WHERE conversation_id = ? AND deleted = 0
+       AND type NOT IN ('connection', 'contact_req', 'contact_accepted', 'call_req', 'ack_seen', 'ack_delivered', 'delete_cmd')
+     ORDER BY COALESCE(sort_key, sent_at) DESC LIMIT 1`,
+    [conversationId]
+  );
+  if (!last) return;
+  const status =
+    last.send_state === 'failed' ? 'failed'
+      : last.send_state === 'pending' ? 'pending'
+      : last.read ? 'seen'
+      : last.delivered ? 'delivered'
+      : 'sent';
+  await db.runAsync(`UPDATE conversations SET last_status = ? WHERE id = ?`, [status, conversationId]);
+};
+
+// A message that the other phone has acknowledged is by definition on the server: it is "sent".
+const SENT_IF_ACKED = `send_state = CASE WHEN send_state IN ('pending', 'failed') THEN 'sent' ELSE send_state END`;
+
+/**
+ * The other person has READ these messages.
+ * With messageIds only those exact messages change. Without ids (old app versions) every message I
+ * sent that has already reached the server changes, but never ones still pending/failed.
+ * Flags only ever move forward (0 -> 1), a late or repeated receipt cannot undo a tick.
+ */
+export const markSentMessagesRead = async (conversationId, myHandle, messageIds = null) => {
+  if (!myHandle) return;
+  const db = await getDB();
+  const ids = toIdList(messageIds);
+  if (ids.length > 0) {
+    const ph = ids.map(() => '?').join(',');
     await db.runAsync(
-      `UPDATE messages SET read = 1 WHERE conversation_id = ? AND LOWER(sender) != LOWER(?)`,
-      [conversationId, myHandle]
+      `UPDATE messages SET read = 1, delivered = 1, ${SENT_IF_ACKED} WHERE id IN (${ph}) AND LOWER(sender) = LOWER(?)`,
+      [...ids, myHandle]
     );
   } else {
     await db.runAsync(
-      `UPDATE messages SET read = 1 WHERE conversation_id = ?`,
-      [conversationId]
-    );
-  }
-};
-
-export const markSentMessagesRead = async (conversationId, myHandle) => {
-  const db = await getDB();
-  if (myHandle) {
-    await db.runAsync(
-      `UPDATE messages SET read = 1, delivered = 1 WHERE conversation_id = ? AND LOWER(sender) = LOWER(?)`,
-      [conversationId, myHandle]
-    );
-    await db.runAsync(
-      `UPDATE conversations SET last_status = 'seen' WHERE id = ? AND LOWER(last_sender) = LOWER(?)`,
+      `UPDATE messages SET read = 1, delivered = 1, ${SENT_IF_ACKED}
+       WHERE conversation_id = ? AND LOWER(sender) = LOWER(?) AND COALESCE(send_state, 'sent') = 'sent'`,
       [conversationId, myHandle]
     );
   }
+  await refreshConversationLastStatus(db, conversationId);
 };
 
-export const markSentMessagesDelivered = async (conversationId, myHandle) => {
+/** The other phone has RECEIVED these messages (two grey ticks). Same rules as markSentMessagesRead. */
+export const markSentMessagesDelivered = async (conversationId, myHandle, messageIds = null) => {
+  if (!myHandle) return;
   const db = await getDB();
-  if (myHandle) {
+  const ids = toIdList(messageIds);
+  if (ids.length > 0) {
+    const ph = ids.map(() => '?').join(',');
     await db.runAsync(
-      `UPDATE messages SET delivered = 1 WHERE conversation_id = ? AND LOWER(sender) = LOWER(?) AND read = 0`,
+      `UPDATE messages SET delivered = 1, ${SENT_IF_ACKED} WHERE id IN (${ph}) AND LOWER(sender) = LOWER(?)`,
+      [...ids, myHandle]
+    );
+  } else {
+    await db.runAsync(
+      `UPDATE messages SET delivered = 1, ${SENT_IF_ACKED}
+       WHERE conversation_id = ? AND LOWER(sender) = LOWER(?) AND COALESCE(send_state, 'sent') = 'sent'`,
       [conversationId, myHandle]
     );
-    await db.runAsync(
-      `UPDATE conversations SET last_status = 'delivered' WHERE id = ? AND LOWER(last_sender) = LOWER(?) AND last_status != 'seen'`,
-      [conversationId, myHandle]
-    );
+  }
+  await refreshConversationLastStatus(db, conversationId);
+};
+
+// ─── Outbox (messages waiting to be uploaded) ────────────────────────────────
+
+export const getMessageById = async (id) => {
+  const db = await getDB();
+  return await db.getFirstAsync(`SELECT * FROM messages WHERE id = ?`, [id]);
+};
+
+/** Messages I wrote that the server has not accepted yet, oldest first. */
+export const getPendingOutgoing = async (limit = 20) => {
+  const db = await getDB();
+  return await db.getAllAsync(
+    `SELECT * FROM messages WHERE send_state = 'pending' AND deleted = 0
+     ORDER BY COALESCE(sort_key, sent_at) ASC LIMIT ?`,
+    [limit]
+  );
+};
+
+export const setSendState = async (id, state) => {
+  const db = await getDB();
+  await db.runAsync(`UPDATE messages SET send_state = ? WHERE id = ?`, [state, id]);
+  const row = await db.getFirstAsync(`SELECT conversation_id FROM messages WHERE id = ?`, [id]);
+  if (row?.conversation_id) await refreshConversationLastStatus(db, row.conversation_id);
+};
+
+/** Returns the new attempt count. */
+export const bumpSendAttempts = async (id) => {
+  const db = await getDB();
+  await db.runAsync(`UPDATE messages SET send_attempts = COALESCE(send_attempts, 0) + 1 WHERE id = ?`, [id]);
+  const row = await db.getFirstAsync(`SELECT send_attempts FROM messages WHERE id = ?`, [id]);
+  return Number(row?.send_attempts) || 0;
+};
+
+export const resetSendAttempts = async (id) => {
+  const db = await getDB();
+  await db.runAsync(`UPDATE messages SET send_attempts = 0 WHERE id = ?`, [id]);
+};
+
+// ─── Tombstones ──────────────────────────────────────────────────────────────
+
+export const isMessageTombstoned = async (id) => {
+  if (!id) return false;
+  const db = await getDB();
+  const row = await db.getFirstAsync(`SELECT id FROM deleted_messages WHERE id = ?`, [id]);
+  return !!row;
+};
+
+const addTombstones = async (db, ids) => {
+  const now = Date.now();
+  for (const id of ids) {
+    if (id) await db.runAsync(`INSERT OR IGNORE INTO deleted_messages (id, deleted_at) VALUES (?, ?)`, [id, now]);
   }
 };
 
@@ -398,6 +558,17 @@ export const ensureConversationExists = async (conversationId, contactHandle, co
   );
 };
 
+/**
+ * True if a message with this id is already stored locally.
+ * Used to drop duplicate deliveries of the same message.
+ */
+export const messageExists = async (id) => {
+  if (!id) return false;
+  const db = await getDB();
+  const row = await db.getFirstAsync(`SELECT id FROM messages WHERE id = ?`, [id]);
+  return !!row;
+};
+
 export const insertMessage = async (msg) => {
   if (
     !msg ||
@@ -442,9 +613,24 @@ export const insertMessage = async (msg) => {
     }
   }
 
+  const sentAt = msg.sentAt || Date.now();
+
+  // If this id is already stored, MERGE instead of overwriting: delivered / read only ever move
+  // forward and the message keeps its place in the list (a duplicate delivery used to reset them).
+  const existing = await db.getFirstAsync(
+    `SELECT delivered, read, sort_key, send_state, send_attempts FROM messages WHERE id = ?`,
+    [msg.id]
+  );
+  const sortKey =
+    existing?.sort_key != null
+      ? Number(existing.sort_key)
+      : await computeSortKey(db, msg.conversationId, msg.sender, sentAt);
+
   await db.runAsync(
-    `INSERT OR REPLACE INTO messages (id, conversation_id, sender, type, body, media_uri, sent_at, delivered, read, expires_at, reply_to, deleted)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    `INSERT OR REPLACE INTO messages
+       (id, conversation_id, sender, type, body, media_uri, sent_at, delivered, read, expires_at, reply_to, deleted,
+        send_state, send_attempts, sort_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
     [
       msg.id,
       msg.conversationId,
@@ -452,13 +638,54 @@ export const insertMessage = async (msg) => {
       msg.type || 'text',
       msg.body || null,
       msg.mediaUri || null,
-      msg.sentAt || Date.now(),
-      msg.delivered ? 1 : 0,
-      msg.read ? 1 : 0,
+      sentAt,
+      existing?.delivered || msg.delivered ? 1 : 0,
+      existing?.read || msg.read ? 1 : 0,
       msg.expiresAt || null,
       msg.replyTo || null,
+      existing?.send_state ?? msg.sendState ?? null,
+      existing?.send_attempts ?? 0,
+      sortKey,
     ]
   );
+};
+
+/**
+ * Where a new message goes in the list.
+ *
+ * Sorting by the sender's phone clock is what scrambled chats: two phones never agree on the time.
+ * Rule used now:
+ *   - every message gets the time THIS phone first saw it, and always goes after the last one
+ *     (so what you see at the bottom is what arrived last), and
+ *   - the messages of ONE sender keep the order that sender sent them in (their own clock is
+ *     consistent with itself), so a message that arrives late slips in just before the one
+ *     that followed it, instead of landing after it.
+ */
+const computeSortKey = async (db, conversationId, sender, sentAt) => {
+  const last = await db.getFirstAsync(
+    `SELECT MAX(COALESCE(sort_key, sent_at)) AS k FROM messages WHERE conversation_id = ?`,
+    [conversationId]
+  );
+  let key = Math.max(Date.now(), (Number(last?.k) || 0) + 1);
+
+  const next = await db.getFirstAsync(
+    `SELECT COALESCE(sort_key, sent_at) AS k FROM messages
+     WHERE conversation_id = ? AND LOWER(sender) = LOWER(?) AND sent_at > ?
+     ORDER BY sent_at ASC LIMIT 1`,
+    [conversationId, sender || '', sentAt]
+  );
+  if (next && Number(next.k) <= key) {
+    const prev = await db.getFirstAsync(
+      `SELECT COALESCE(sort_key, sent_at) AS k FROM messages
+       WHERE conversation_id = ? AND LOWER(sender) = LOWER(?) AND sent_at <= ?
+       ORDER BY sent_at DESC LIMIT 1`,
+      [conversationId, sender || '', sentAt]
+    );
+    const nextK = Number(next.k);
+    const prevK = prev ? Number(prev.k) : null;
+    key = prevK !== null && prevK < nextK ? (prevK + nextK) / 2 : nextK - 1;
+  }
+  return key;
 };
 
 export const purgeCorruptedSystemMessages = async (conversationId = null) => {
@@ -500,14 +727,14 @@ export const getMessages = async (conversationId, limit = 50, before = null) => 
     AND id NOT LIKE 'ack_%' AND id NOT LIKE 'del_cmd_%'`;
   if (before) {
     return await db.getAllAsync(
-      `SELECT * FROM messages WHERE conversation_id = ? AND deleted = 0 AND (body IS NOT NULL OR media_uri IS NOT NULL) ${notCodeSql} AND sent_at < ?
-       ORDER BY sent_at DESC LIMIT ?`,
+      `SELECT * FROM messages WHERE conversation_id = ? AND deleted = 0 AND (body IS NOT NULL OR media_uri IS NOT NULL) ${notCodeSql} AND COALESCE(sort_key, sent_at) < ?
+       ORDER BY COALESCE(sort_key, sent_at) DESC LIMIT ?`,
       [conversationId, before, limit]
     );
   }
   return await db.getAllAsync(
     `SELECT * FROM messages WHERE conversation_id = ? AND deleted = 0 AND (body IS NOT NULL OR media_uri IS NOT NULL) ${notCodeSql}
-     ORDER BY sent_at DESC LIMIT ?`,
+     ORDER BY COALESCE(sort_key, sent_at) DESC LIMIT ?`,
     [conversationId, limit]
   );
 };
@@ -523,6 +750,7 @@ export const deleteMessage = async (messageId) => {
     }
   } catch (_) {}
   await db.runAsync(`DELETE FROM messages WHERE id = ?`, [messageId]);
+  await addTombstones(db, [messageId]);
 };
 
 export const deleteMessagesBatch = async (messageIds) => {
@@ -546,6 +774,7 @@ export const deleteMessagesBatch = async (messageIds) => {
     `DELETE FROM messages WHERE id IN (${placeholders})`,
     messageIds
   );
+  await addTombstones(db, messageIds);
 };
 
 export const getAllMediaPhotos = async (conversationId = null) => {
@@ -562,6 +791,12 @@ export const getAllMediaPhotos = async (conversationId = null) => {
 };
 
 export const purgeExpiredMessages = async () => {
+  // Tombstones only need to outlive the longest time a relay row can wait (48h): keep 14 days.
+  try {
+    const db0 = await getDB();
+    await db0.runAsync(`DELETE FROM deleted_messages WHERE deleted_at < ?`, [Date.now() - 14 * 86400000]);
+  } catch (_) {}
+
   const db = await getDB();
   const now = Date.now();
   try {
@@ -701,7 +936,7 @@ export const recordCallEventMessage = async ({
       body: payload,
       sentAt: Date.now(),
       delivered: 1,
-      read: direction === 'outgoing' ? 1 : 0,
+      read: direction === 'missed' ? 0 : 1,
     });
 
     await upsertConversation({
@@ -745,8 +980,15 @@ export const clearAllCallLogs = async () => {
 
 export const getTotalUnreadMessagesCount = async () => {
   const db = await getDB();
+  // Counted from the messages themselves (incoming + unread), not from a stored counter.
   const row = await db.getFirstAsync(
-    `SELECT COALESCE(SUM(CASE WHEN unread > 0 THEN unread ELSE 0 END), 0) as total FROM conversations`
+    `SELECT COUNT(*) as total
+     FROM messages m
+     JOIN conversations c ON c.id = m.conversation_id
+     JOIN contacts ct ON ct.id = c.contact_id
+     WHERE m.deleted = 0 AND m.read = 0 AND LOWER(m.sender) = LOWER(ct.handle)
+       AND m.type NOT IN ('connection', 'contact_req', 'contact_accepted', 'call_req', 'ack_seen', 'ack_delivered', 'delete_cmd')
+       AND m.id NOT LIKE 'ack_%' AND m.id NOT LIKE 'del_cmd_%'`
   );
   return Math.max(0, Number(row?.total) || 0);
 };
@@ -762,6 +1004,7 @@ export const nukeEntireDatabase = async () => {
       DELETE FROM conversations;
       DELETE FROM contacts;
       DELETE FROM call_logs;
+      DELETE FROM deleted_messages;
       VACUUM;
     `);
     console.log('Database nuked successfully.');
