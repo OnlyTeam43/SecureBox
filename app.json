@@ -67,13 +67,11 @@
           "android": {
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
-            "reactNativeArchitectures": [
-              "arm64-v8a"
-            ],
-            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class com.facebook.react.** { *; }"
+            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class com.facebook.react.** { *; }\n-keep class com.facebook.jni.** { *; }"
           }
         }
-      ]
+      ],
+      "./plugins/withArm64Only.js"
     ],
     "extra": {
       "eas": {
