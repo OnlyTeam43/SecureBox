@@ -67,6 +67,7 @@
           "android": {
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
+            "useLegacyPackaging": true,
             "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class com.facebook.react.** { *; }\n-keep class com.facebook.jni.** { *; }"
           }
         }

@@ -1,22 +1,43 @@
 // plugins/withArm64Only.js
-// Forces reactNativeArchitectures=arm64-v8a in android/gradle.properties.
-// Strips 32-bit (armeabi-v7a) and x86 emulator binaries, reducing WebRTC + React Native APK size by ~70MB.
-const { withGradleProperties } = require('@expo/config-plugins');
+// 1. Injects ndk.abiFilters "arm64-v8a" into android/app/build.gradle defaultConfig
+// 2. Enforces expo.useLegacyPackaging=true in gradle.properties to compress native .so libraries
+// 3. Sets reactNativeArchitectures=arm64-v8a
+const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugins');
 
 module.exports = function withArm64Only(config) {
-  return withGradleProperties(config, (configProps) => {
-    const existing = configProps.modResults.find(
-      (item) => item.type === 'property' && item.key === 'reactNativeArchitectures'
-    );
-    if (existing) {
-      existing.value = 'arm64-v8a';
-    } else {
-      configProps.modResults.push({
-        type: 'property',
-        key: 'reactNativeArchitectures',
-        value: 'arm64-v8a',
-      });
+  // 1. Inject ndk.abiFilters 'arm64-v8a' into android/app/build.gradle
+  config = withAppBuildGradle(config, (configProps) => {
+    let contents = configProps.modResults.contents;
+    if (contents.includes('defaultConfig {') && !contents.includes('abiFilters "arm64-v8a"')) {
+      contents = contents.replace(
+        'defaultConfig {',
+        `defaultConfig {
+        ndk {
+            abiFilters "arm64-v8a"
+        }`
+      );
+      configProps.modResults.contents = contents;
     }
     return configProps;
   });
+
+  // 2. Set gradle.properties for legacy packaging (compression) & architectures
+  config = withGradleProperties(config, (configProps) => {
+    const setOrAdd = (key, value) => {
+      const existing = configProps.modResults.find(
+        (item) => item.type === 'property' && item.key === key
+      );
+      if (existing) {
+        existing.value = value;
+      } else {
+        configProps.modResults.push({ type: 'property', key, value });
+      }
+    };
+
+    setOrAdd('reactNativeArchitectures', 'arm64-v8a');
+    setOrAdd('expo.useLegacyPackaging', 'true');
+    return configProps;
+  });
+
+  return config;
 };
