@@ -60,7 +60,8 @@
           "color": "#D97757"
         }
       ],
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      "./plugins/withArm64Only.js"
     ],
     "extra": {
       "eas": {
