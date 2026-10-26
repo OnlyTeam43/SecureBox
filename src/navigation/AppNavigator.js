@@ -19,9 +19,6 @@ import { purgeExpiredMessages } from '../db/database';
 import IncomingCallModal from '../components/IncomingCallModal';
 import ActiveCallBanner from '../components/ActiveCallBanner';
 import BubbleAlertModal, { installBubbleAlert } from '../components/BubbleAlert';
-
-// Automatically route all alerts across the app into our signature bubble style
-installBubbleAlert();
 import { processIncomingMessage, processIncomingConnectionRequest } from '../services/messageReceiver';
 import * as Notifications from 'expo-notifications';
 import {
@@ -31,6 +28,9 @@ import {
   registerPushToken,
 } from '../services/notificationService';
 import { parseInviteUrl, handleIncomingInvite } from '../services/inviteService';
+
+// Automatically route all alerts across the app into our signature bubble style
+installBubbleAlert();
 
 // Onboarding
 import WelcomeScreen from '../screens/onboarding/WelcomeScreen';
