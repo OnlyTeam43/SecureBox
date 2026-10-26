@@ -1,5 +1,5 @@
 // src/screens/onboarding/WelcomeScreen.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, StatusBar, ActivityIndicator, Alert,
 } from 'react-native';
@@ -9,11 +9,20 @@ import { CharacterAvatar } from '../../animal_ui/components/CharacterAvatar.js';
 import GoogleIcon from '../../components/GoogleIcon';
 import GoogleOnboardingModal from './GoogleOnboardingModal';
 import { initiateGoogleAuth } from '../../services/googleAuthService';
+import { useUserStore } from '../../store/useUserStore';
 
 export default function WelcomeScreen({ navigation }) {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [pendingProfile, setPendingProfile] = useState(null);
+
+  // If local user is already authenticated on-device, enter directly without asking for login!
+  useEffect(() => {
+    const store = useUserStore.getState();
+    if ((store.isSetup || store.handle) && store.handle) {
+      navigation.replace('MainTabs');
+    }
+  }, [navigation]);
 
   // 1-Tap Real Google Sign-In
   const handleGoogleSignInPress = async () => {

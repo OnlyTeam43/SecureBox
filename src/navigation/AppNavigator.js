@@ -103,8 +103,10 @@ function MainTabs() {
 }
 
 export default function AppNavigator() {
+  const _hasHydrated = useUserStore((s) => s._hasHydrated);
   const isSetup = useUserStore((s) => s.isSetup);
   const myHandle = useUserStore((s) => s.handle);
+  const completeSetup = useUserStore((s) => s.completeSetup);
   const myNickname = useUserStore((s) => s.nickname);
   const myAvatarId = useUserStore((s) => s.avatarId);
   const pendingInviteHandle = useUserStore((s) => s.pendingInviteHandle);
@@ -116,6 +118,15 @@ export default function AppNavigator() {
   const setStealthUnlocked = useUserStore((s) => s.setStealthUnlocked);
   const isDecoyUnlocked = useUserStore((s) => s.isDecoyUnlocked);
   const setDecoyUnlocked = useUserStore((s) => s.setDecoyUnlocked);
+
+  // If local handle is stored on-device, user is permanently authenticated offline!
+  const isUserAuthenticated = Boolean((isSetup || myHandle) && myHandle);
+
+  useEffect(() => {
+    if (myHandle && !isSetup) {
+      completeSetup();
+    }
+  }, [myHandle, isSetup, completeSetup]);
 
   const [incomingCallData, setIncomingCallData] = useState(null);
   const [currentRouteName, setCurrentRouteName] = useState(null);
@@ -332,6 +343,13 @@ export default function AppNavigator() {
     return () => subscription.remove();
   }, [isSetup, myHandle]);
 
+  // Wait until AsyncStorage finishes hydrating stored user state before mounting navigation
+  if (!_hasHydrated) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FAF9F5' }} />
+    );
+  }
+
   // If Decoy Study screen was unlocked, show innocent Decoy Study Connect screen
   if (isDecoyUnlocked) {
     return (
@@ -344,8 +362,8 @@ export default function AppNavigator() {
     );
   }
 
-  // Front-door Animal Brick Breaker Game until unlocked (default disguise before and after login)
-  if (!isStealthUnlocked && (isStealthModeEnabled || !isSetup)) {
+  // Front-door Animal Brick Breaker Game disguise ONLY when user explicitly enables Stealth Mode
+  if (isStealthModeEnabled && !isStealthUnlocked) {
     return <BrickBreakerGameScreen onUnlock={() => setStealthUnlocked(true)} />;
   }
 
@@ -373,7 +391,7 @@ export default function AppNavigator() {
         }}
       >
         <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-          {!isSetup ? (
+          {!isUserAuthenticated ? (
             // Onboarding flow
             <>
               <Stack.Screen name="Welcome" component={WelcomeScreen} />

@@ -8,6 +8,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export const useUserStore = create(
   persist(
     (set, get) => ({
+      // Hydration state — ensures routes are not evaluated before AsyncStorage finishes loading
+      _hasHydrated: false,
+      setHasHydrated: (val) => set({ _hasHydrated: Boolean(val) }),
+
       // User identity
       handle: null,        // @handle — unique login ID
       nickname: null,      // Display name
@@ -24,8 +28,8 @@ export const useUserStore = create(
       // Deep link pending invite handle (e.g. user clicked securebox://invite/alex)
       pendingInviteHandle: null,
 
-      // Stealth / Animal Game Decoy Mode
-      isStealthModeEnabled: true,
+      // Stealth / Animal Game Decoy Mode (Default FALSE: Opens directly to chats like WhatsApp!)
+      isStealthModeEnabled: false,
       isStealthUnlocked: false,
       isDecoyUnlocked: false,
       isStealthNotificationsEnabled: false, // Disguises lock screen push notifications
@@ -81,7 +85,7 @@ export const useUserStore = create(
           isSetup: false,
           defaultExpiry: null,
           pendingInviteHandle: null,
-          isStealthModeEnabled: true,
+          isStealthModeEnabled: false,
           isStealthUnlocked: false,
           isDecoyUnlocked: false,
           isStealthNotificationsEnabled: false,
@@ -95,12 +99,35 @@ export const useUserStore = create(
     }),
     {
       name: 'securebox-user',
+      version: 2,
       storage: createJSONStorage(() => AsyncStorage),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
+      migrate: (persistedState, version) => {
+        if (!version || version < 2) {
+          // Reset stealth mode default to false for existing installs
+          return {
+            ...persistedState,
+            isStealthModeEnabled: false,
+          };
+        }
+        return persistedState;
+      },
       partialize: (state) => {
-        // Do not persist unlocked session states so the app always defaults to the game on startup/restart!
-        const { isStealthUnlocked, isDecoyUnlocked, ...rest } = state;
+        // Do not persist in-memory transient flags
+        const { _hasHydrated, isStealthUnlocked, isDecoyUnlocked, ...rest } = state;
         return rest;
       },
     }
   )
 );
+
+// Fallback check to ensure _hasHydrated flips to true if hydration finished synchronously
+if (useUserStore.persist?.hasHydrated?.()) {
+  useUserStore.setState({ _hasHydrated: true });
+} else {
+  useUserStore.persist?.onFinishHydration?.(() => {
+    useUserStore.setState({ _hasHydrated: true });
+  });
+}

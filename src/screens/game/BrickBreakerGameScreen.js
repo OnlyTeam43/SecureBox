@@ -1116,15 +1116,18 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
       } catch (_) {}
 
       // Check User Setup Status:
-      if (!isSetup) {
-        // Fast direct Google Sign-In (no intermediate popups!)
-        handleGoogleUnlock();
-      } else {
-        // SIGNED-IN USER: Instantly unlock into SecureBox!
+      const currentStore = useUserStore.getState();
+      const isUserAuth = Boolean(isSetup || handle || currentStore.isSetup || currentStore.handle);
+      if (isUserAuth) {
+        // SIGNED-IN USER: Instantly unlock into SecureBox 100% offline!
         setDecoyUnlocked(false);
         setStealthUnlocked(true);
+        currentStore.completeSetup();
         if (onUnlock) onUnlock();
         else if (navigation?.canGoBack()) navigation.goBack();
+      } else {
+        // Fast direct Google Sign-In (no intermediate popups!)
+        handleGoogleUnlock();
       }
     }, 3000);
   };
@@ -1152,6 +1155,19 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
   // 1-Tap Google Unlock
   const handleGoogleUnlock = async () => {
+    // Fast path: if user is already authenticated locally, unlock immediately 100% offline!
+    const store = useUserStore.getState();
+    if (store.isSetup || store.handle) {
+      setDecoyUnlocked(false);
+      setStealthUnlocked(true);
+      store.completeSetup();
+      setTimeout(() => {
+        if (onUnlock) onUnlock();
+        else if (navigation?.canGoBack()) navigation.goBack();
+      }, 0);
+      return;
+    }
+
     setGoogleLoading(true);
     try {
       try {
@@ -1813,7 +1829,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
 
             {/* Account / Logout Section */}
             <View style={[styles.drawerSection, { marginTop: 'auto' }]}>
-              {isSetup ? (
+              {(isSetup || handle) ? (
                 <>
                   <TouchableOpacity
                     style={[
@@ -1830,6 +1846,7 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                       setShowDrawer(false);
                       setDecoyUnlocked(false);
                       setStealthUnlocked(true);
+                      useUserStore.getState().completeSetup();
                       if (onUnlock) onUnlock();
                       else if (navigation?.canGoBack()) navigation.goBack();
                     }}

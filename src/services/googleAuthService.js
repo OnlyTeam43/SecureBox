@@ -97,22 +97,72 @@ export const initiateGoogleAuth = async () => {
     }
 
     const cleanPrefix = realEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_.]/g, '');
+    const localStore = useUserStore.getState();
+
+    // OFFLINE-FIRST: If this phone already has this user's profile stored,
+    // restore and enter immediately! Zero network required!
+    if (
+      localStore.handle &&
+      (localStore.isSetup ||
+        localStore.mobileNumber?.toLowerCase()?.includes(realEmail) ||
+        localStore.handle === cleanPrefix)
+    ) {
+      localStore.completeSetup();
+      localStore.setStealthUnlocked(true);
+      return {
+        success: true,
+        exists: true,
+        user: {
+          handle: localStore.handle,
+          name: localStore.nickname || realName,
+          email: localStore.mobileNumber || realEmail,
+          photo: localStore.avatarUri || realPhoto,
+        },
+      };
+    }
 
     // Check if user already exists in Supabase 'users' table (One Email = One Handle)
     let existingUser = null;
+    let queryError = null;
 
     try {
-      const { data: matches } = await supabase
+      const { data: matches, error: qErr } = await supabase
         .from('users')
         .select('*')
         .or(`mobile_number.ilike.${realEmail}%,mobile_number.eq.${realEmail},handle.eq.${cleanPrefix}`);
 
-      if (matches && matches.length > 0) {
+      if (qErr) {
+        queryError = qErr;
+      } else if (matches && matches.length > 0) {
         // Find exact handle match or first matching row
         existingUser = matches.find((m) => m.handle === cleanPrefix) || matches[0];
       }
     } catch (qErr) {
+      queryError = qErr;
       console.warn('[GoogleAuth] Query user error:', qErr.message);
+    }
+
+    // If query failed due to network / weak internet:
+    if (queryError && !existingUser) {
+      // If we have ANY local handle stored on this device, trust it and unlock offline!
+      if (localStore.handle) {
+        localStore.completeSetup();
+        localStore.setStealthUnlocked(true);
+        return {
+          success: true,
+          exists: true,
+          user: {
+            handle: localStore.handle,
+            name: localStore.nickname || realName,
+            email: localStore.mobileNumber || realEmail,
+            photo: localStore.avatarUri || realPhoto,
+          },
+        };
+      }
+      return {
+        success: false,
+        error: 'Unable to connect to server due to weak internet. Please check your connection.',
+      };
     }
 
     // CASE A: User is an existing registered user -> Restore and enter immediately!
