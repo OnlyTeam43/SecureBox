@@ -312,11 +312,10 @@ export const sendMessageToSupabase = async ({
   // Post message to temporary relay queue in Supabase.
   // The row will be IMMEDIATELY deleted by recipient device upon receipt or fetch!
   // Fallback expires_at (48 hours) ensures server auto-purges if recipient never connects.
-  // NOTE: supabase-js does NOT throw on failure, it returns { error }. The old code only had a
-  // try/catch, so a failed insert was completely silent and the message looked "sent" forever.
+  // Note: the remote 'messages' table schema has (id, sender, receiver, body, media_uri, type, reply_to, expires_at, created_at).
+  // Do NOT include conversation_id here: conversation IDs are derived deterministically on-device as chat_userA_userB.
   const relayRow = {
     id,
-    conversation_id: conversationId,
     sender: cleanSender,
     receiver: receiverClean,
     body: body || null,
@@ -746,7 +745,13 @@ export const subscribeToConversation = (conversationId, onNewMessage, onSecurity
       },
       (payload) => {
         try {
-          if (payload?.new && payload.new.conversation_id === conversationId) {
+          const participants = payload?.new?.sender && payload?.new?.receiver
+            ? [payload.new.sender.toLowerCase(), payload.new.receiver.toLowerCase()].sort()
+            : null;
+          const computedConvId = participants ? `chat_${participants[0]}_${participants[1]}` : null;
+          const matchesConv = (payload?.new?.conversation_id || computedConvId) === conversationId;
+
+          if (payload?.new && matchesConv) {
             // Check if this is an ACK or system control row — NEVER pass as chat message!
             if (
               payload.new.type === 'ack_delivered' ||

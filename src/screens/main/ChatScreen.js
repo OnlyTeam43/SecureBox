@@ -699,7 +699,7 @@ export default function ChatScreen({ route, navigation }) {
       minute: '2-digit',
     });
 
-    // Instagram-style Inline Call Bubble
+    // SecureBox-style Inline Call Event Bubble (shown for both sender and receiver)
     if (item.type === 'call') {
       let callData = null;
       try {
@@ -709,55 +709,92 @@ export default function ChatScreen({ route, navigation }) {
       const cType = callData?.callType || (item.body && item.body.toLowerCase().includes('video') ? 'video' : 'voice');
       const cDir = callData?.direction || (isMe ? 'outgoing' : 'incoming');
       const cDur = callData?.duration || 0;
+      // A call is "missed" from the perspective of the person who did NOT answer
       const isMissed = cDir === 'missed' || cDir === 'declined' || cDir === 'no_answer';
+      const isOutgoing = cDir === 'outgoing' || cDir === 'no_answer';
 
-      const m = Math.floor(cDur / 60);
-      const s = cDur % 60;
-      const durStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
+      const mm = Math.floor(cDur / 60);
+      const ss = String(cDur % 60).padStart(2, '0');
+      const durStr = mm > 0 ? `${mm}:${ss}` : `0:${ss}`;
 
-      const title = callData?.displayTitle || (
-        isMissed
-          ? (cType === 'video' ? 'Missed video call' : 'Missed audio call')
-          : (cType === 'video' ? 'Video call ended' : 'Audio call ended')
-      );
+      // Direction arrow: ↙ = incoming, ↗ = outgoing, ↘ = missed outgoing, ↙ red = missed incoming
+      const dirArrow = isOutgoing ? '↗' : '↙';
+      const dirLabel = isOutgoing ? 'Outgoing' : 'Incoming';
 
-      const sub = isMissed
+      let titleLine = '';
+      if (cDir === 'missed') {
+        titleLine = cType === 'video' ? 'Missed video call' : 'Missed call';
+      } else if (cDir === 'declined') {
+        titleLine = cType === 'video' ? 'Declined video call' : 'Declined call';
+      } else if (cDir === 'no_answer') {
+        titleLine = cType === 'video' ? 'No answer — video call' : 'No answer';
+      } else {
+        titleLine = cType === 'video' ? 'Video call' : 'Voice call';
+      }
+
+      const subLine = isMissed
         ? timeStr
-        : (cDur > 0 ? `${durStr} · ${timeStr}` : timeStr);
+        : cDur > 0
+          ? `${durStr} · ${timeStr}`
+          : timeStr;
+
+      // Action button label depends on context
+      const btnLabel = isMe ? 'Call Again' : 'Call Back';
 
       return (
-        <View style={styles.callBubbleRow}>
-          <View style={[styles.callBubbleCard, isMissed && styles.callBubbleCardMissed]}>
-            <View style={[styles.callIconWrap, isMissed ? styles.callIconWrapMissed : styles.callIconWrapNormal]}>
+        <View style={styles.callEventRow}>
+          {/* Left edge: direction indicator */}
+          <View style={[styles.callEventDirBar, isMissed ? styles.callEventDirBarMissed : styles.callEventDirBarNormal]} />
+
+          <View style={[styles.callEventCard, isMissed && styles.callEventCardMissed]}>
+            {/* Icon + text block */}
+            <View style={[styles.callEventIconWrap, isMissed ? styles.callEventIconWrapMissed : styles.callEventIconWrapNormal]}>
               {cType === 'video' ? (
-                isMissed ? <VideoOff size={18} color="#DC2626" /> : <Video size={18} color="#D97757" />
+                isMissed ? <VideoOff size={17} color={isMissed ? '#DC2626' : '#D97757'} /> : <Video size={17} color="#D97757" />
               ) : (
-                isMissed ? <PhoneOff size={18} color="#DC2626" /> : <Phone size={18} color="#D97757" />
+                isMissed ? <PhoneOff size={17} color="#DC2626" /> : <Phone size={17} color="#D97757" />
               )}
             </View>
 
-            <View style={styles.callContentCol}>
-              <Text style={[styles.callTitleText, isMissed && styles.callTitleMissed]}>
-                {title}
-              </Text>
-              <Text style={styles.callSubText}>{sub}</Text>
+            <View style={styles.callEventTextBlock}>
+              <View style={styles.callEventTitleRow}>
+                <Text style={[styles.callEventDirArrow, isMissed && styles.callEventDirArrowMissed]}>
+                  {dirArrow}
+                </Text>
+                <Text style={[styles.callEventTitle, isMissed && styles.callEventTitleMissed]} numberOfLines={1}>
+                  {titleLine}
+                </Text>
+              </View>
+              <Text style={styles.callEventSub}>{subLine}</Text>
             </View>
 
-            <TouchableOpacity
-              style={styles.callBackBtn}
-              activeOpacity={0.7}
-              onPress={() => {
-                navigation.navigate('Call', {
-                  contactHandle,
-                  contactNickname,
-                  contactAvatarId,
-                  callType: cType,
-                });
-              }}
-            >
-              <Text style={styles.callBackBtnText}>Call Back</Text>
-            </TouchableOpacity>
+            {/* Duration pill — only for answered calls */}
+            {!isMissed && cDur > 0 && (
+              <View style={styles.callEventDurPill}>
+                <Clock size={9} color="#87867F" />
+                <Text style={styles.callEventDurText}>{durStr}</Text>
+              </View>
+            )}
           </View>
+
+          {/* Separate "Call Back / Call Again" action button on its own row */}
+          <TouchableOpacity
+            style={styles.callEventActionBtn}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('Call', {
+              contactHandle,
+              contactNickname,
+              contactAvatarId,
+              callType: cType,
+            })}
+          >
+            {cType === 'video' ? (
+              <Video size={13} color="#D97757" />
+            ) : (
+              <Phone size={13} color="#D97757" />
+            )}
+            <Text style={styles.callEventActionText}>{btnLabel}</Text>
+          </TouchableOpacity>
         </View>
       );
     }
@@ -1716,7 +1753,133 @@ const styles = StyleSheet.create({
     height: '80%',
   },
 
-  // Instagram-style Call Bubble
+  // SecureBox-style Call Event Bubble
+  // Full-width pill card, left-edge coloured bar, direction arrow, duration pill, call-back button
+  callEventRow: {
+    width: '100%',
+    paddingHorizontal: 20,
+    marginVertical: 6,
+    alignItems: 'stretch',
+  },
+  callEventCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,19,0.08)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+    overflow: 'hidden',
+  },
+  callEventCardMissed: {
+    backgroundColor: '#FFF9F9',
+    borderColor: 'rgba(220, 38, 38, 0.14)',
+  },
+  callEventDirBar: {
+    position: 'absolute',
+    left: 20,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    borderTopLeftRadius: 16,
+    borderBottomLeftRadius: 16,
+    zIndex: 1,
+  },
+  callEventDirBarNormal: {
+    backgroundColor: '#D97757',
+  },
+  callEventDirBarMissed: {
+    backgroundColor: '#DC2626',
+  },
+  callEventIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    marginLeft: 6,
+  },
+  callEventIconWrapNormal: {
+    backgroundColor: 'rgba(217, 119, 87, 0.12)',
+  },
+  callEventIconWrapMissed: {
+    backgroundColor: 'rgba(220, 38, 38, 0.10)',
+  },
+  callEventTextBlock: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  callEventTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  callEventDirArrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#D97757',
+  },
+  callEventDirArrowMissed: {
+    color: '#DC2626',
+  },
+  callEventTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: PALETTE.text,
+    flexShrink: 1,
+  },
+  callEventTitleMissed: {
+    color: '#DC2626',
+  },
+  callEventSub: {
+    fontSize: 11,
+    color: PALETTE.textMuted,
+  },
+  callEventDurPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(20,20,19,0.05)',
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    marginLeft: 8,
+  },
+  callEventDurText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: PALETTE.textMuted,
+    fontVariant: ['tabular-nums'],
+  },
+  callEventActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    marginLeft: 54, // lines up with text column (icon 36 + margin 10 + bar 6 + padding 2)
+    backgroundColor: 'rgba(217, 119, 87, 0.10)',
+    borderRadius: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(217, 119, 87, 0.25)',
+  },
+  callEventActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#D97757',
+  },
+
+  // Legacy styles kept for safety (unused after redesign but harmless to keep)
   callBubbleRow: {
     width: '100%',
     alignItems: 'center',

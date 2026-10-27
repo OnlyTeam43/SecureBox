@@ -12,7 +12,7 @@ import { useUserStore } from '../store/useUserStore';
 import { useBadgeStore } from '../store/useBadgeStore';
 import { navigationRef } from './navigationRef';
 import { initCallReceiver, callService, processIncomingCallPayload } from '../services/callService';
-import { subscribeToMyMessages, fetchPendingCallInvite, fetchAndClearPendingMessages } from '../services/supabase';
+import { subscribeToMyMessages, fetchPendingCallInvite, fetchAndClearPendingMessages, initGlobalPresence, supabase } from '../services/supabase';
 import { releaseIncoming } from '../services/incomingGuard';
 import { startOutboxWorker, flushOutbox } from '../services/outbox';
 import { purgeExpiredMessages } from '../db/database';
@@ -119,6 +119,10 @@ export default function AppNavigator() {
   const isDecoyUnlocked = useUserStore((s) => s.isDecoyUnlocked);
   const setDecoyUnlocked = useUserStore((s) => s.setDecoyUnlocked);
 
+  // Transient timestamps for grace periods (not persisted — reset on cold start)
+  const lastSignInAt = useUserStore((s) => s.lastSignInAt);
+  const stealthUnlockedAt = useUserStore((s) => s.stealthUnlockedAt);
+
   // If local handle is stored on-device, user is permanently authenticated offline!
   const isUserAuthenticated = Boolean((isSetup || myHandle) && myHandle);
 
@@ -215,6 +219,9 @@ export default function AppNavigator() {
       useBadgeStore.getState().refreshBadges(myHandle);
       registerPushToken(myHandle);
 
+      // Start global presence tracking so online indicators work across all screens
+      initGlobalPresence(myHandle);
+
       // Check if a call invite was sent while app was launching
       fetchPendingCallInvite(myHandle).then((pending) => {
         if (pending && pending.callId) {
@@ -272,8 +279,15 @@ export default function AppNavigator() {
       if (nextState === 'active') {
         console.log('AppNavigator: App foregrounded — re-initializing call receiver & refreshing badges');
 
+        // Keep Supabase free-tier project alive (it pauses after ~1 week of no traffic).
+        // A cheap SELECT ping is enough to reset the inactivity timer.
+        supabase.from('users').select('handle').limit(1).then(() => {}).catch(() => {});
+
         // Re-subscribe inbox channel (safe no-op if still healthy)
         initCallReceiver(myHandle, handleIncomingCall);
+
+        // Re-init presence (WebSocket may have been dropped in background)
+        initGlobalPresence(myHandle);
 
         // Refresh badges
         useBadgeStore.getState().refreshBadges(myHandle);
@@ -331,10 +345,18 @@ export default function AppNavigator() {
         }
       } else if (nextState === 'background') {
         if (isStealthModeEnabled) {
-          // Automatically re-lock to decoy Animal Smash game when app is minimized or phone locked
-          console.log('AppNavigator: App backgrounded — re-locking to Animal Game Decoy');
-          setStealthUnlocked(false);
-          setDecoyUnlocked(false);
+          // Give a 30-second grace period before re-locking.
+          // This lets the user switch apps briefly (answer a notification, check a quick thing)
+          // without being forced back to the game screen every time they return.
+          const unlockedAt = useUserStore.getState().stealthUnlockedAt;
+          const elapsedSinceUnlock = unlockedAt ? Date.now() - unlockedAt : Infinity;
+          if (elapsedSinceUnlock > 30000) {
+            console.log('AppNavigator: App backgrounded >30s after last unlock — re-locking to Animal Game Decoy');
+            setStealthUnlocked(false);
+            setDecoyUnlocked(false);
+          } else {
+            console.log('AppNavigator: App backgrounded within 30s grace period — NOT re-locking');
+          }
         }
       }
     };
@@ -363,8 +385,19 @@ export default function AppNavigator() {
   }
 
   // Front-door Animal Brick Breaker Game disguise ONLY when user explicitly enables Stealth Mode
-  if (isStealthModeEnabled && !isStealthUnlocked) {
-    return <BrickBreakerGameScreen onUnlock={() => setStealthUnlocked(true)} />;
+  // Grace period: if the user just signed in (< 5s ago) or just unlocked (< 5s ago),
+  // skip the game gate so they land directly in the chat inbox.
+  const justSignedIn = lastSignInAt && (Date.now() - lastSignInAt) < 5000;
+  const justUnlocked = stealthUnlockedAt && (Date.now() - stealthUnlockedAt) < 5000;
+  if (isStealthModeEnabled && !isStealthUnlocked && !justSignedIn && !justUnlocked) {
+    return (
+      <BrickBreakerGameScreen
+        onUnlock={() => {
+          setStealthUnlocked(true);
+          useUserStore.getState().setStealthUnlockedAt(Date.now());
+        }}
+      />
+    );
   }
 
   return (

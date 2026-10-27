@@ -403,7 +403,7 @@ export default function InboxScreen({ navigation }) {
         await upsertConversation({
           id: convId,
           contactId,
-          lastMsg: 'Chat started 💕',
+          lastMsg: '⏳ Request sent',
           lastTime: Date.now(),
           unread: 0,
         });
@@ -516,6 +516,9 @@ export default function InboxScreen({ navigation }) {
     }
     if (rawLastMsg === 'Photo') rawLastMsg = '📷 Photo';
 
+    // Detect pending-request sentinel so users know their request is waiting for acceptance
+    const isPendingRequest = rawLastMsg === '⏳ Request sent';
+
     let subtitle = rawLastMsg;
     if (!subtitle) {
       if (isPartnerOnline) {
@@ -525,6 +528,10 @@ export default function InboxScreen({ navigation }) {
       } else {
         subtitle = 'No messages yet';
       }
+    }
+    // Override status text for pending requests — never show tick icons, show muted waiting label
+    if (isPendingRequest) {
+      statusText = null; // hide delivery ticks
     }
 
     const hasPhoto = item.avatar_id && (item.avatar_id.startsWith('data:') || item.avatar_id.startsWith('file:') || item.avatar_id.startsWith('http'));
@@ -582,7 +589,10 @@ export default function InboxScreen({ navigation }) {
 
           {/* Row 2: Last message preview + status/unread badge */}
           <View style={styles.infoBottom}>
-            <Text style={styles.preview} numberOfLines={1}>
+            <Text
+              style={[styles.preview, isPendingRequest && { color: '#b0a8ad', fontStyle: 'italic' }]}
+              numberOfLines={1}
+            >
               {subtitle}
             </Text>
             <View style={styles.statusBox}>

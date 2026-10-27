@@ -107,8 +107,11 @@ export const initiateGoogleAuth = async () => {
         localStore.mobileNumber?.toLowerCase()?.includes(realEmail) ||
         localStore.handle === cleanPrefix)
     ) {
+      // Mark sign-in timestamp BEFORE completeSetup so AppNavigator skips the stealth gate
+      localStore.setLastSignInAt(Date.now());
       localStore.completeSetup();
       localStore.setStealthUnlocked(true);
+      localStore.setStealthUnlockedAt(Date.now());
       return {
         success: true,
         exists: true,
@@ -146,8 +149,11 @@ export const initiateGoogleAuth = async () => {
     if (queryError && !existingUser) {
       // If we have ANY local handle stored on this device, trust it and unlock offline!
       if (localStore.handle) {
+        // Mark sign-in timestamp BEFORE completeSetup so AppNavigator skips the stealth gate
+        localStore.setLastSignInAt(Date.now());
         localStore.completeSetup();
         localStore.setStealthUnlocked(true);
+        localStore.setStealthUnlockedAt(Date.now());
         return {
           success: true,
           exists: true,
@@ -189,8 +195,11 @@ export const initiateGoogleAuth = async () => {
       store.setProfile(finalHandle, finalNickname, finalAvatarId, realEmail, realPhoto);
       store.setPassword(finalPassword);
       store.setMyCharacter('panda');
+      // Mark sign-in timestamp BEFORE completeSetup so AppNavigator skips the stealth gate
+      store.setLastSignInAt(Date.now());
       store.completeSetup();
       store.setStealthUnlocked(true);
+      store.setStealthUnlockedAt(Date.now());
 
       return {
         success: true,
@@ -240,8 +249,11 @@ export const initiateGoogleAuth = async () => {
     store.setProfile(assignedHandle, realName, realPhoto || 'panda', realEmail, realPhoto);
     store.setPassword(finalPassword);
     store.setMyCharacter('panda');
+    // Mark sign-in timestamp BEFORE completeSetup so AppNavigator skips the stealth gate
+    store.setLastSignInAt(Date.now());
     store.completeSetup();
     store.setStealthUnlocked(true);
+    store.setStealthUnlockedAt(Date.now());
 
     return {
       success: true,

@@ -71,7 +71,7 @@ export const initNotifications = async () => {
 
       await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.MESSAGES, {
         name: 'Chat Messages',
-        importance: Notifications.AndroidImportance.DEFAULT, // Sound, NO popup
+        importance: Notifications.AndroidImportance.HIGH, // HIGH: shows in shade + sound, no heads-up popup
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#D97757',
         sound: 'default',
@@ -81,7 +81,7 @@ export const initNotifications = async () => {
 
       await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.REQUESTS, {
         name: 'Connection Requests',
-        importance: Notifications.AndroidImportance.DEFAULT, // Sound, NO popup
+        importance: Notifications.AndroidImportance.HIGH, // HIGH: shows in shade + sound, no heads-up popup
         vibrationPattern: [0, 200, 100, 200],
         lightColor: '#D97757',
         sound: 'default',
@@ -152,46 +152,54 @@ export const registerPushToken = async (myHandle) => {
 };
 
 /**
- * Handle notification click navigation
+ * Handle notification click navigation.
+ * Wraps navigate() calls with a retry so cold-start taps still work when
+ * navigationRef isn't ready yet (navigate() silently no-ops if not ready).
  */
 export const handleNotificationClick = (response) => {
   try {
     const data = response?.notification?.request?.content?.data;
     if (!data) return;
 
-    if (data.type === 'chat') {
-      navigate('Chat', {
-        conversationId: data.conversationId,
-        contactHandle: data.contactHandle,
-        contactNickname: data.contactNickname || data.contactHandle,
-        contactAvatarId: data.contactAvatarId || 'avatar_rose',
-      });
-    } else if (data.type === 'request') {
-      const from = (data.fromHandle || '').replace('@', '').trim().toLowerCase();
-      if (from) {
+    const doNavigate = () => {
+      if (data.type === 'chat') {
         navigate('Chat', {
-          conversationId: data.conversationId || `chat_${from}`,
-          contactHandle: from,
-          contactNickname: data.fromNickname || from,
+          conversationId: data.conversationId,
+          contactHandle: data.contactHandle,
+          contactNickname: data.contactNickname || data.contactHandle,
           contactAvatarId: data.contactAvatarId || 'avatar_rose',
         });
-      } else {
-        navigate('MainTabs', {
-          screen: 'Inbox',
-        });
+      } else if (data.type === 'request') {
+        const from = (data.fromHandle || data.contactHandle || '').replace('@', '').trim().toLowerCase();
+        if (from) {
+          navigate('Chat', {
+            conversationId: data.conversationId || `chat_${from}`,
+            contactHandle: from,
+            contactNickname: data.fromNickname || from,
+            contactAvatarId: data.contactAvatarId || 'avatar_rose',
+          });
+        } else {
+          navigate('MainTabs', { screen: 'Inbox' });
+        }
+      } else if (data.type === 'call') {
+        if (data.callId) {
+          navigate('Call', {
+            callId: data.callId,
+            contactHandle: data.callerHandle,
+            contactNickname: data.callerNickname,
+            contactAvatarId: data.callerAvatarId,
+            callType: data.callType || 'voice',
+            isIncoming: true,
+          });
+        }
       }
-    } else if (data.type === 'call') {
-      // If user tapped on an incoming call notification, open call view
-      if (data.callId) {
-        navigate('Call', {
-          callId: data.callId,
-          partnerHandle: data.callerHandle,
-          partnerNickname: data.callerNickname,
-          partnerAvatarId: data.callerAvatarId,
-          callType: data.callType || 'voice',
-          isCaller: false,
-        });
-      }
+    };
+
+    // Try immediately; if navigationRef isn't ready yet (cold start), retry after 1.5 s
+    try {
+      doNavigate();
+    } catch (_) {
+      setTimeout(doNavigate, 1500);
     }
   } catch (err) {
     console.warn('handleNotificationClick error:', err);

@@ -66,6 +66,14 @@ export const useUserStore = create(
 
       setDefaultExpiry: (seconds) => set({ defaultExpiry: seconds }),
 
+      // Timestamp of the most recent successful Google sign-in (ms since epoch, not persisted)
+      lastSignInAt: null,
+      setLastSignInAt: (ts) => set({ lastSignInAt: ts }),
+
+      // Timestamp of when stealth was last unlocked — used for the 30-second grace period (not persisted)
+      stealthUnlockedAt: null,
+      setStealthUnlockedAt: (ts) => set({ stealthUnlockedAt: ts }),
+
       setStealthModeEnabled: (enabled) => set({ isStealthModeEnabled: enabled }),
       setStealthUnlocked: (unlocked) => set({ isStealthUnlocked: unlocked }),
       setDecoyUnlocked: (unlocked) => set({ isDecoyUnlocked: unlocked }),
@@ -115,8 +123,8 @@ export const useUserStore = create(
         return persistedState;
       },
       partialize: (state) => {
-        // Do not persist in-memory transient flags
-        const { _hasHydrated, isStealthUnlocked, isDecoyUnlocked, ...rest } = state;
+        // Do not persist in-memory transient flags (timestamps and unlock state reset on each cold start)
+        const { _hasHydrated, isStealthUnlocked, isDecoyUnlocked, lastSignInAt, stealthUnlockedAt, ...rest } = state;
         return rest;
       },
     }

@@ -92,7 +92,7 @@ export default function AddContactScreen({ navigation }) {
       await upsertConversation({
         id: convId,
         contactId,
-        lastMsg: 'Connected! Say hi 💕',
+        lastMsg: '⏳ Request sent',
         lastTime: Date.now(),
         unread: 0,
       });
