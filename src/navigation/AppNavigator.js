@@ -474,7 +474,7 @@ export default function AppNavigator() {
               <Stack.Screen name="AddContact" component={AddContactScreen} options={{ animation: 'slide_from_bottom' }} />
               <Stack.Screen name="SetExpiry" component={SetExpiryScreen} />
               <Stack.Screen name="MediaGallery" component={MediaGalleryScreen} options={{ animation: 'slide_from_right' }} />
-              <Stack.Screen name="BrickBreaker" component={BrickBreakerGameScreen} options={{ animation: 'fade' }} />
+              <Stack.Screen name="BrickBreaker" component={BrickBreakerGameScreen} options={{ animation: 'fade', gestureEnabled: false }} />
             </>
           )}
         </Stack.Navigator>

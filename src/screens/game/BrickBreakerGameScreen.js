@@ -23,11 +23,11 @@ import {
   Animated,
   ScrollView,
   ActivityIndicator,
+  BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import {
-  ArrowLeft,
   ArrowUp,
   ArrowDown,
   ChevronRight,
@@ -427,6 +427,45 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     setHasSeenAppTour(true);
     setShowTour(false);
   };
+
+  // Intercept Android hardware back button:
+  // When in decoy game, never pop back to private Messages screen on hardware back press!
+  // The only way to return to SecureBox is the secret 3-second long press on the animal companion.
+  useEffect(() => {
+    const onBackPress = () => {
+      if (showTour) {
+        handleSkipTour();
+        return true;
+      }
+      if (showDrawer) {
+        setShowDrawer(false);
+        return true;
+      }
+      if (showLevelPicker) {
+        setShowLevelPicker(false);
+        return true;
+      }
+      if (showGoogleOnboarding) {
+        setShowGoogleOnboarding(false);
+        return true;
+      }
+      // On game screen: pressing back prompts to exit the game cleanly to launcher,
+      // never revealing or navigating back to private Messages.
+      Alert.alert(
+        'Exit Game',
+        'Do you want to exit Animal Smash?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Exit', style: 'destructive', onPress: () => BackHandler.exitApp() },
+        ],
+        { cancelable: true }
+      );
+      return true;
+    };
+
+    const backSub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backSub.remove();
+  }, [showTour, showDrawer, showLevelPicker, showGoogleOnboarding]);
 
   // 3-Second Hold on Top Animal Icon state
   const holdTimerRef = useRef(null);
@@ -1122,9 +1161,15 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
         // SIGNED-IN USER: Instantly unlock into SecureBox 100% offline!
         setDecoyUnlocked(false);
         setStealthUnlocked(true);
+        currentStore.setStealthUnlockedAt(Date.now());
         currentStore.completeSetup();
-        if (onUnlock) onUnlock();
-        else if (navigation?.canGoBack()) navigation.goBack();
+        if (onUnlock) {
+          onUnlock();
+        } else if (navigation?.canGoBack?.()) {
+          navigation.goBack();
+        } else if (navigation?.navigate) {
+          navigation.navigate('MainTabs');
+        }
       } else {
         // Fast direct Google Sign-In (no intermediate popups!)
         handleGoogleUnlock();
@@ -1211,15 +1256,13 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
     }
   };
 
-  const canGoBack = navigation?.canGoBack?.();
-
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FAF9F5" />
 
       {/* Top Header Bar */}
       <View style={styles.header}>
-        {/* Left: Claude-Style Hamburger Menu Button (and back button if available) */}
+        {/* Left: Claude-Style Hamburger Menu Button */}
         <View style={styles.headerLeftRow} pointerEvents="box-none">
           <TouchableOpacity
             style={styles.menuBtn}
@@ -1235,15 +1278,6 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
               </View>
             )}
           </TouchableOpacity>
-          {canGoBack && (
-            <TouchableOpacity
-              style={styles.backBtn}
-              onPress={() => navigation.goBack()}
-              activeOpacity={0.7}
-            >
-              <ArrowLeft size={18} color="#141413" />
-            </TouchableOpacity>
-          )}
         </View>
 
         {/* Center: Secret 3-Second Animal Companion Icon (Mathematically Centered Across All Screens) */}
@@ -1830,51 +1864,14 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
             {/* Account / Logout Section */}
             <View style={[styles.drawerSection, { marginTop: 'auto' }]}>
               {(isSetup || handle) ? (
-                <>
-                  <TouchableOpacity
-                    style={[
-                      styles.drawerMenuItem,
-                      {
-                        marginBottom: 12,
-                        backgroundColor: 'rgba(217,119,87,0.12)',
-                        borderRadius: 12,
-                        paddingVertical: 12,
-                        paddingHorizontal: 12,
-                      },
-                    ]}
-                    onPress={() => {
-                      setShowDrawer(false);
-                      setDecoyUnlocked(false);
-                      setStealthUnlocked(true);
-                      useUserStore.getState().completeSetup();
-                      if (onUnlock) onUnlock();
-                      else if (navigation?.canGoBack()) navigation.goBack();
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <View style={styles.drawerMenuLeft}>
-                      <View style={[styles.drawerIconBox, { backgroundColor: '#D97757' }]}>
-                        <Shield size={18} color="#FFFFFF" />
-                      </View>
-                      <View style={{ marginLeft: 12 }}>
-                        <Text style={[styles.drawerMenuLabel, { color: '#D97757', fontWeight: '700' }]}>
-                          Open SecureBox
-                        </Text>
-                        <Text style={styles.drawerMenuSub}>Access your chats</Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.drawerMenuArrow, { color: '#D97757' }]}>→</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.drawerLogoutBtn}
-                    onPress={handleLogoutPress}
-                    activeOpacity={0.75}
-                  >
-                    <LogOut size={18} color="#C95D4A" style={{ marginRight: 10 }} />
-                    <Text style={styles.drawerLogoutText}>Log Out Google Account</Text>
-                  </TouchableOpacity>
-                </>
+                <TouchableOpacity
+                  style={styles.drawerLogoutBtn}
+                  onPress={handleLogoutPress}
+                  activeOpacity={0.75}
+                >
+                  <LogOut size={18} color="#C95D4A" style={{ marginRight: 10 }} />
+                  <Text style={styles.drawerLogoutText}>Log Out Google Account</Text>
+                </TouchableOpacity>
               ) : (
                 <TouchableOpacity
                   style={styles.drawerGoogleLoginBtn}
@@ -2132,16 +2129,6 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
   menuBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(20,20,19,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
