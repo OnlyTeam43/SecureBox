@@ -26,6 +26,40 @@
       },
       "package": "com.securebox.app",
       "googleServicesFile": "./google-services.json",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "kanelijo.com",
+              "pathPrefix": "/securebox"
+            },
+            {
+              "scheme": "https",
+              "host": "www.kanelijo.com",
+              "pathPrefix": "/securebox"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "securebox"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",

@@ -9,23 +9,22 @@ import {
 } from './supabase';
 import { insertContact, upsertConversation } from '../db/database';
 
-export const WEB_INVITE_BASE_URL = 'https://onlyteam43.github.io/SecureBox';
+export const WEB_INVITE_BASE_URL = 'https://kanelijo.com/securebox';
 
 /**
  * Generate a shareable invite link & message for a given handle
  */
 export const getInviteLink = (handle) => {
   const clean = handle ? handle.replace('@', '').trim().toLowerCase() : '';
-  return `${WEB_INVITE_BASE_URL}/?u=${clean}`;
+  return `${WEB_INVITE_BASE_URL}?connect=@${clean}&download=auto`;
 };
 
 export const getNativeInviteLink = (handle) => {
   const clean = handle ? handle.replace('@', '').trim().toLowerCase() : '';
-  return `securebox://invite/${clean}`;
+  return `securebox://connect/@${clean}`;
 };
 
-export const GITHUB_APK_DOWNLOAD_URL =
-  'https://github.com/OnlyTeam43/SecureBox/releases/latest/download/SecureBox.apk';
+export const GITHUB_APK_DOWNLOAD_URL = 'https://kanelijo.com/securebox/SecureBox.apk';
 
 /**
  * Generate full share text for WhatsApp / SMS / Instagram / etc.
@@ -37,12 +36,10 @@ export const getInviteMessage = (handle, nickname = null) => {
 
   return (
     `💌 Connect with me on SecureBox — private end-to-end encrypted chat & calls!\n\n` +
-    `👉 Tap to connect:\n` +
+    `👉 Tap to connect & download:\n` +
     `${webLink}\n\n` +
-    `1️⃣ If you don't have SecureBox installed, download the APK here:\n` +
-    `${GITHUB_APK_DOWNLOAD_URL}\n\n` +
-    `2️⃣ My handle is: ${displayName}\n` +
-    `Once installed, tap the connect link above or search for @${clean} inside the app!`
+    `My handle is: ${displayName}\n` +
+    `Once installed, tap the link again to jump straight into our chat!`
   );
 };
 
@@ -78,6 +75,7 @@ export const parseInviteUrl = (url) => {
       try {
         const parsed = new URL(cleanUrl);
         const queryHandle =
+          parsed.searchParams.get('connect') ||
           parsed.searchParams.get('u') ||
           parsed.searchParams.get('invite') ||
           parsed.searchParams.get('handle');
@@ -100,10 +98,10 @@ export const parseInviteUrl = (url) => {
       }
     }
 
-    // 2. Check for custom app scheme links (securebox://invite/alex or securebox://alex)
+    // 2. Check for custom app scheme links (securebox://connect/@alex or securebox://invite/alex)
     const match =
-      cleanUrl.match(/^[a-z0-9_.-]+:\/\/(?:invite|add|connect)\/([a-z0-9_.]+)/i) ||
-      cleanUrl.match(/^securebox:\/\/([a-z0-9_.]{3,})/i);
+      cleanUrl.match(/^[a-z0-9_.-]+:\/\/(?:invite|add|connect)\/?@?([a-z0-9_.]+)/i) ||
+      cleanUrl.match(/^securebox:\/\/@?([a-z0-9_.]{3,})/i);
 
     if (match && match[1]) {
       const handle = match[1].toLowerCase().replace('@', '').trim();
