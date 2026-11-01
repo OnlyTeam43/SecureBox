@@ -58,8 +58,8 @@ export const SECUREBOX_TOUR: TourStep[] = [
   },
   {
     key: 'gallery',
-    title: 'Shared media gallery',
-    body: 'See the private photos you have exchanged. They stay on your phone.',
+    title: 'Private media vault',
+    body: 'Store hidden personal photos from your phone and view private photos exchanged in chats. They stay safely in your sandbox.',
     hint: 'Next scrolls down.',
   },
   {

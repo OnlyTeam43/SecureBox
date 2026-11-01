@@ -233,6 +233,85 @@ export const deleteVaultFilesBatch = async (fileUris) => {
 };
 
 /**
+ * Import an external photo from the device (gallery or camera) into the hidden personal vault.
+ * The photo is saved into .secure_media/ with .nomedia protection, making it completely
+ * hidden from Android MediaScanner, Google Photos, and file managers.
+ */
+export const importPhotoToPersonalVault = async (sourceUri, originalWidth = null, originalHeight = null, source = 'gallery') => {
+  if (!sourceUri) return null;
+  try {
+    await initMediaVault();
+    const cleanTime = Date.now();
+    const randSuffix = Math.random().toString(36).substring(2, 8);
+    const fileName = `${source}_vault_${cleanTime}_${randSuffix}.jpg`;
+    const targetFile = `${VAULT_DIR}${fileName}`;
+
+    try {
+      await FileSystem.copyAsync({
+        from: sourceUri,
+        to: targetFile,
+      });
+    } catch (copyErr) {
+      console.log('importPhotoToPersonalVault fallback to write:', copyErr?.message);
+      const rawContent = await FileSystem.readAsStringAsync(sourceUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      await FileSystem.writeAsStringAsync(targetFile, rawContent, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    }
+
+    const info = await FileSystem.getInfoAsync(targetFile, { size: true });
+    return {
+      vaultUri: targetFile,
+      fileName,
+      fileSize: info.size || 0,
+      source,
+    };
+  } catch (err) {
+    console.warn('importPhotoToPersonalVault error:', err);
+    return null;
+  }
+};
+
+/**
+ * Export a vault photo back out to the phone's public gallery.
+ */
+export const exportVaultPhotoToGallery = async (fileUri) => {
+  if (!fileUri) return { success: false, error: 'No file specified' };
+  try {
+    const MediaLibrary = await import('expo-media-library');
+    const { status } = await MediaLibrary.requestPermissionsAsync(true);
+    if (status !== 'granted') {
+      return { success: false, error: 'Permission to access phone gallery was denied.' };
+    }
+    const asset = await MediaLibrary.createAssetAsync(fileUri);
+    return { success: true, asset };
+  } catch (err) {
+    console.warn('exportVaultPhotoToGallery error:', err);
+    return { success: false, error: err.message || 'Export to gallery failed.' };
+  }
+};
+
+/**
+ * Delete the original asset from the device gallery (after importing to vault)
+ */
+export const deleteOriginalGalleryAsset = async (assetId) => {
+  if (!assetId) return false;
+  try {
+    const MediaLibrary = await import('expo-media-library');
+    const { status } = await MediaLibrary.requestPermissionsAsync(true);
+    if (status === 'granted') {
+      await MediaLibrary.deleteAssetsAsync([assetId]);
+      return true;
+    }
+  } catch (e) {
+    console.warn('deleteOriginalGalleryAsset error:', e);
+  }
+  return false;
+};
+
+/**
  * Request device storage permission (Android read_external_storage / MEDIA_IMAGES)
  * and create the SecureBox hidden vault directory.
  * Returns true if permission granted, false otherwise.

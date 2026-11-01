@@ -206,8 +206,8 @@ export default function ProfileScreen({ navigation }) {
         <TourTarget stepKey="gallery">
           <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('MediaGallery')}>
             <View>
-              <Text style={styles.rowLabel}>Shared Media Gallery</Text>
-              <Text style={styles.rowSub}>View private photos exchanged</Text>
+              <Text style={styles.rowLabel}>Private Media Vault</Text>
+              <Text style={styles.rowSub}>Hidden personal photos & shared chat media</Text>
             </View>
             <Text style={styles.rowArrow}>→</Text>
           </TouchableOpacity>

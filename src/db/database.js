@@ -69,6 +69,20 @@ const initSchema = async () => {
 
     CREATE INDEX IF NOT EXISTS idx_call_logs_time
       ON call_logs(timestamp DESC);
+
+    CREATE TABLE IF NOT EXISTS vault_items (
+      id              TEXT PRIMARY KEY,
+      file_name       TEXT,
+      file_uri        TEXT NOT NULL,
+      file_size       INTEGER DEFAULT 0,
+      media_type      TEXT DEFAULT 'photo',
+      created_at      INTEGER NOT NULL,
+      source          TEXT DEFAULT 'imported',
+      note            TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vault_items_created
+      ON vault_items(created_at DESC);
   `);
 
   try {
@@ -788,6 +802,95 @@ export const getAllMediaPhotos = async (conversationId = null) => {
   return await db.getAllAsync(
     `SELECT * FROM messages WHERE media_uri IS NOT NULL AND deleted = 0 ORDER BY sent_at DESC`
   );
+};
+
+export const addVaultItem = async ({ id, fileName, fileUri, fileSize = 0, mediaType = 'photo', source = 'imported', note = null }) => {
+  const db = await getDB();
+  const itemId = id || `vault_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const now = Date.now();
+  await db.runAsync(
+    `INSERT INTO vault_items (id, file_name, file_uri, file_size, media_type, created_at, source, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [itemId, fileName || `photo_${now}.jpg`, fileUri, fileSize, mediaType, now, source, note]
+  );
+  return itemId;
+};
+
+export const getPersonalVaultItems = async () => {
+  const db = await getDB();
+  return await db.getAllAsync(
+    `SELECT * FROM vault_items ORDER BY created_at DESC`
+  );
+};
+
+export const deleteVaultItemById = async (id) => {
+  const db = await getDB();
+  const item = await db.getFirstAsync(`SELECT file_uri FROM vault_items WHERE id = ?`, [id]);
+  if (item?.file_uri) {
+    await deleteVaultFilesBatch([item.file_uri]);
+  }
+  await db.runAsync(`DELETE FROM vault_items WHERE id = ?`, [id]);
+};
+
+export const getAllVaultMedia = async ({ filter = 'all', conversationId = null } = {}) => {
+  const db = await getDB();
+  let personal = [];
+  let chatMedia = [];
+
+  if (filter === 'all' || filter === 'personal') {
+    if (!conversationId) {
+      const pRows = await db.getAllAsync(`SELECT * FROM vault_items ORDER BY created_at DESC`);
+      personal = (pRows || []).map((r) => ({
+        id: r.id,
+        media_uri: r.file_uri,
+        sent_at: r.created_at,
+        source: 'personal',
+        file_name: r.file_name,
+        file_size: r.file_size,
+        media_type: r.media_type,
+        origin: r.source || 'imported',
+      }));
+    }
+  }
+
+  if (filter === 'all' || filter === 'chats') {
+    let cRows = [];
+    if (conversationId) {
+      cRows = await db.getAllAsync(
+        `SELECT m.*, c.nickname AS contact_nickname FROM messages m
+         LEFT JOIN conversations conv ON m.conversation_id = conv.id
+         LEFT JOIN contacts c ON conv.contact_id = c.id
+         WHERE m.conversation_id = ? AND m.media_uri IS NOT NULL AND m.deleted = 0
+         ORDER BY m.sent_at DESC`,
+        [conversationId]
+      );
+    } else {
+      cRows = await db.getAllAsync(
+        `SELECT m.*, c.nickname AS contact_nickname FROM messages m
+         LEFT JOIN conversations conv ON m.conversation_id = conv.id
+         LEFT JOIN contacts c ON conv.contact_id = c.id
+         WHERE m.media_uri IS NOT NULL AND m.deleted = 0
+         ORDER BY m.sent_at DESC`
+      );
+    }
+    chatMedia = (cRows || []).map((r) => ({
+      id: r.id,
+      media_uri: r.media_uri,
+      sent_at: r.sent_at,
+      source: 'chat',
+      conversation_id: r.conversation_id,
+      sender: r.sender,
+      contact_nickname: r.contact_nickname,
+      file_name: 'Chat Photo',
+    }));
+  }
+
+  if (filter === 'personal') return personal;
+  if (filter === 'chats') return chatMedia;
+
+  const combined = [...personal, ...chatMedia];
+  combined.sort((a, b) => (b.sent_at || 0) - (a.sent_at || 0));
+  return combined;
 };
 
 export const purgeExpiredMessages = async () => {
