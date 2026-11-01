@@ -28,6 +28,7 @@ import {
   registerPushToken,
 } from '../services/notificationService';
 import { parseInviteUrl, handleIncomingInvite, checkClipboardForInvite } from '../services/inviteService';
+import { TourProvider, SECUREBOX_TOUR } from '../SecureBoxTour';
 
 // Automatically route all alerts across the app into our signature bubble style
 installBubbleAlert();
@@ -58,47 +59,50 @@ const Tab = createBottomTabNavigator();
 
 function MainTabs() {
   const unreadMessagesCount = useBadgeStore((s) => s.unreadMessagesCount);
+  const myHandle = useUserStore((s) => s.handle);
 
   return (
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: '#FAF9F5',
-          borderTopColor: 'rgba(20,20,19,0.08)',
-          borderTopWidth: 1,
-          height: 62,
-          paddingBottom: 8,
-          paddingTop: 6,
-        },
-        tabBarActiveTintColor: '#D97757',
-        tabBarInactiveTintColor: '#87867F',
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
-      }}
-    >
-      <Tab.Screen
-        name="Inbox"
-        component={InboxScreen}
-        options={{
-          tabBarLabel: 'Messages',
-          tabBarIcon: ({ color }) => (
-            <MessageTabIcon size={22} color={color} />
-          ),
-          tabBarBadge: unreadMessagesCount > 0 ? (unreadMessagesCount > 99 ? '99+' : unreadMessagesCount) : undefined,
-          tabBarBadgeStyle: { backgroundColor: Colors.accent.primary, color: '#fff', fontSize: 10, fontWeight: '700' },
+    <TourProvider tourId="securebox-v1" userId={myHandle || 'guest'} steps={SECUREBOX_TOUR}>
+      <Tab.Navigator
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: '#FAF9F5',
+            borderTopColor: 'rgba(20,20,19,0.08)',
+            borderTopWidth: 1,
+            height: 62,
+            paddingBottom: 8,
+            paddingTop: 6,
+          },
+          tabBarActiveTintColor: '#D97757',
+          tabBarInactiveTintColor: '#87867F',
+          tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
         }}
-      />
-      <Tab.Screen
-        name="Me"
-        component={ProfileScreen}
-        options={{
-          tabBarLabel: 'Profile',
-          tabBarIcon: ({ color }) => (
-            <UserAvatarIcon size={22} color={color} />
-          ),
-        }}
-      />
-    </Tab.Navigator>
+      >
+        <Tab.Screen
+          name="Inbox"
+          component={InboxScreen}
+          options={{
+            tabBarLabel: 'Messages',
+            tabBarIcon: ({ color }) => (
+              <MessageTabIcon size={22} color={color} />
+            ),
+            tabBarBadge: unreadMessagesCount > 0 ? (unreadMessagesCount > 99 ? '99+' : unreadMessagesCount) : undefined,
+            tabBarBadgeStyle: { backgroundColor: Colors.accent.primary, color: '#fff', fontSize: 10, fontWeight: '700' },
+          }}
+        />
+        <Tab.Screen
+          name="Me"
+          component={ProfileScreen}
+          options={{
+            tabBarLabel: 'Profile',
+            tabBarIcon: ({ color }) => (
+              <UserAvatarIcon size={22} color={color} />
+            ),
+          }}
+        />
+      </Tab.Navigator>
+    </TourProvider>
   );
 }
 

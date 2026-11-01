@@ -50,6 +50,7 @@ import {
   getActiveConversation,
 } from '../../services/notificationService';
 import { shareProfileInvite } from '../../services/inviteService';
+import { TourTarget } from '../../SecureBoxTour';
 import { useBadgeStore } from '../../store/useBadgeStore';
 import { callService } from '../../services/callService';
 
@@ -650,23 +651,27 @@ export default function InboxScreen({ navigation }) {
             <Text style={styles.headerSub}>@{myHandle}</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <TouchableOpacity
-              style={styles.headerGameBtn}
-              onPress={() => navigation.navigate('BrickBreaker')}
-              activeOpacity={0.8}
-            >
-              <CharacterBall character="panda" size={20} />
-              <Text style={styles.headerGameText}>Game</Text>
-            </TouchableOpacity>
+            <TourTarget stepKey="game">
+              <TouchableOpacity
+                style={styles.headerGameBtn}
+                onPress={() => navigation.navigate('BrickBreaker')}
+                activeOpacity={0.8}
+              >
+                <CharacterBall character="panda" size={20} />
+                <Text style={styles.headerGameText}>Game</Text>
+              </TouchableOpacity>
+            </TourTarget>
 
-            <TouchableOpacity
-              style={styles.headerInviteBtn}
-              onPress={() => shareProfileInvite(myHandle, myNickname)}
-              activeOpacity={0.8}
-            >
-              <ShareIcon size={15} color={Colors.accent.primary} />
-              <Text style={styles.headerInviteText}>Invite</Text>
-            </TouchableOpacity>
+            <TourTarget stepKey="invite">
+              <TouchableOpacity
+                style={styles.headerInviteBtn}
+                onPress={() => shareProfileInvite(myHandle, myNickname)}
+                activeOpacity={0.8}
+              >
+                <ShareIcon size={15} color={Colors.accent.primary} />
+                <Text style={styles.headerInviteText}>Invite</Text>
+              </TouchableOpacity>
+            </TourTarget>
           </View>
         </View>
       )}
@@ -703,34 +708,36 @@ export default function InboxScreen({ navigation }) {
       )}
 
       {/* Horizontal Search Box */}
-      <View style={styles.searchSection}>
-        <View style={styles.searchRow}>
-          <Text style={styles.searchPrefix}>@</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search unique ID to chat..."
-            placeholderTextColor={Colors.text.placeholder}
-            value={searchHandle}
-            onChangeText={(t) => setSearchHandle(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-            onSubmitEditing={handleSearchAndConnect}
-          />
-          <TouchableOpacity
-            style={[styles.searchBtn, (!searchHandle.trim() || searching) && styles.searchBtnDisabled]}
-            onPress={handleSearchAndConnect}
-            disabled={!searchHandle.trim() || searching}
-            activeOpacity={0.8}
-          >
-            {searching ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.searchBtnText}>Chat</Text>
-            )}
-          </TouchableOpacity>
+      <TourTarget stepKey="search">
+        <View style={styles.searchSection}>
+          <View style={styles.searchRow}>
+            <Text style={styles.searchPrefix}>@</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search unique ID to chat..."
+              placeholderTextColor={Colors.text.placeholder}
+              value={searchHandle}
+              onChangeText={(t) => setSearchHandle(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={handleSearchAndConnect}
+            />
+            <TouchableOpacity
+              style={[styles.searchBtn, (!searchHandle.trim() || searching) && styles.searchBtnDisabled]}
+              onPress={handleSearchAndConnect}
+              disabled={!searchHandle.trim() || searching}
+              activeOpacity={0.8}
+            >
+              {searching ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.searchBtnText}>Chat</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </TourTarget>
 
       {/* Conversations List */}
       <FlatList

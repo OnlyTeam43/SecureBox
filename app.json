@@ -80,7 +80,8 @@
         "android.permission.BLUETOOTH",
         "POST_NOTIFICATIONS",
         "android.permission.POST_NOTIFICATIONS"
-      ]
+      ],
+      "allowBackup": false
     },
     "plugins": [
       "expo-secure-store",

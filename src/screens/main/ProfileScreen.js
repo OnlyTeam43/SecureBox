@@ -1,30 +1,30 @@
 // src/screens/main/ProfileScreen.js
 // My own profile — view handle, profile picture upload, nickname, settings
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  StatusBar, Alert, Switch, Modal, TextInput, Linking,
+  StatusBar, Alert, Switch, Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
 import { EXPIRY_OPTIONS } from '../../constants/avatars';
 import { useUserStore } from '../../store/useUserStore';
 import { ShareIcon, LinkIcon, PanicIcon } from '../../components/Icons';
-import { CharacterAvatar, CharacterBall } from '../../animal_ui/index.js';
+import { CharacterAvatar } from '../../animal_ui/index.js';
 import { updateUserAvatarInSupabase } from '../../services/supabase';
 import { updateContactAvatar } from '../../db/database';
 import { shareProfileInvite, getInviteLink } from '../../services/inviteService';
 import { instantEraseEverything } from '../../services/panicService';
 import { registerPushToken } from '../../services/notificationService';
+import { profileScroll, TourTarget, useTour } from '../../SecureBoxTour';
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const tour = useTour();
   const {
     handle,
     nickname,
-    avatarId,
-    avatarUri,
     mobileNumber,
     defaultExpiry,
     setAvatarUri,
@@ -118,6 +118,7 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <ScrollView
+      ref={profileScroll}
       style={styles.root}
       contentContainerStyle={[styles.container, { paddingTop: insets.top + Spacing.lg }]}
     >
@@ -192,24 +193,36 @@ export default function ProfileScreen({ navigation }) {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Settings</Text>
 
-        <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('SetExpiry')}>
-          <View>
-            <Text style={styles.rowLabel}>Disappearing Messages</Text>
-            <Text style={styles.rowSub}>Default: {expiryLabel}</Text>
-          </View>
-          <Text style={styles.rowArrow}>→</Text>
-        </TouchableOpacity>
+        <TourTarget stepKey="disappearing">
+          <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('SetExpiry')}>
+            <View>
+              <Text style={styles.rowLabel}>Disappearing Messages</Text>
+              <Text style={styles.rowSub}>Default: {expiryLabel}</Text>
+            </View>
+            <Text style={styles.rowArrow}>→</Text>
+          </TouchableOpacity>
+        </TourTarget>
 
-        <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('MediaGallery')}>
-          <View>
-            <Text style={styles.rowLabel}>Shared Media Gallery</Text>
-            <Text style={styles.rowSub}>View private photos exchanged</Text>
-          </View>
-          <Text style={styles.rowArrow}>→</Text>
-        </TouchableOpacity>
+        <TourTarget stepKey="gallery">
+          <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('MediaGallery')}>
+            <View>
+              <Text style={styles.rowLabel}>Shared Media Gallery</Text>
+              <Text style={styles.rowSub}>View private photos exchanged</Text>
+            </View>
+            <Text style={styles.rowArrow}>→</Text>
+          </TouchableOpacity>
+        </TourTarget>
 
         <TouchableOpacity style={styles.row}>
           <Text style={styles.rowLabel}>App Lock (Password / Biometric)</Text>
+          <Text style={styles.rowArrow}>→</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.row} onPress={() => tour.start()} activeOpacity={0.7}>
+          <View>
+            <Text style={styles.rowLabel}>Replay App Tour</Text>
+            <Text style={styles.rowSub}>See the feature spotlight walkthrough again</Text>
+          </View>
           <Text style={styles.rowArrow}>→</Text>
         </TouchableOpacity>
       </View>
@@ -235,28 +248,30 @@ export default function ProfileScreen({ navigation }) {
           <Text style={[styles.rowArrow, { color: '#D97757' }]}>→</Text>
         </TouchableOpacity>
 
-        <View style={styles.row}>
-          <View style={{ flex: 1, paddingRight: Spacing.sm }}>
-            <Text style={styles.rowLabel}>Animal Game Decoy Mode</Text>
-            <Text style={styles.rowSub}>
-              Disguises app as Animal Smash brick breaker game on phone lock. Hold the center companion character for 3 seconds to unlock.
-            </Text>
+        <TourTarget stepKey="decoy">
+          <View style={styles.row}>
+            <View style={{ flex: 1, paddingRight: Spacing.sm }}>
+              <Text style={styles.rowLabel}>Animal Game Decoy Mode</Text>
+              <Text style={styles.rowSub}>
+                Disguises app as Animal Smash brick breaker game on phone lock. Hold the center companion character for 3 seconds to unlock.
+              </Text>
+            </View>
+            <Switch
+              value={isStealthModeEnabled}
+              onValueChange={(val) => {
+                setStealthModeEnabled(val);
+                if (val) {
+                  Alert.alert(
+                    'Animal Game Decoy Enabled 🎮',
+                    'When opening SecureBox, it will disguise as the Animal Smash brick breaker game.\n\nTo unlock, hold the center animal companion icon for 3 seconds.'
+                  );
+                }
+              }}
+              trackColor={{ false: '#3a3a44', true: '#D97757' }}
+              thumbColor="#ffffff"
+            />
           </View>
-          <Switch
-            value={isStealthModeEnabled}
-            onValueChange={(val) => {
-              setStealthModeEnabled(val);
-              if (val) {
-                Alert.alert(
-                  'Animal Game Decoy Enabled 🎮',
-                  'When opening SecureBox, it will disguise as the Animal Smash brick breaker game.\n\nTo unlock, hold the center animal companion icon for 3 seconds.'
-                );
-              }
-            }}
-            trackColor={{ false: '#3a3a44', true: '#D97757' }}
-            thumbColor="#ffffff"
-          />
-        </View>
+        </TourTarget>
 
         {isStealthModeEnabled ? (
           <TouchableOpacity
@@ -298,21 +313,23 @@ export default function ProfileScreen({ navigation }) {
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: Colors.status.error }]}>Emergency Kill-Switch</Text>
 
-        <TouchableOpacity
-          style={[styles.row, styles.panicRow]}
-          onPress={handleInstantErase}
-          activeOpacity={0.8}
-        >
-          <View style={styles.panicIconWrap}>
-            <PanicIcon size={22} color="#ffffff" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.panicTitle}>Instant Erase (1-Click Kill-Switch)</Text>
-            <Text style={styles.panicSub}>
-              Instantly wipes all messages, media, call logs & keys in &lt;200ms
-            </Text>
-          </View>
-        </TouchableOpacity>
+        <TourTarget stepKey="erase">
+          <TouchableOpacity
+            style={[styles.row, styles.panicRow]}
+            onPress={handleInstantErase}
+            activeOpacity={0.8}
+          >
+            <View style={styles.panicIconWrap}>
+              <PanicIcon size={22} color="#ffffff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.panicTitle}>Instant Erase (1-Click Kill-Switch)</Text>
+              <Text style={styles.panicSub}>
+                Instantly wipes all messages, media, call logs & keys in &lt;200ms
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </TourTarget>
 
         <TouchableOpacity style={[styles.row, styles.dangerRow]} onPress={handleReset}>
           <Text style={styles.dangerText}>Delete all data & reset</Text>
