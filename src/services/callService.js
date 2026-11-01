@@ -3,6 +3,7 @@
 
 import { supabase, clearPendingCallInvite, getUserPushToken, sendExpoPushNotification } from './supabase';
 import { notifyIncomingCall, dismissAllCallNotifications } from './notificationService';
+import { useUserStore } from '../store/useUserStore';
 
 let activeCallInfo = null;
 let incomingCallCallback = null;
@@ -263,6 +264,10 @@ export const callService = {
     if (callerClean) {
       currentSubscribedHandle = callerClean;
     }
+
+    try {
+      useUserStore.getState().incrementCallsMade();
+    } catch (_) {}
 
     setActiveCallInfo({
       callId,

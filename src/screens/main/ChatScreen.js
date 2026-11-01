@@ -542,6 +542,7 @@ export default function ChatScreen({ route, navigation }) {
     try {
       await ensureConversationExists(conversationId, contactHandle, contactNickname, contactAvatarId);
       await insertMessage(msg);
+      useUserStore.getState().incrementMessagesSent();
       await updateConversationLastMessage(conversationId, text, now, myHandle, 'pending');
       setMessages((prev) => [...prev, msg]);
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);

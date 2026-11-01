@@ -25,6 +25,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.securebox.app",
+      "versionCode": 2,
       "googleServicesFile": "./google-services.json",
       "intentFilters": [
         {

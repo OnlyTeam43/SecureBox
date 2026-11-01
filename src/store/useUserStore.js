@@ -42,6 +42,14 @@ export const useUserStore = create(
       gameCurrentLevel: 1, // Present level player is currently playing / reached
       hasSeenAppTour: false, // Whether fresh first-time user has completed or skipped the feature tour
 
+      // Basic usage metrics (anonymous on-device counters)
+      appLaunchCount: 0,
+      messagesSentCount: 0,
+      callsMadeCount: 0,
+      incrementLaunchCount: () => set((s) => ({ appLaunchCount: (s.appLaunchCount || 0) + 1 })),
+      incrementMessagesSent: () => set((s) => ({ messagesSentCount: (s.messagesSentCount || 0) + 1 })),
+      incrementCallsMade: () => set((s) => ({ callsMadeCount: (s.callsMadeCount || 0) + 1 })),
+
       // Actions
       setProfile: (handle, nickname, avatarId, mobileNumber = null, avatarUri = null, recoveryPin = null) =>
         set({ handle, nickname, avatarId, mobileNumber, avatarUri, recoveryPin }),

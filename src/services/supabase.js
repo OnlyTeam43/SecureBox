@@ -1458,8 +1458,8 @@ export const sendConnectionRequest = async ({ fromHandle, toHandle, fromNickname
 
   if (error) {
     if (error.code === '42501') {
-      console.error('[ConnectionRequest] Supabase RLS error:', error.message);
-      throw new Error("Supabase security policy blocked the request. Please run: ALTER TABLE public.messages DISABLE ROW LEVEL SECURITY; in your Supabase SQL editor.");
+      console.error('[ConnectionRequest] Supabase permission error:', error.message);
+      throw new Error("Unable to send connection request. Please verify connection and try again.");
     }
     throw error;
   }

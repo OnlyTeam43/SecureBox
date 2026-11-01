@@ -83,6 +83,22 @@ const initSchema = async () => {
 
     CREATE INDEX IF NOT EXISTS idx_vault_items_created
       ON vault_items(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS crash_reports (
+      id              TEXT PRIMARY KEY,
+      error_message   TEXT NOT NULL,
+      stack_trace     TEXT,
+      component_stack TEXT,
+      created_at      INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_feedback (
+      id              TEXT PRIMARY KEY,
+      category        TEXT NOT NULL,
+      content         TEXT NOT NULL,
+      device_info     TEXT,
+      created_at      INTEGER NOT NULL
+    );
   `);
 
   try {
@@ -1108,11 +1124,55 @@ export const nukeEntireDatabase = async () => {
       DELETE FROM contacts;
       DELETE FROM call_logs;
       DELETE FROM deleted_messages;
+      DELETE FROM vault_items;
+      DELETE FROM crash_reports;
+      DELETE FROM app_feedback;
       VACUUM;
     `);
     console.log('Database nuked successfully.');
   } catch (err) {
     console.warn('nukeEntireDatabase error:', err);
+  }
+};
+
+export const logCrashToDB = async ({ errorMessage, stackTrace, componentStack }) => {
+  try {
+    const db = await getDB();
+    const id = `crash_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    await db.runAsync(
+      `INSERT INTO crash_reports (id, error_message, stack_trace, component_stack, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, String(errorMessage || 'Unknown Error'), String(stackTrace || ''), String(componentStack || ''), Date.now()]
+    );
+    return id;
+  } catch (e) {
+    console.error('Failed to log crash to DB:', e);
+    return null;
+  }
+};
+
+export const getCrashLogsFromDB = async (limit = 10) => {
+  try {
+    const db = await getDB();
+    return await db.getAllAsync(`SELECT * FROM crash_reports ORDER BY created_at DESC LIMIT ?`, [limit]);
+  } catch (_) {
+    return [];
+  }
+};
+
+export const saveFeedbackToDB = async ({ category, content, deviceInfo }) => {
+  try {
+    const db = await getDB();
+    const id = `fb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    await db.runAsync(
+      `INSERT INTO app_feedback (id, category, content, device_info, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, category || 'feedback', content, deviceInfo || '', Date.now()]
+    );
+    return id;
+  } catch (err) {
+    console.error('Failed to save feedback to DB:', err);
+    return null;
   }
 };
 
