@@ -16,7 +16,7 @@ import { updateUserAvatarInSupabase } from '../../services/supabase';
 import { updateContactAvatar } from '../../db/database';
 import { shareProfileInvite, getInviteLink } from '../../services/inviteService';
 import { instantEraseEverything } from '../../services/panicService';
-import { registerPushToken } from '../../services/notificationService';
+import { setDiscreetPush } from '../../services/notificationService';
 import { profileScroll, TourTarget, useTour } from '../../SecureBoxTour';
 import FeedbackModal from '../../components/FeedbackModal';
 import PermissionsModal from '../../components/PermissionsModal';
@@ -37,7 +37,6 @@ export default function ProfileScreen({ navigation }) {
     isStealthModeEnabled,
     setStealthModeEnabled,
     isStealthNotificationsEnabled,
-    setStealthNotificationsEnabled,
     setStealthUnlocked,
     myCharacter,
     setMyCharacter,
@@ -303,12 +302,7 @@ export default function ProfileScreen({ navigation }) {
           </View>
           <Switch
             value={isStealthNotificationsEnabled}
-            onValueChange={(val) => {
-              setStealthNotificationsEnabled(val);
-              if (handle) {
-                registerPushToken(handle);
-              }
-            }}
+            onValueChange={(val) => setDiscreetPush(val)}
             trackColor={{ false: '#3a3a44', true: Colors.accent.primary }}
             thumbColor="#ffffff"
           />

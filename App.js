@@ -1,5 +1,6 @@
 // App.js — Entry point
 
+import './src/services/quietPing';
 import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';

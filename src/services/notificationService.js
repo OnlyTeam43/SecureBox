@@ -1,529 +1,192 @@
-// src/services/notificationService.js
-// Centralized push & local notification service for SecureBox
+// src/services/notificationService.js  (REPLACES the old file)
+//
+// How it works now
+//  - Supabase sends the push (see supabase/push_trigger.sql). Phones never send pushes.
+//  - Discreet ON : the server sends a disguised notification with sound. Android shows it by itself.
+//  - Discreet OFF: the server sends a silent data push. src/services/quietPing.js plays a quick
+//                  sound with no popup. Calls send nothing.
+//  - App open    : system notifications are hidden. A short sound plays and the badge on the
+//                  animal game icon pulses.
+//  - The toggle is saved on the phone AND on the user's row in Supabase the moment it changes.
 
 import { Platform, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { navigate } from '../navigation/navigationRef';
 import { useBadgeStore } from '../store/useBadgeStore';
 import { useUserStore } from '../store/useUserStore';
-import { saveUserPushToken } from './supabase';
+import { supabase } from './supabase';
 
-// Configure foreground notification behavior: Sound only, NO popup alert or banner
+// App open: never show a system notification or play the system sound.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: false, // NO popup alert
-    shouldPlaySound: true,  // Sound only
-    shouldSetBadge: true,
-    shouldShowBanner: false, // NO banner popup
-    shouldShowList: true,   // List in notification tray
+    shouldShowAlert: false,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+    shouldShowBanner: false,
+    shouldShowList: false,
   }),
 });
 
-// Currently open conversation tracker (prevents notification for active chat)
-let activeConversationId = null;
+export const NOTIFICATION_CHANNELS = {
+  DISCREET: 'discreet_alert_v1', // Discreet ON: popup + sound
+  QUIET: 'quiet_ping_v1', // Discreet OFF: sound only, no popup
+  CALLS: 'calls_incoming_v2', // Discreet ON: incoming call
+};
 
+let activeConversationId = null;
 export const setActiveConversation = (id) => {
   activeConversationId = id;
 };
-
 export const getActiveConversation = () => activeConversationId;
 
-export const NOTIFICATION_CHANNELS = {
-  MESSAGES: 'messages_sound_v1',
-  REQUESTS: 'requests_sound_v1',
-  CALLS: 'calls_incoming_v2',
-  SECURITY: 'security_sound_v1',
+let receivedSub = null;
+
+const cleanHandle = (h) => String(h || '').replace('@', '').trim().toLowerCase();
+
+/** In-app sound + game icon badge pulse. Called when a message is saved while the app is open. */
+export const onIncomingStored = () => {
+  if (AppState.currentState !== 'active') return;
+  useBadgeStore.getState().showInAppNotification();
 };
 
-/**
- * Initialize notifications: request permissions and set up Android channels
- */
+/** Ask permission, create channels, listen for pushes that arrive while the app is open. */
 export const initNotifications = async () => {
   try {
-    // 1. Request permissions
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync({
-        ios: {
-          allowAlert: false, // No popup alert
-          allowBadge: true,
-          allowSound: true,  // Sound only
-        },
-      });
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let finalStatus = existing;
+    if (existing !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
 
-    if (finalStatus !== 'granted') {
-      console.log('Notification permissions not granted');
-      return false;
-    }
-
-    // 2. Set up Android Notification Channels
     if (Platform.OS === 'android') {
-      // Clean up legacy channels
-      await Notifications.deleteNotificationChannelAsync('messages').catch(() => {});
-      await Notifications.deleteNotificationChannelAsync('requests').catch(() => {});
-      await Notifications.deleteNotificationChannelAsync('calls').catch(() => {});
-      await Notifications.deleteNotificationChannelAsync('calls_sound_v1').catch(() => {});
-      await Notifications.deleteNotificationChannelAsync('security').catch(() => {});
-
-      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.MESSAGES, {
-        name: 'Chat Messages',
-        importance: Notifications.AndroidImportance.HIGH, // HIGH: shows in shade + sound, no heads-up popup
+      for (const old of ['messages_sound_v1', 'requests_sound_v1', 'calls_sound_v1', 'security_sound_v1', 'messages', 'requests', 'calls', 'security']) {
+        await Notifications.deleteNotificationChannelAsync(old).catch(() => {});
+      }
+      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.DISCREET, {
+        name: 'System notices',
+        importance: Notifications.AndroidImportance.HIGH, // popup + sound
         vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#D97757',
         sound: 'default',
-        enableVibrate: true,
-        showBadge: true,
+        showBadge: false,
       });
-
-      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.REQUESTS, {
-        name: 'Connection Requests',
-        importance: Notifications.AndroidImportance.HIGH, // HIGH: shows in shade + sound, no heads-up popup
-        vibrationPattern: [0, 200, 100, 200],
-        lightColor: '#D97757',
+      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.QUIET, {
+        name: 'Quiet sound',
+        importance: Notifications.AndroidImportance.DEFAULT, // sound, NO popup
+        enableVibrate: false,
         sound: 'default',
-        enableVibrate: true,
-        showBadge: true,
+        showBadge: false,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.SECRET,
       });
-
-      // CALLS channel: High importance so Android wakes device when app is in background/minimized
       await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.CALLS, {
-        name: 'Incoming Calls',
+        name: 'System diagnostics',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 1000, 500, 1000, 500, 1000],
-        lightColor: '#25D366',
         sound: 'default',
-        enableVibrate: true,
-        showBadge: true,
-      });
-
-      await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.SECURITY, {
-        name: 'Security & Privacy Alerts',
-        importance: Notifications.AndroidImportance.DEFAULT, // Sound, NO popup
-        vibrationPattern: [0, 150, 150, 150],
-        lightColor: '#FF3B30',
-        sound: 'default',
-        enableVibrate: true,
-        showBadge: true,
+        showBadge: false,
       });
     }
 
-    return true;
+    // A push that arrives while the app is open: play the in-app sound and pulse the badge.
+    if (!receivedSub) {
+      receivedSub = Notifications.addNotificationReceivedListener(() => {
+        useBadgeStore.getState().refreshBadges?.();
+        onIncomingStored();
+      });
+    }
+    return finalStatus === 'granted';
   } catch (err) {
-    console.warn('initNotifications error:', err.message);
+    console.warn('initNotifications error:', err?.message);
     return false;
   }
 };
 
 /**
- * Register device's Expo Push Token and sync to Supabase
- * Enables receiving messages, calls, and requests even when the app is completely closed
+ * Save this phone's push token AND the current Discreet setting on the user's row.
+ * Call it at login and on every app resume (AppNavigator already does).
+ * Returns true only if the row was really updated.
  */
 export const registerPushToken = async (myHandle) => {
-  if (!myHandle) return;
+  const handle = cleanHandle(myHandle);
+  if (!handle) return false;
   try {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-    if (finalStatus !== 'granted') {
-      console.log('Push permissions not granted for remote tokens');
-      return;
-    }
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return false;
 
     const tokenObj = await Notifications.getExpoPushTokenAsync().catch((err) => {
-      console.log('getExpoPushTokenAsync notice:', err.message);
+      console.warn('[Push] getExpoPushTokenAsync failed:', err?.message);
       return null;
     });
+    if (!tokenObj?.data) return false;
 
-    if (tokenObj && tokenObj.data) {
-      const isStealth = Boolean(useUserStore.getState().isStealthNotificationsEnabled);
-      console.log(`[PushService] Acquired push token for ${myHandle}: ${tokenObj.data} (stealth=${isStealth})`);
-      await saveUserPushToken(myHandle, tokenObj.data, isStealth);
+    const discreet = Boolean(useUserStore.getState().isStealthNotificationsEnabled);
+    const { error } = await supabase
+      .from('users')
+      .update({ push_token: String(tokenObj.data), discreet_push: discreet })
+      .eq('handle', handle);
+    if (error) {
+      console.warn('[Push] Could not save token:', error.message);
+      return false;
     }
+    return true;
   } catch (err) {
-    console.log('registerPushToken error:', err.message);
+    console.warn('[Push] registerPushToken error:', err?.message);
+    return false;
   }
 };
 
-/**
- * Handle notification click navigation.
- * Wraps navigate() calls with a retry so cold-start taps still work when
- * navigationRef isn't ready yet (navigate() silently no-ops if not ready).
- */
+/** Call this from the "Discreet Push Notifications" switch in Profile. */
+export const setDiscreetPush = async (enabled) => {
+  const value = Boolean(enabled);
+  useUserStore.getState().setStealthNotificationsEnabled(value);
+  const handle = cleanHandle(useUserStore.getState().handle);
+  if (!handle) return;
+  const { error } = await supabase.from('users').update({ discreet_push: value }).eq('handle', handle);
+  if (error) console.warn('[Push] Could not save Discreet setting (will retry on resume):', error.message);
+};
+
+/** Tap on a notification. The push carries no names or ids, so just open the inbox. */
 export const handleNotificationClick = (response) => {
   try {
-    const data = response?.notification?.request?.content?.data;
-    if (!data) return;
-
-    const doNavigate = () => {
-      if (data.type === 'chat') {
-        navigate('Chat', {
-          conversationId: data.conversationId,
-          contactHandle: data.contactHandle,
-          contactNickname: data.contactNickname || data.contactHandle,
-          contactAvatarId: data.contactAvatarId || 'avatar_rose',
-        });
-      } else if (data.type === 'request') {
-        const from = (data.fromHandle || data.contactHandle || '').replace('@', '').trim().toLowerCase();
-        if (from) {
-          navigate('Chat', {
-            conversationId: data.conversationId || `chat_${from}`,
-            contactHandle: from,
-            contactNickname: data.fromNickname || from,
-            contactAvatarId: data.contactAvatarId || 'avatar_rose',
-          });
-        } else {
-          navigate('MainTabs', { screen: 'Inbox' });
-        }
-      } else if (data.type === 'call') {
-        if (data.callId) {
-          navigate('Call', {
-            callId: data.callId,
-            contactHandle: data.callerHandle,
-            contactNickname: data.callerNickname,
-            contactAvatarId: data.callerAvatarId,
-            callType: data.callType || 'voice',
-            isIncoming: true,
-          });
-        }
+    const data = response?.notification?.request?.content?.data || {};
+    const st = useUserStore.getState();
+    // Game disguise is active and locked: do not jump past it.
+    if (st.isStealthModeEnabled && !st.isStealthUnlocked) return;
+    if (data.k === 'msg' || data.k === 'req') {
+      const go = () => navigate('MainTabs', { screen: 'Inbox' });
+      try {
+        go();
+      } catch (_) {
+        setTimeout(go, 1500);
       }
-    };
-
-    // Try immediately; if navigationRef isn't ready yet (cold start), retry after 1.5 s
-    try {
-      doNavigate();
-    } catch (_) {
-      setTimeout(doNavigate, 1500);
     }
+    // data.k === 'call': the invite is picked up by the pending-call check when the app opens.
   } catch (err) {
     console.warn('handleNotificationClick error:', err);
   }
 };
 
-/**
- * Check if app was opened by clicking a notification and handle it
- */
 export const checkInitialNotification = async () => {
   try {
-    const lastResponse = await Notifications.getLastNotificationResponseAsync();
-    if (lastResponse) {
-      handleNotificationClick(lastResponse);
+    const last = await Notifications.getLastNotificationResponseAsync();
+    if (last) {
+      handleNotificationClick(last);
       Notifications.clearLastNotificationResponseAsync().catch(() => {});
     }
-  } catch (err) {
-    console.log('checkInitialNotification notice:', err.message);
-  }
+  } catch (_) {}
 };
 
-/**
- * Notify incoming chat message (Sound only, NO popup, Parcel-safe)
- */
-export const notifyIncomingMessage = async ({
-  senderNickname,
-  senderHandle,
-  text,
-  conversationId,
-  contactAvatarId,
-}) => {
-  // If user is actively chatting in this conversation in foreground, suppress notification
-  if (activeConversationId === conversationId && AppState.currentState === 'active') {
-    return;
-  }
-
-  try {
-    const isStealth = Boolean(useUserStore.getState().isStealthNotificationsEnabled);
-    const cleanNick = String(senderNickname || '').substring(0, 40);
-    const cleanHandle = String(senderHandle || '').replace('@', '').substring(0, 30);
-    let title = isStealth ? 'Google Play Services' : (cleanNick || (cleanHandle ? `@${cleanHandle}` : 'New Message'));
-
-    // Strictly ensure text is safe and never a huge raw base64 string
-    let body = 'New Message';
-    if (isStealth) {
-      body = 'Backup successfully synced.';
-    } else if (typeof text === 'string') {
-      if (text.startsWith('data:') || text.length > 120) {
-        body = 'Sent a photo 📷';
-      } else {
-        body = text.trim();
-      }
-    }
-
-    const safeAvatarId =
-      contactAvatarId &&
-      typeof contactAvatarId === 'string' &&
-      !contactAvatarId.startsWith('data:') &&
-      !contactAvatarId.startsWith('file:') &&
-      contactAvatarId.length < 50
-        ? contactAvatarId
-        : 'avatar_rose';
-
-    // In-app notification toast removed per user stealth requirements
-    // Refresh badge counts
-    useBadgeStore.getState().refreshBadges();
-
-    // 2. Play sound via system notification handler (sound only, no heads-up popup alert in foreground)
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: String(title).substring(0, 40),
-        body: String(body).substring(0, 100),
-        data: {
-          type: 'chat',
-          conversationId: String(conversationId || ''),
-          contactHandle: cleanHandle,
-          contactNickname: cleanNick,
-          contactAvatarId: safeAvatarId,
-        },
-        sound: 'default',
-        channelId: NOTIFICATION_CHANNELS.MESSAGES,
-        priority: Notifications.AndroidNotificationPriority.DEFAULT,
-      },
-      trigger: null,
-    });
-  } catch (err) {
-    console.warn('notifyIncomingMessage error:', err.message);
-  }
-};
-
-/**
- * Notify incoming connection request (Sound only, NO popup, Parcel-safe)
- */
-export const notifyConnectionRequest = async ({ fromHandle, fromNickname, reqId }) => {
-  try {
-    const cleanHandle = fromHandle ? fromHandle.replace('@', '').substring(0, 30) : 'someone';
-    const cleanNick = fromNickname ? String(fromNickname).substring(0, 40) : null;
-    const displayName = cleanNick ? `${cleanNick} (@${cleanHandle})` : `@${cleanHandle}`;
-
-    // In-app notification toast removed per user stealth requirements
-    useBadgeStore.getState().refreshBadges();
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'New Chat 💌',
-        body: `${displayName} started a chat with you!`,
-        data: {
-          type: 'chat',
-          contactHandle: cleanHandle,
-          contactNickname: cleanNick || cleanHandle,
-          contactAvatarId: 'avatar_rose',
-          reqId: String(reqId || ''),
-        },
-        sound: 'default',
-        channelId: NOTIFICATION_CHANNELS.MESSAGES,
-        priority: Notifications.AndroidNotificationPriority.DEFAULT,
-      },
-      trigger: null,
-    });
-  } catch (err) {
-    console.warn('notifyConnectionRequest error:', err.message);
-  }
-};
-
-/**
- * Notify connection request accepted (Sound only, NO popup, Parcel-safe)
- */
-export const notifyRequestAccepted = async ({ byHandle, byNickname, byAvatar }) => {
-  try {
-    const cleanHandle = byHandle ? byHandle.replace('@', '').substring(0, 30) : 'User';
-    const cleanNick = byNickname ? String(byNickname).substring(0, 40) : null;
-    const displayName = cleanNick ? `${cleanNick} (@${cleanHandle})` : `@${cleanHandle}`;
-
-    const safeAvatar =
-      byAvatar &&
-      typeof byAvatar === 'string' &&
-      !byAvatar.startsWith('data:') &&
-      !byAvatar.startsWith('file:') &&
-      byAvatar.length < 50
-        ? byAvatar
-        : 'avatar_rose';
-
-    // In-app notification toast removed per user stealth requirements
-    useBadgeStore.getState().refreshBadges();
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Request Accepted! 💕',
-        body: `${displayName} accepted your chat request! Say hi.`,
-        data: {
-          type: 'chat',
-          contactHandle: cleanHandle,
-          contactNickname: cleanNick || cleanHandle,
-          contactAvatarId: safeAvatar,
-        },
-        sound: 'default',
-        channelId: NOTIFICATION_CHANNELS.REQUESTS,
-        priority: Notifications.AndroidNotificationPriority.DEFAULT,
-      },
-      trigger: null,
-    });
-  } catch (err) {
-    console.warn('notifyRequestAccepted error:', err.message);
-  }
-};
-
-/**
- * Notify incoming call:
- * - In Foreground: Handled completely by IncomingCallModal overlay + ringtone sound.
- * - In Background: Alerts device with high-priority heads-up notification so user never misses the call!
- */
-export const notifyIncomingCall = async ({
-  callId,
-  callerHandle,
-  callerNickname,
-  callerAvatarId,
-  callType,
-}) => {
-  // If app is actively in foreground, suppress system notification because IncomingCallModal is displayed directly on screen
-  if (AppState.currentState === 'active') {
-    return;
-  }
-
-  try {
-    const isStealth = Boolean(useUserStore.getState().isStealthNotificationsEnabled);
-    const cleanNick = String(callerNickname || '').substring(0, 40);
-    const cleanHandle = String(callerHandle || '').replace('@', '').substring(0, 30);
-    const displayName = cleanNick || `@${cleanHandle}`;
-    const callTypeName = callType === 'video' ? 'Video' : 'Voice';
-
-    const notifTitle = isStealth ? 'System Diagnostic' : `Incoming ${callTypeName} Call 📞`;
-    const notifBody = isStealth
-      ? 'Scheduled battery check completed.'
-      : `${displayName} is calling you. Tap to answer!`;
-
-    const safeAvatarId =
-      callerAvatarId &&
-      typeof callerAvatarId === 'string' &&
-      !callerAvatarId.startsWith('data:') &&
-      !callerAvatarId.startsWith('file:') &&
-      callerAvatarId.length < 50
-        ? callerAvatarId
-        : 'avatar_rose';
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: notifTitle,
-        body: notifBody,
-        data: {
-          type: 'call',
-          callId: String(callId || ''),
-          callerHandle: cleanHandle,
-          callerNickname: cleanNick,
-          callerAvatarId: safeAvatarId,
-          callType: callType || 'voice',
-        },
-        sound: 'default',
-        channelId: NOTIFICATION_CHANNELS.CALLS,
-        priority: Notifications.AndroidNotificationPriority.MAX,
-      },
-      trigger: null,
-    });
-  } catch (err) {
-    console.warn('notifyIncomingCall error:', err.message);
-  }
-};
-
-/**
- * Notify missed call: updates badge store & in-app or system notification
- */
-export const notifyMissedCall = async ({
-  callerHandle,
-  callerNickname,
-  callerAvatarId,
-  callType,
-}) => {
-  const cleanNick = callerNickname || (callerHandle ? `@${callerHandle.replace('@', '')}` : 'Someone');
-  const callTypeName = callType === 'video' ? 'Video' : 'Voice';
-
-  if (AppState.currentState === 'active') {
-    // In-app notification toast removed per user stealth requirements
-    useBadgeStore.getState().refreshBadges();
-  } else {
-    try {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: `Missed ${callTypeName} Call 📵`,
-          body: `Missed call from ${cleanNick}`,
-          data: {
-            type: 'call',
-            callerHandle,
-            callerNickname,
-          },
-          sound: 'default',
-          channelId: NOTIFICATION_CHANNELS.CALLS,
-          priority: Notifications.AndroidNotificationPriority.DEFAULT,
-        },
-        trigger: null,
-      });
-    } catch (_) {}
-  }
-
-  useBadgeStore.getState().refreshBadges();
-};
-
-/**
- * Dismiss all active call notifications
- */
 export const dismissAllCallNotifications = async () => {
   try {
     await Notifications.dismissAllNotificationsAsync();
   } catch (_) {}
 };
 
-/**
- * Notify security alert (e.g. screenshot taken)
- */
-export const notifySecurityAlert = async ({ actorHandle, message }) => {
-  try {
-    const cleanHandle = actorHandle ? actorHandle.replace('@', '') : 'User';
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Security Alert ⚠️',
-        body: message || `@${cleanHandle} took a screenshot of this conversation!`,
-        data: {
-          type: 'security',
-          actorHandle: cleanHandle,
-        },
-        sound: 'default',
-        channelId: NOTIFICATION_CHANNELS.SECURITY,
-        priority: Notifications.AndroidNotificationPriority.DEFAULT,
-      },
-      trigger: null,
-    });
-  } catch (err) {
-    console.warn('notifySecurityAlert error:', err.message);
-  }
-};
-
-/**
- * Notify screenshot permission request
- */
-export const notifyScreenshotRequest = async ({ requesterNickname, requesterHandle, conversationId }) => {
-  try {
-    const cleanHandle = requesterHandle ? requesterHandle.replace('@', '') : 'User';
-    const displayName = requesterNickname || `@${cleanHandle}`;
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Screenshot Request 📸',
-        body: `${displayName} requested permission to take a screenshot.`,
-        data: {
-          type: 'chat',
-          conversationId,
-          contactHandle: cleanHandle,
-        },
-        sound: 'default',
-        channelId: NOTIFICATION_CHANNELS.SECURITY,
-        priority: Notifications.AndroidNotificationPriority.DEFAULT,
-      },
-      trigger: null,
-    });
-  } catch (err) {
-    console.warn('notifyScreenshotRequest error:', err.message);
-  }
-};
+// ---- Old exports kept so existing imports do not break. The server now sends these. ----
+export const notifyIncomingCall = async () => {};
+export const notifyIncomingMessage = async () => onIncomingStored();
+export const notifyConnectionRequest = async () => onIncomingStored();
+export const notifyRequestAccepted = async () => onIncomingStored();
+export const notifyMissedCall = async () => useBadgeStore.getState().refreshBadges?.();
+export const notifySecurityAlert = async () => {};
+export const notifyScreenshotRequest = async () => {};

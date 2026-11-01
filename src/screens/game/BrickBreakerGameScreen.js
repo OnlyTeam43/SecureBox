@@ -46,6 +46,7 @@ import {
 } from 'lucide-react-native';
 
 import { CharacterBall } from '../../animal_ui/components/CharacterBall.js';
+import GameIconBadge from '../../components/GameIconBadge';
 import { useUserStore } from '../../store/useUserStore';
 import { useBadgeStore } from '../../store/useBadgeStore';
 import { instantEraseEverything } from '../../services/panicService';
@@ -1309,16 +1310,11 @@ export default function BrickBreakerGameScreen({ route, navigation, onUnlock }) 
                 ]}
               />
             )}
-            <View style={styles.animalIconBox}>
-              <CharacterBall character={character} size={38} />
-              {unreadMessagesCount > 0 && (
-                <View style={styles.animalBadge}>
-                  <Text style={styles.animalBadgeText}>
-                    {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
-                  </Text>
-                </View>
-              )}
-            </View>
+            <GameIconBadge>
+              <View style={styles.animalIconBox}>
+                <CharacterBall character={character} size={38} />
+              </View>
+            </GameIconBadge>
           </TouchableOpacity>
         </View>
 
