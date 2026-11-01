@@ -27,7 +27,7 @@ import {
   checkInitialNotification,
   registerPushToken,
 } from '../services/notificationService';
-import { parseInviteUrl, handleIncomingInvite } from '../services/inviteService';
+import { parseInviteUrl, handleIncomingInvite, checkClipboardForInvite } from '../services/inviteService';
 
 // Automatically route all alerts across the app into our signature bubble style
 installBubbleAlert();
@@ -165,8 +165,36 @@ export default function AppNavigator() {
     };
 
     // 1. App opened from cold start via deep link
-    Linking.getInitialURL().then((url) => {
-      if (url) processUrl(url);
+    Linking.getInitialURL().then(async (url) => {
+      if (url) {
+        processUrl(url);
+      } else {
+        // Deferred Deep Linking: App opened directly after APK install without tapping link again!
+        // Automatically check if device clipboard contains an invite copied from kanelijo.com
+        const existing = useUserStore.getState().pendingInviteHandle;
+        if (!existing) {
+          const clipboardHandle = await checkClipboardForInvite();
+          if (clipboardHandle) {
+            console.log('AppNavigator: Found deferred invite in clipboard:', clipboardHandle);
+            const currentSetup = useUserStore.getState().isSetup;
+            const currentHandle = useUserStore.getState().handle;
+            const currentNick = useUserStore.getState().nickname;
+            const currentAvatar = useUserStore.getState().avatarId;
+
+            if (!currentSetup || !currentHandle) {
+              setPendingInviteHandle(clipboardHandle);
+            } else {
+              handleIncomingInvite(
+                clipboardHandle,
+                navigationRef,
+                currentHandle,
+                currentNick,
+                currentAvatar
+              );
+            }
+          }
+        }
+      }
     });
 
     // 2. App already running in foreground/background and deep link clicked

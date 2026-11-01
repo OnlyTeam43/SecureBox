@@ -1,7 +1,7 @@
 // src/services/inviteService.js
 // Profile / Handle invite link generator and handler
 
-import { Share, Alert } from 'react-native';
+import { Share, Alert, Clipboard } from 'react-native';
 import {
   findUserByHandle,
   checkConnectionStatus,
@@ -70,7 +70,13 @@ export const parseInviteUrl = (url) => {
   try {
     const cleanUrl = url.trim();
 
-    // 1. Check for https? web links (e.g. https://onlyteam43.github.io/SecureBox/?u=alex or #alex)
+    // 0. Direct handle format e.g. "@alex" or "alex"
+    if (cleanUrl.startsWith('@')) {
+      const h = cleanUrl.slice(1).trim().toLowerCase();
+      if (/^[a-z0-9_.]{3,30}$/.test(h)) return h;
+    }
+
+    // 1. Check for https? web links (e.g. https://kanelijo.com/securebox?connect=@alex)
     if (/^https?:\/\//i.test(cleanUrl)) {
       try {
         const parsed = new URL(cleanUrl);
@@ -88,7 +94,7 @@ export const parseInviteUrl = (url) => {
           if (h && h.length >= 3) return h;
         }
         const pathParts = parsed.pathname.split('/').filter(Boolean);
-        const inviteIdx = pathParts.findIndex((p) => p.toLowerCase() === 'invite');
+        const inviteIdx = pathParts.findIndex((p) => p.toLowerCase() === 'invite' || p.toLowerCase() === 'connect');
         if (inviteIdx !== -1 && pathParts[inviteIdx + 1]) {
           const h = pathParts[inviteIdx + 1].replace('@', '').trim().toLowerCase();
           return h.length >= 3 ? h : null;
@@ -109,6 +115,31 @@ export const parseInviteUrl = (url) => {
     }
   } catch (e) {
     console.warn('parseInviteUrl error:', e);
+  }
+  return null;
+};
+
+/**
+ * Check device clipboard for an invite link or @handle on first launch
+ * Returns handle if found and clears clipboard to prevent re-triggering.
+ */
+export const checkClipboardForInvite = async () => {
+  try {
+    const text = await Clipboard.getString();
+    if (!text || typeof text !== 'string') return null;
+    const clean = text.trim();
+    if (!clean) return null;
+
+    const handle = parseInviteUrl(clean);
+    if (handle) {
+      console.log('[InviteService] Detected deferred invite in clipboard:', handle);
+      try {
+        Clipboard.setString('');
+      } catch (_) {}
+      return handle;
+    }
+  } catch (err) {
+    console.warn('[InviteService] Clipboard check error:', err);
   }
   return null;
 };
@@ -207,55 +238,41 @@ export const handleIncomingInvite = async (
 
     const partnerName = remoteUser.nickname || cleanTarget;
 
-    // 3. Prompt user to send request
-    Alert.alert(
-      `Connect with ${partnerName}! 💌`,
-      `You followed an invite link from @${cleanTarget} (${partnerName}). Start chatting now?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Chat Now 💕',
-          onPress: async () => {
-            try {
-              await sendConnectionRequest({
-                fromHandle: myHandle,
-                toHandle: cleanTarget,
-                fromNickname: myNickname || myHandle,
-                fromAvatar: myAvatarId,
-              });
+    // 3. Instant Connect: Directly create contact & open chat!
+    try {
+      await sendConnectionRequest({
+        fromHandle: myHandle,
+        toHandle: cleanTarget,
+        fromNickname: myNickname || myHandle,
+        fromAvatar: myAvatarId,
+      });
+    } catch (_) {}
 
-              const participants = [myHandle.toLowerCase(), cleanTarget].sort();
-              const convId = `chat_${participants[0]}_${participants[1]}`;
-              const contactId = `contact_${cleanTarget}`;
-              await insertContact({
-                id: contactId,
-                handle: cleanTarget,
-                nickname: partnerName,
-                avatarId: remoteUser.avatar_id || 'avatar_rose',
-              });
-              await upsertConversation({
-                id: convId,
-                contactId,
-                lastMsg: 'Chat request sent 💌',
-                lastTime: Date.now(),
-                unread: 0,
-              });
+    const participants = [myHandle.toLowerCase(), cleanTarget].sort();
+    const convId = `chat_${participants[0]}_${participants[1]}`;
+    const contactId = `contact_${cleanTarget}`;
+    await insertContact({
+      id: contactId,
+      handle: cleanTarget,
+      nickname: partnerName,
+      avatarId: remoteUser.avatar_id || 'avatar_rose',
+    });
+    await upsertConversation({
+      id: convId,
+      contactId,
+      lastMsg: 'Connected via invite link 💕',
+      lastTime: Date.now(),
+      unread: 0,
+    });
 
-              if (navigationRef.isReady()) {
-                navigationRef.navigate('Chat', {
-                  conversationId: convId,
-                  contactHandle: cleanTarget,
-                  contactNickname: partnerName,
-                  contactAvatarId: remoteUser.avatar_id || 'avatar_rose',
-                });
-              }
-            } catch (err) {
-              Alert.alert('Error', err.message || 'Could not send request.');
-            }
-          },
-        },
-      ]
-    );
+    if (navigationRef.isReady()) {
+      navigationRef.navigate('Chat', {
+        conversationId: convId,
+        contactHandle: cleanTarget,
+        contactNickname: partnerName,
+        contactAvatarId: remoteUser.avatar_id || 'avatar_rose',
+      });
+    }
   } catch (err) {
     console.warn('handleIncomingInvite error:', err);
     Alert.alert('Error', 'Could not process invite link.');
