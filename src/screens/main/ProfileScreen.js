@@ -19,15 +19,11 @@ import { instantEraseEverything } from '../../services/panicService';
 import { setDiscreetPush } from '../../services/notificationService';
 import { profileScroll, TourTarget, useTour } from '../../SecureBoxTour';
 import FeedbackModal from '../../components/FeedbackModal';
-import PermissionsModal from '../../components/PermissionsModal';
-import BatteryOptimizationModal from '../../components/BatteryOptimizationModal';
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const tour = useTour();
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
-  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
-  const [showBatteryModal, setShowBatteryModal] = useState(false);
   const {
     handle,
     nickname,
@@ -336,33 +332,9 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Help, Performance & Privacy */}
+      {/* Feedback & Bug Report */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Help, Performance & Privacy</Text>
-
-        <TouchableOpacity
-          style={styles.row}
-          onPress={() => setShowBatteryModal(true)}
-          activeOpacity={0.7}
-        >
-          <View>
-            <Text style={styles.rowLabel}>Background & Call Reliability</Text>
-            <Text style={styles.rowSub}>Optimize battery settings so calls & chats arrive instantly</Text>
-          </View>
-          <Text style={styles.rowArrow}>→</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.row}
-          onPress={() => setShowPermissionsModal(true)}
-          activeOpacity={0.7}
-        >
-          <View>
-            <Text style={styles.rowLabel}>Permissions & Transparency</Text>
-            <Text style={styles.rowSub}>See exactly how camera, mic & storage are used</Text>
-          </View>
-          <Text style={styles.rowArrow}>→</Text>
-        </TouchableOpacity>
+        <Text style={styles.sectionTitle}>Feedback</Text>
 
         <TouchableOpacity
           style={styles.row}
@@ -388,8 +360,6 @@ export default function ProfileScreen({ navigation }) {
 
       {/* Interactive Modals */}
       <FeedbackModal visible={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} />
-      <PermissionsModal visible={showPermissionsModal} onClose={() => setShowPermissionsModal(false)} />
-      <BatteryOptimizationModal visible={showBatteryModal} onClose={() => setShowBatteryModal(false)} />
     </ScrollView>
   );
 }
