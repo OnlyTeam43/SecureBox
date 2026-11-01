@@ -41,5 +41,6 @@ yarn-error.*
 /android
 *.apk
 *.aab
+*.zip
 **/.cxx/
 **/build/
