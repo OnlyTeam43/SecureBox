@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  StatusBar, Alert, Switch, Modal, TextInput,
+  StatusBar, Alert, Switch, Modal, TextInput, Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../../theme';
@@ -214,34 +214,6 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Claude Animal Companions & Persona */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Animal Companions (Claude Theme)</Text>
-
-        <TouchableOpacity
-          style={styles.row}
-          onPress={() => {
-            Alert.alert(
-              'Choose Your Animal Persona',
-              'Select the character that represents you in the interactive Claude chat scene:',
-              [
-                { text: '🐼 Panda', onPress: () => setMyCharacter('panda') },
-                { text: '🐱 Cat', onPress: () => setMyCharacter('cat') },
-                { text: '🐶 Puppy', onPress: () => setMyCharacter('puppy') },
-                { text: 'Cancel', style: 'cancel' },
-              ]
-            );
-          }}
-        >
-          <View>
-            <Text style={styles.rowLabel}>My Animal Character</Text>
-            <Text style={styles.rowSub}>
-              Current: {myCharacter === 'panda' ? '🐼 Panda' : myCharacter === 'cat' ? '🐱 Cat' : '🐶 Puppy'}
-            </Text>
-          </View>
-          <Text style={styles.rowArrow}>→</Text>
-        </TouchableOpacity>
-      </View>
 
       {/* Stealth & Game Decoy ("Hidden Gem") */}
       <View style={styles.section}>
@@ -348,6 +320,13 @@ export default function ProfileScreen({ navigation }) {
       </View>
 
       <Text style={styles.footer}>SecureBox · Private & Intimate messaging</Text>
+      <TouchableOpacity
+        onPress={() => Linking.openURL('https://www.kanelijo.com/team43').catch(() => {})}
+        activeOpacity={0.7}
+        style={styles.teamLinkWrap}
+      >
+        <Text style={styles.teamLinkText}>Team43</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -548,6 +527,17 @@ const styles = StyleSheet.create({
     color: Colors.text.placeholder,
     fontSize: Typography.sizes.xs,
     marginTop: Spacing.xl,
+  },
+  teamLinkWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  teamLinkText: {
+    textAlign: 'center',
+    color: Colors.text.placeholder,
+    fontSize: Typography.sizes.xs,
+    textDecorationLine: 'underline',
   },
   modalBackdrop: {
     flex: 1,
