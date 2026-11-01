@@ -241,7 +241,7 @@ export const processIncomingMessage = async (incoming, myHandle) => {
 
     // 7. Refresh unread badges for game screen & tabs
     await useBadgeStore.getState().refreshBadges(cleanMy);
-    if (!isActiveChat) onIncomingStored();
+    if (!isActiveChat) onIncomingStored(convId);
     return true; // a NEW message was stored (screens use this to refresh)
   } catch (err) {
     console.warn('[messageReceiver] Error saving message to local SQLite:', err);
@@ -309,7 +309,7 @@ export const processIncomingConnectionRequest = async (requestData, myHandle) =>
 
     // 4. Refresh unread badges for companion icon and Messages tab
     await useBadgeStore.getState().refreshBadges(cleanMy);
-    if (!isActiveChat) onIncomingStored();
+    if (!isActiveChat) onIncomingStored(convId);
   } catch (err) {
     console.warn('[processIncomingConnectionRequest] Error saving request to Messages:', err);
   }

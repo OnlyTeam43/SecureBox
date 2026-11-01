@@ -32,7 +32,7 @@ export const useUserStore = create(
       isStealthModeEnabled: false,
       isStealthUnlocked: false,
       isDecoyUnlocked: false,
-      isStealthNotificationsEnabled: false, // Disguises lock screen push notifications
+      isStealthNotificationsEnabled: true, // Disguises lock screen notifications as Animal Smash game alerts
 
       // Claude Animal Scene Preferences
       chatViewMode: 'claude', // 'claude'

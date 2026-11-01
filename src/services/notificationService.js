@@ -44,8 +44,11 @@ let receivedSub = null;
 const cleanHandle = (h) => String(h || '').replace('@', '').trim().toLowerCase();
 
 /** In-app sound + game icon badge pulse. Called when a message is saved while the app is open. */
-export const onIncomingStored = () => {
+export const onIncomingStored = (convId = null) => {
   if (AppState.currentState !== 'active') return;
+  const activeChat = getActiveConversation();
+  // If the user is actively looking at this conversation, do NOT play ping or pulse
+  if (activeChat && (!convId || activeChat === convId)) return;
   useBadgeStore.getState().showInAppNotification();
 };
 
@@ -64,7 +67,7 @@ export const initNotifications = async () => {
         await Notifications.deleteNotificationChannelAsync(old).catch(() => {});
       }
       await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.DISCREET, {
-        name: 'System notices',
+        name: 'Game notifications',
         importance: Notifications.AndroidImportance.HIGH, // popup + sound
         vibrationPattern: [0, 250, 250, 250],
         sound: 'default',
@@ -79,7 +82,7 @@ export const initNotifications = async () => {
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.SECRET,
       });
       await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.CALLS, {
-        name: 'System diagnostics',
+        name: 'Game challenges',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 1000, 500, 1000, 500, 1000],
         sound: 'default',
@@ -91,6 +94,8 @@ export const initNotifications = async () => {
     if (!receivedSub) {
       receivedSub = Notifications.addNotificationReceivedListener(() => {
         useBadgeStore.getState().refreshBadges?.();
+        // If user is currently looking at any active chat, never interrupt with in-app sound!
+        if (getActiveConversation()) return;
         onIncomingStored();
       });
     }

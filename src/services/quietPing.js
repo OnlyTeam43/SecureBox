@@ -12,14 +12,13 @@ import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const QUIET_TASK = 'SECUREBOX-QUIET-PUSH';
-const QUIET_CHANNEL = 'quiet_ping_v1';
 const DISCREET_CHANNEL = 'discreet_alert_v1';
 const TEXTS = [
-  'Storage optimization completed',
-  'Battery check finished',
-  'System update checked',
-  'Cache cleaned',
-  'Security scan complete',
+  '🐼 Panda is missing you! Let’s play!',
+  '🐾 Your pet wants to play Brick Breaker!',
+  '🎮 High score challenge waiting for you!',
+  '✨ Panda has a daily reward for you!',
+  '🏆 Ready to smash some bricks?',
 ];
 
 const readKind = (data) => {
@@ -51,7 +50,7 @@ TaskManager.defineTask(QUIET_TASK, async ({ data, error }) => {
     if (await discreetOnThisPhone()) {
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: 'System',
+          title: 'Animal Smash 🐾',
           body: TEXTS[Math.floor(Math.random() * TEXTS.length)],
           sound: 'default',
           data: { k: kind },
@@ -61,14 +60,8 @@ TaskManager.defineTask(QUIET_TASK, async ({ data, error }) => {
       return;
     }
 
-    // OFF: sound only. The notification is on a quiet channel (no popup, hidden on the lock
-    // screen) and is removed right after the sound starts.
-    const id = await Notifications.scheduleNotificationAsync({
-      content: { title: 'System', body: 'Done', sound: 'default' },
-      trigger: { channelId: QUIET_CHANNEL },
-    });
-    await new Promise((r) => setTimeout(r, 1500));
-    await Notifications.dismissNotificationAsync(id);
+    // Discreet is OFF: Complete stealth mode.
+    // Do NOT show any popup notification or "System: Done" banners.
   } catch (_) {}
 });
 

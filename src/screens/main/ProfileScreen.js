@@ -297,7 +297,7 @@ export default function ProfileScreen({ navigation }) {
           <View style={{ flex: 1, paddingRight: Spacing.sm }}>
             <Text style={styles.rowLabel}>Discreet Push Notifications</Text>
             <Text style={styles.rowSub}>
-              Disguises message alerts on lock screen as mundane Android alerts (e.g. "Storage optimization completed").
+              Disguises lock screen alerts as Animal Smash game notifications (e.g. "🐼 Panda is missing you! Let's play!").
             </Text>
           </View>
           <Switch

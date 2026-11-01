@@ -1,13 +1,12 @@
 -- SecureBox push notifications. Run ONCE in the Supabase SQL editor.
 -- Behaviour:
---   Discreet ON  : messages and requests send a disguised notification with sound.
---                  Calls send a disguised high-priority call notification.
---   Discreet OFF : messages and requests send a silent data push. The phone plays a
---                  quick sound with no popup. Calls send nothing (silent).
--- The push contains NO names, NO message text and NO conversation ids.
+--   Discreet ON  : messages and requests send a disguised Animal Smash game notification ("🐼 Panda is missing you!").
+--                  Calls send a disguised game challenge notification.
+--   Discreet OFF : messages send a silent data push with no lockscreen banner.
+-- The push contains NO user names, NO message text, and NO conversation IDs.
 
 alter table public.users add column if not exists push_token text;
-alter table public.users add column if not exists discreet_push boolean not null default false;
+alter table public.users add column if not exists discreet_push boolean not null default true;
 
 create extension if not exists pg_net with schema extensions;
 
@@ -21,11 +20,11 @@ declare
   u record;
   kind text;
   texts text[] := array[
-    'Storage optimization completed',
-    'Battery check finished',
-    'System update checked',
-    'Cache cleaned',
-    'Security scan complete'
+    '🐼 Panda is missing you! Let''s play!',
+    '🐾 Your pet wants to play Brick Breaker!',
+    '🎮 High score challenge waiting for you!',
+    '✨ Panda has a daily reward for you!',
+    '🏆 Ready to smash some bricks?'
   ];
   payload jsonb;
 begin
@@ -54,8 +53,8 @@ begin
     if u.discreet_push then
       payload := jsonb_build_object(
         'to', u.push_token,
-        'title', 'System',
-        'body', texts[1 + floor(random() * array_length(texts, 1))::int],
+        'title', 'Animal Smash 🐾',
+        'body', case when kind = 'call' then '🐼 Panda challenge is starting! Tap to play!' else texts[1 + floor(random() * array_length(texts, 1))::int] end,
         'sound', 'default',
         'priority', 'high',
         'channelId', case when kind = 'call' then 'calls_incoming_v2' else 'discreet_alert_v1' end,
