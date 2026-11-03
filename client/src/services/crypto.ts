@@ -59,7 +59,7 @@ export async function importSecretKey(keyString: string): Promise<CryptoKey> {
   const rawKey = base64ToUint8(base64);
   return await window.crypto.subtle.importKey(
     'raw',
-    rawKey,
+    rawKey as any,
     { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt', 'decrypt']
@@ -94,9 +94,9 @@ export async function decryptData(cryptoKey: CryptoKey, payload: EncryptedPayloa
   const dataBytes = base64ToUint8(payload.data);
 
   const decryptedBuffer = await window.crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: ivBytes },
+    { name: 'AES-GCM', iv: ivBytes as any },
     cryptoKey,
-    dataBytes
+    dataBytes as any
   );
 
   return new TextDecoder().decode(decryptedBuffer);

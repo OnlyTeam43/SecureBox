@@ -28,3 +28,30 @@ input, button, textarea {
   background-color: #F5D5C8;
   color: #141413;
 }
+
+@keyframes badgePulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@keyframes haloRipple {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.char-badge-pulse {
+  animation: badgePulse 2.4s ease-in-out infinite;
+}
+
+.char-halo-ripple {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  border: 2px solid #D97757;
+  pointer-events: none;
+  animation: haloRipple 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}

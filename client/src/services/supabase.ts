@@ -198,8 +198,7 @@ export async function fetchAndClearOfflineMessages(
       .from('messages')
       .delete()
       .in('id', idsToDelete)
-      .then(() => {})
-      .catch(() => {});
+      .then(() => {}, () => {});
 
     return data.map((d) => {
       const parsed = typeof d.body === 'string' ? JSON.parse(d.body) : d.body;
