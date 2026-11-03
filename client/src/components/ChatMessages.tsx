@@ -3,6 +3,8 @@ import React, { useEffect, useRef } from 'react';
 import { Colors } from '../theme/tokens';
 import { ChatMessage } from '../types';
 import { Check, ShieldCheck } from 'lucide-react';
+import { ImageViewerModal } from './ImageViewerModal';
+import { useState } from 'react';
 
 interface ChatMessagesProps {
   messages: ChatMessage[];
@@ -11,6 +13,7 @@ interface ChatMessagesProps {
 
 export const ChatMessages: React.FC<ChatMessagesProps> = ({ messages, typingUser }) => {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -79,17 +82,43 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({ messages, typingUser
               }}
             >
               {msg.media && (
-                <img
-                  src={msg.media}
-                  alt="Encrypted attachment"
-                  style={{
-                    maxWidth: '100%',
-                    maxHeight: 260,
-                    borderRadius: 12,
-                    display: 'block',
-                    marginBottom: msg.text ? 8 : 0,
-                  }}
-                />
+                <div
+                  style={{ position: 'relative', cursor: 'pointer', overflow: 'hidden', borderRadius: 12 }}
+                  onClick={() => setSelectedImage(msg.media || null)}
+                  title="Click to zoom & download image"
+                >
+                  <img
+                    src={msg.media}
+                    alt="Encrypted attachment"
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: 260,
+                      borderRadius: 12,
+                      display: 'block',
+                      marginBottom: msg.text ? 8 : 0,
+                      transition: 'transform 0.15s ease',
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: msg.text ? 12 : 6,
+                      right: 6,
+                      backgroundColor: 'rgba(0, 0, 0, 0.55)',
+                      color: '#FFF',
+                      borderRadius: 6,
+                      padding: '3px 7px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <span>🔍 Zoom / Save</span>
+                  </div>
+                </div>
               )}
               {msg.text && <div>{msg.text}</div>}
             </div>
@@ -123,6 +152,7 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({ messages, typingUser
       )}
 
       <div ref={bottomRef} />
+      <ImageViewerModal imageUrl={selectedImage} onClose={() => setSelectedImage(null)} />
     </div>
   );
 };

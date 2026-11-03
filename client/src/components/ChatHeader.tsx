@@ -24,12 +24,10 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   roomExpiresAt,
   onExtendRoom,
 }) => {
-  const initial = partnerName ? partnerName.charAt(0).toUpperCase() : 'P';
-
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 15000); // refresh countdown every 15s
+    const timer = setInterval(() => setNow(Date.now()), 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -44,106 +42,123 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   return (
     <header style={{
       flexShrink: 0,
-      height: 56,
-      minHeight: 56,
+      height: 58,
+      minHeight: 58,
       width: '100%',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingLeft: 10,
-      paddingRight: 10,
+      paddingLeft: 8,
+      paddingRight: 8,
       paddingTop: 'env(safe-area-inset-top, 0px)',
       backgroundColor: Colors.bg.elevated,
       borderBottom: `1px solid ${Colors.border}`,
-      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
       zIndex: 50,
       boxSizing: 'border-box',
     }}>
-      {/* Left: Prominent Back / Jump to Game Navigation Button */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+      {/* Left: Compact Back-to-Game Button + Animal Avatar + Partner Info */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+        {/* Compact, sleek Back to Game Button */}
         <button
           onClick={onGameClick}
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 5,
-            padding: '7px 12px',
+            gap: 4,
+            padding: '5px 9px',
             borderRadius: 9999,
             backgroundColor: Colors.bg.secondary,
             border: `1px solid ${Colors.borderStrong}`,
             color: Colors.accent.primary,
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: 600,
             cursor: 'pointer',
             flexShrink: 0,
             userSelect: 'none',
           }}
-          title="Jump directly to Brick Smash Game"
+          title="Conceal chat & jump directly to Brick Smash Game"
         >
-          <ArrowLeft size={16} />
-          <Gamepad2 size={16} />
+          <ArrowLeft size={14} />
+          <Gamepad2 size={14} />
           <span>Game</span>
         </button>
 
-        {/* Partner Info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
-          <div style={{
-            width: 34,
-            height: 34,
-            borderRadius: 10,
-            backgroundColor: Colors.accent.light,
-            color: Colors.accent.secondary,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontWeight: 700,
-            fontSize: 14,
-            flexShrink: 0,
+        {/* Animal Character Avatar from Assets */}
+        <div style={{
+          width: 34,
+          height: 34,
+          borderRadius: '50%',
+          backgroundColor: '#FFFFFF',
+          border: `1.5px solid ${Colors.border}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        }}>
+          <img
+            src="/characters/panda-idle.png"
+            alt="Animal Avatar"
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              objectFit: 'contain',
+            }}
+          />
+        </div>
+
+        {/* Partner Name & Real-time Connection Status */}
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+          <span style={{
+            fontSize: 13.5,
+            fontWeight: 600,
+            color: Colors.text.primary,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            lineHeight: 1.2,
           }}>
-            {initial}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+            {partnerName || 'Waiting for partner...'}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
             <span style={{
-              fontSize: 13.5,
-              fontWeight: 600,
-              color: Colors.text.primary,
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              backgroundColor: isOnline ? Colors.status.online : '#E0A82E',
+              flexShrink: 0,
+            }} />
+            <span style={{
+              fontSize: 10.5,
+              fontWeight: isOnline ? 600 : 500,
+              color: isOnline ? Colors.status.online : '#B07E15',
               whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
             }}>
-              {partnerName || 'Waiting...'}
+              {isOnline ? 'Connected' : 'Waiting for partner...'}
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                backgroundColor: isOnline ? Colors.status.online : Colors.status.offline,
-                flexShrink: 0,
-              }} />
-              <span style={{ fontSize: 10.5, color: Colors.text.placeholder }}>
-                {isOnline ? 'Online' : 'Offline'}
-              </span>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Middle/Right: Room 24h Countdown Timer & +24h Extension Button */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      {/* Right Actions: Timer, Extend, Lock, Options */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+        {/* Countdown Timer Pill */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 5,
-          padding: '4px 8px',
+          gap: 4,
+          padding: '3px 7px',
           borderRadius: 9999,
           backgroundColor: isExpiringSoon ? 'rgba(229, 62, 62, 0.08)' : Colors.bg.secondary,
           border: `1px solid ${isExpiringSoon ? 'rgba(229, 62, 62, 0.3)' : Colors.border}`,
-          fontSize: 11,
+          fontSize: 10.5,
           color: isExpiringSoon ? '#E53E3E' : Colors.text.secondary,
           fontWeight: 600,
         }}>
-          <Clock size={12} color={isExpiringSoon ? '#E53E3E' : Colors.accent.primary} />
+          <Clock size={11} color={isExpiringSoon ? '#E53E3E' : Colors.accent.primary} />
           <span>{timeRemainingStr}</span>
           {onExtendRoom && (
             <button
@@ -153,11 +168,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 backgroundColor: Colors.accent.soft,
                 border: `1px solid ${Colors.accent.light}`,
                 color: Colors.accent.primary,
-                fontSize: 10,
+                fontSize: 9.5,
                 fontWeight: 700,
                 cursor: 'pointer',
-                padding: '2px 5px',
-                borderRadius: 5,
+                padding: '1px 4px',
+                borderRadius: 4,
                 marginLeft: 1,
               }}
             >
@@ -171,9 +186,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           onClick={onLockClick}
           title="Lock room with PIN"
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 10,
+            width: 32,
+            height: 32,
+            borderRadius: 8,
             backgroundColor: Colors.accent.soft,
             border: `1px solid ${Colors.border}`,
             color: Colors.accent.primary,
@@ -183,7 +198,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             cursor: 'pointer',
           }}
         >
-          <Lock size={15} />
+          <Lock size={14} />
         </button>
 
         {/* Options */}
@@ -191,9 +206,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           onClick={onOptionsClick}
           title="Room Options"
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 10,
+            width: 32,
+            height: 32,
+            borderRadius: 8,
             backgroundColor: 'transparent',
             border: 'none',
             color: Colors.text.placeholder,
@@ -203,7 +218,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             cursor: 'pointer',
           }}
         >
-          <MoreVertical size={18} />
+          <MoreVertical size={16} />
         </button>
       </div>
     </header>

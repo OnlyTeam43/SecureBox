@@ -293,8 +293,8 @@ export const App: React.FC = () => {
 
   // Actions
   const handleCreateRoom = async (handle: string, pin: string) => {
+    // Each room has its own unique secret PIN; do NOT overwrite local Hub PIN
     const pHash = await hashPin(pin);
-    localStorage.setItem('securebox_pin_hash', pHash);
 
     const roomId = generateRoomId();
     // Option 2: Derive 256-bit AES key from PIN + RoomId
@@ -349,9 +349,7 @@ export const App: React.FC = () => {
       secretKey = await exportKeyToString(derivedKey);
     }
 
-    // Save verified PIN so partner can unlock the game camouflage with the same PIN
-    localStorage.setItem('securebox_pin_hash', pHash);
-
+    // Each room has its own unique secret PIN; do NOT overwrite local Hub PIN
     const room: RoomMetadata = {
       roomId: pendingJoin.roomId,
       secretKey,
