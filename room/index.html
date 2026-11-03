@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Redirecting to Room...</title>
+  <script>
+    // Seamlessly preserve hash fragment (which holds the end-to-end encryption key)
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    window.location.replace('../' + search + hash);
+  </script>
+</head>
+<body style="background: #0B0813; color: #FFF; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh;">
+  <p>Loading private room...</p>
+</body>
+</html>
