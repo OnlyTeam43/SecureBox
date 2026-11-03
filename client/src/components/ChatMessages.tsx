@@ -19,7 +19,9 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({ messages, typingUser
   return (
     <div style={{
       flex: 1,
+      minHeight: 0,
       overflowY: 'auto',
+      WebkitOverflowScrolling: 'touch',
       padding: '16px',
       display: 'flex',
       flexDirection: 'column',

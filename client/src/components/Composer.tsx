@@ -49,12 +49,16 @@ export const Composer: React.FC<ComposerProps> = ({ onSendMessage, onSendMedia, 
 
   return (
     <div style={{
-      padding: '10px 16px 14px',
+      flexShrink: 0,
+      padding: '10px 14px',
+      paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))',
       backgroundColor: Colors.bg.elevated,
       borderTop: `1px solid ${Colors.border}`,
       display: 'flex',
       alignItems: 'center',
-      gap: 10,
+      gap: 8,
+      zIndex: 20,
+      boxSizing: 'border-box',
     }}>
       <input
         ref={fileInputRef}

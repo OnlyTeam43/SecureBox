@@ -365,12 +365,19 @@ export const App: React.FC = () => {
 
   const handleRoomOptions = () => {
     if (!activeRoom) return;
-    const copy = confirm('ROOM OPTIONS:\n\n• OK: Copy Invite Link\n• Cancel: Erase Chat History');
-    if (copy) {
+    const choice = prompt(
+      'ROOM OPTIONS:\n\n1: Copy Invite Link\n2: Return to Game\n3: Go to Room Hub\n4: Erase Chat History\n\nEnter number (1-4):'
+    );
+    if (choice === '1') {
       const base = window.location.origin + window.location.pathname;
       const link = `${base}#id=${activeRoom.roomId}&key=${activeRoom.secretKey}`;
       navigator.clipboard.writeText(link).then(() => alert('Room link copied!'));
-    } else {
+    } else if (choice === '2') {
+      setScreenMode('game');
+      document.title = 'Brick Smash | Arcade Retro Game';
+    } else if (choice === '3') {
+      setScreenMode('hub');
+    } else if (choice === '4') {
       const wipe = confirm('Permanently wipe chat for both participants?');
       if (wipe) {
         sendWipeSignal(activeRoom.roomId);
@@ -382,8 +389,13 @@ export const App: React.FC = () => {
 
   return (
     <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
       width: '100vw',
-      height: '100vh',
+      height: '100dvh',
       backgroundColor: Colors.bg.primary,
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       display: 'flex',
@@ -400,6 +412,7 @@ export const App: React.FC = () => {
         backgroundColor: Colors.bg.primary,
         borderLeft: `1px solid ${Colors.border}`,
         borderRight: `1px solid ${Colors.border}`,
+        overflow: 'hidden',
       }}>
         {/* Screen 1: Brick Smash Game Camouflage */}
         {screenMode === 'game' && (
@@ -456,7 +469,15 @@ export const App: React.FC = () => {
 
         {/* Screen 4: Encrypted Chat */}
         {screenMode === 'chat' && activeRoom && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{
+            flex: 1,
+            minHeight: 0,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            position: 'relative',
+          }}>
             <ChatHeader
               partnerName={activeRoom.partnerHandle || 'Waiting for partner...'}
               isOnline={isPartnerOnline}
