@@ -9,6 +9,8 @@ import {
   encryptData,
   decryptData,
   hashPin,
+  deriveKeyFromPin,
+  exportKeyToString,
 } from './services/crypto';
 import {
   getOrCreateRoomState,
@@ -86,20 +88,28 @@ export const App: React.FC = () => {
   // Parse URL on load
   useEffect(() => {
     const parseUrl = async () => {
-      const hash = window.location.hash.slice(1);
+      const rawHash = window.location.hash.slice(1);
       const search = window.location.search.slice(1);
-      const params = new URLSearchParams(hash.includes('=') ? hash : search);
+      const params = new URLSearchParams(rawHash.includes('=') ? rawHash : search);
 
-      const roomId = params.get('id') || params.get('room');
-      const secretKey = params.get('key') || params.get('k');
+      let roomId = params.get('id') || params.get('room');
+      let secretKey = params.get('key') || params.get('k') || '';
 
-      if (roomId && secretKey) {
+      // Option 2 Short Link Support: #k9x2m4 (clean 6-character room hash)
+      if (!roomId && rawHash && !rawHash.includes('&') && !rawHash.includes('=')) {
+        roomId = rawHash.trim().toLowerCase();
+      }
+
+      if (roomId) {
         const stored = localStorage.getItem('securebox_rooms');
         const map = stored ? JSON.parse(stored) : {};
         if (map[roomId]) {
           // Member returning
           const room = map[roomId];
-          if (Date.now() - (room.createdAt || 0) < 24 * 60 * 60 * 1000) {
+          if (
+            Date.now() - (room.createdAt || 0) < 24 * 60 * 60 * 1000 ||
+            (room.expiresAt && Date.now() < room.expiresAt)
+          ) {
             pendingUnlockAction.current = () => enterRoom(room);
             setIsPinModalOpen(true);
           } else {
@@ -107,7 +117,7 @@ export const App: React.FC = () => {
             setScreenMode('hub');
           }
         } else {
-          // Guest onboarding
+          // Guest onboarding (Option 2 Ultra-Short Link)
           setPendingJoin({ roomId, secretKey });
           setScreenMode('join');
         }
@@ -287,7 +297,9 @@ export const App: React.FC = () => {
     localStorage.setItem('securebox_pin_hash', pHash);
 
     const roomId = generateRoomId();
-    const secretKey = await generateSecretKey();
+    // Option 2: Derive 256-bit AES key from PIN + RoomId
+    const derivedKey = await deriveKeyFromPin(pin, roomId);
+    const secretKey = await exportKeyToString(derivedKey);
 
     const state = await getOrCreateRoomState(roomId, handle, true, pHash);
     if (!state.success) {
@@ -306,10 +318,12 @@ export const App: React.FC = () => {
 
     saveRoom(room);
     setActiveRoom(room);
+    setCryptoKey(derivedKey);
     localStorage.setItem('securebox_active_room_id', roomId);
 
+    // Option 2 Ultra-Short Link: only 38 characters!
     const base = window.location.origin + window.location.pathname;
-    const link = `${base}#id=${roomId}&key=${secretKey}`;
+    const link = `${base}#${roomId}`;
     setShareLink(link);
     setIsShareModalOpen(true);
   };
@@ -324,12 +338,23 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Option 2: Derive 256-bit AES key from PIN + RoomId (or use secretKey if old link)
+    let derivedKey: CryptoKey;
+    let secretKey: string;
+    if (pendingJoin.secretKey) {
+      derivedKey = await importSecretKey(pendingJoin.secretKey);
+      secretKey = pendingJoin.secretKey;
+    } else {
+      derivedKey = await deriveKeyFromPin(pin, pendingJoin.roomId);
+      secretKey = await exportKeyToString(derivedKey);
+    }
+
     // Save verified PIN so partner can unlock the game camouflage with the same PIN
     localStorage.setItem('securebox_pin_hash', pHash);
 
     const room: RoomMetadata = {
       roomId: pendingJoin.roomId,
-      secretKey: pendingJoin.secretKey,
+      secretKey,
       myHandle: handle,
       partnerHandle: state.partner || 'Partner',
       isCreator: false,
@@ -338,6 +363,7 @@ export const App: React.FC = () => {
 
     saveRoom(room);
     setActiveRoom(room);
+    setCryptoKey(derivedKey);
     localStorage.setItem('securebox_active_room_id', room.roomId);
     setPendingJoin(null);
     enterRoom(room);
@@ -437,8 +463,8 @@ export const App: React.FC = () => {
     );
     if (choice === '1') {
       const base = window.location.origin + window.location.pathname;
-      const link = `${base}#id=${activeRoom.roomId}&key=${activeRoom.secretKey}`;
-      navigator.clipboard.writeText(link).then(() => alert('Room link copied!'));
+      const link = `${base}#${activeRoom.roomId}`;
+      navigator.clipboard.writeText(link).then(() => alert('Short room link copied!'));
     } else if (choice === '2') {
       setScreenMode('game');
       document.title = 'Brick Smash | Arcade Retro Game';

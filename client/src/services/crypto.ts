@@ -44,11 +44,51 @@ export async function generateSecretKey(): Promise<string> {
 }
 
 /**
- * Generate a unique random room ID
+ * Generate a clean, human-readable 6-character room ID (e.g. k9x2m4)
  */
 export function generateRoomId(): string {
-  const bytes = window.crypto.getRandomValues(new Uint8Array(12));
-  return 'rm_' + toBase64Url(uint8ToBase64(bytes)).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10);
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  let result = '';
+  const randomBytes = window.crypto.getRandomValues(new Uint8Array(6));
+  for (let i = 0; i < 6; i++) {
+    result += chars[randomBytes[i] % chars.length];
+  }
+  return result;
+}
+
+/**
+ * Derive 256-bit AES-GCM CryptoKey from 4-digit PIN and Room ID (Option 2 Ultra-Short Link)
+ */
+export async function deriveKeyFromPin(pin: string, roomId: string): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const pinKey = await window.crypto.subtle.importKey(
+    'raw',
+    enc.encode(pin.trim()),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  const salt = enc.encode('securebox_salt_' + roomId.toLowerCase().trim());
+  return await window.crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    pinKey,
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Export a CryptoKey to URL-safe Base64 string for local caching
+ */
+export async function exportKeyToString(key: CryptoKey): Promise<string> {
+  const raw = await window.crypto.subtle.exportKey('raw', key);
+  return toBase64Url(uint8ToBase64(new Uint8Array(raw)));
 }
 
 /**

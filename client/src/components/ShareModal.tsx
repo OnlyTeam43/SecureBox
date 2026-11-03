@@ -85,7 +85,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ shareLink, onClose, onOp
         </div>
 
         <p style={{ fontSize: 13, color: Colors.text.secondary, lineHeight: 1.45, marginBottom: 12 }}>
-          Share this link with your partner. The secret key is in the link hash (<code style={{ color: Colors.accent.primary }}>#key=...</code>) and never touches the server.
+          Share this short link with your partner. They will enter your 4-digit Secret PIN to unlock and join the room.
         </p>
 
         <input
