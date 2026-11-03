@@ -1,17 +1,18 @@
 // client/src/components/BrickSmashGame.tsx
 // High-Performance 60-120 FPS Physics Engine with 0ms React State Overhead in Game Loop
 // Classic Claude Theme (#FAF9F5 Warm Ivory & #D97757 Terracotta Clay)
-// - Standard rectangular rounded arcade bricks with hit counter numbers
+// - Danger line set at 70% of canvas height (leaving comfortable bottom buffer)
+// - Dynamic block HP scaling based on player's ball count (currentBallsCount)
+// - Milestone Labyrinth/Maze levels matching user screenshot (serpentine corridors, target blocks)
+// - Fixed Game Over: Tap/Click anywhere or click Retry button to instantly replay
 // - 5 Default animal balls (x5), aiming trajectory with wall bounce prediction
-// - Sequential 1-by-1 ball streaming
-// - Turn-based downward grid shift: when balls return, bricks shift down by 1 row
-// - Smashed before reaching danger line
-// - Board pickup gifts: +1 Ball (5x -> 6x), 2X Multiplier (5x -> 10x), and falling gifts
+// - Turn-based downward shift (wave mode) & puzzle clear (maze mode)
+// - Gifts & pickups: +1 Ball (5x -> 6x), 2X Multiplier (5x -> 10x)
 // - 300 Progressive Levels + Persistence + Character Companion Icon + PIN Vault Unlock
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
-import { Lock, FastForward, RotateCcw } from 'lucide-react';
+import { Lock, FastForward, RotateCcw, RefreshCw } from 'lucide-react';
 import { LevelSelectModal, AnimalType } from './LevelSelectModal';
 import { LEVEL_PATTERNS } from './levelPatterns';
 
@@ -38,6 +39,7 @@ interface Brick {
   border: string;
   pts: number;
   alive: boolean;
+  isMazeWall?: boolean;
 }
 
 interface BoardItem {
@@ -116,6 +118,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
   const [isLevelModalOpen, setIsLevelModalOpen] = useState(false);
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(1);
   const [canRecall, setCanRecall] = useState(false);
+  const [isGameOver, setIsGameOver] = useState(false);
 
   // Synchronized state refs for 60-120 FPS game loop
   const currentLevelRef = useRef<number>(currentLevel);
@@ -135,8 +138,9 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
 
   const pendingLevelLoadRef = useRef<number | null>(null);
   const recallTriggerRef = useRef<boolean>(false);
+  const restartTriggerRef = useRef<boolean>(false);
 
-  // Web Audio Context Ref
+  // Audio Context Ref
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   const initAudio = () => {
@@ -204,6 +208,11 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     recallTriggerRef.current = true;
   };
 
+  const triggerRestart = () => {
+    restartTriggerRef.current = true;
+    setIsGameOver(false);
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -211,7 +220,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     if (!ctx) return;
 
     // ─────────────────────────────────────────────────────────────
-    // 1. PRE-RENDER OFFSCREEN SPRITES (0ms Render Overhead in Loop)
+    // 1. PRE-RENDER OFFSCREEN SPRITES
     // ─────────────────────────────────────────────────────────────
     const SPRITE_SIZE = 64;
     const makeOffscreen = () => {
@@ -352,7 +361,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 2. CANVAS RESOLUTION & DIMENSIONS
+    // 2. CANVAS RESOLUTION & 70% DANGER LINE GEOMETRY
     // ─────────────────────────────────────────────────────────────
     const dpr = window.devicePixelRatio || 1;
     const updateSize = () => {
@@ -373,17 +382,23 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
 
     let { w, h } = updateSize() || { w: 480, h: 640 };
 
+    const TOP_OFFSET = 52;
+    // User requirement: Danger line at 70% below!
+    const DANGER_Y = Math.floor(h * 0.70);
+    const LAUNCHER_Y = h - 36;
+
+    // Normal Wave Grid Setup
     const COLS = 8;
-    const ROWS = 9;
     const GRID_GAP = 4;
     const PLAY_PADDING = 12;
     const GRID_WIDTH = w - PLAY_PADDING * 2;
     const BRICK_WIDTH = Math.floor((GRID_WIDTH - (COLS - 1) * GRID_GAP) / COLS);
     const BRICK_HEIGHT = 16;
-    const TOP_OFFSET = 56;
-    const DANGER_ROW = ROWS - 1; // Row 8 is danger line
-    const DANGER_Y = TOP_OFFSET + DANGER_ROW * (BRICK_HEIGHT + GRID_GAP);
-    const LAUNCHER_Y = h - 36;
+
+    // Maze Grid Setup (matching user screenshot)
+    const MAZE_COLS = 12;
+    const MAZE_BRICK_W = Math.floor((GRID_WIDTH - (MAZE_COLS - 1) * 3) / MAZE_COLS);
+    const MAZE_BRICK_H = 15;
 
     // ─────────────────────────────────────────────────────────────
     // 3. ZERO-OVERHEAD GAME STATE
@@ -395,6 +410,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     let localHighScore = parseInt(localStorage.getItem('brick_smash_high_score') || '0', 10);
     let currentBallsCount = ballCountRef.current;
     let extraBallsEarnedThisTurn = 0;
+    let isMazeMode = level % 3 === 0; // Sometime make the level like in screenshot!
 
     let launcherX = w / 2;
     let nextLauncherX = w / 2;
@@ -412,9 +428,9 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     // Firing queue
     let ballsToLaunchQueue = 0;
     let lastLaunchTime = 0;
-    const LAUNCH_INTERVAL = 42; // ms between ball launches
-    const BALL_SPEED = 14.0;
-    const BALL_RADIUS = 9.0;
+    const LAUNCH_INTERVAL = 38;
+    const BALL_SPEED = 14.2;
+    const BALL_RADIUS = 8.5;
 
     // Aiming state
     let isAiming = false;
@@ -424,7 +440,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
 
     // Shift animation state
     let shiftProgress = 1;
-    let shiftDuration = 220;
+    let shiftDuration = 200;
     let shiftStartTime = 0;
 
     let nextId = 1;
@@ -435,19 +451,26 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       return { x, y, width: BRICK_WIDTH, height: BRICK_HEIGHT };
     };
 
-    // Spawn a new row of rectangular bricks at row 0 with Claude warm palette
+    // Calculate dynamic brick HP scaled to player's current ball count!
+    // "after sometime increase the block counts acc to the balls x we have"
+    const getScaledBlockHp = () => {
+      const ballsX = Math.max(5, currentBallsCount);
+      // Scales with balls count and wave multiplier
+      const waveMult = 1.0 + Math.min(wave * 0.08, 1.8);
+      const randomFactor = 0.85 + Math.random() * 0.5; // 0.85x to 1.35x variance
+      return Math.max(1, Math.round(ballsX * waveMult * randomFactor));
+    };
+
+    // Spawn a new row of rectangular bricks at row 0 with HP matching current balls
     const spawnNewRowAtTop = (currentLvl: number, currentWave: number) => {
-      const baseHp = Math.max(1, Math.floor(currentLvl * 1.6 + currentWave * 1.4));
       const tier = Math.floor((currentLvl - 1) / 25);
 
       for (let c = 0; c < COLS; c++) {
         const rand = Math.random();
 
         if (rand < 0.62) {
-          // Standard Rectangular Brick with hit counter
-          const hpVariance = Math.floor(baseHp * (0.8 + Math.random() * 0.5));
-          const hp = Math.max(1, hpVariance);
-          const style = BrickRowColors[(currentWave + tier) % BrickRowColors.length];
+          const hp = getScaledBlockHp();
+          const style = BrickRowColors[(currentWave + tier + c) % BrickRowColors.length];
           const rect = getTileRect(0, c);
 
           bricks.push({
@@ -466,9 +489,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
             alive: true,
           });
         } else if (rand < 0.8) {
-          // Pickup item (+1 Ball or 2x Multiplier)
           const rect = getTileRect(0, c);
-          const isDouble = Math.random() < 0.2; // 20% chance of 2X multiplier!
+          const isDouble = Math.random() < 0.22;
           boardItems.push({
             id: nextId++,
             row: 0,
@@ -482,6 +504,9 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       }
     };
 
+    // ─────────────────────────────────────────────────────────────
+    // 4. LEVEL BUILDER: LABYRINTH / MAZE (Screenshot Mode) & WAVE MODE
+    // ─────────────────────────────────────────────────────────────
     const loadLevel = (lvl: number) => {
       level = Math.max(1, Math.min(300, lvl));
       currentLevelRef.current = level;
@@ -501,59 +526,261 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       hasFirstBallReturned = false;
       ballsToLaunchQueue = 0;
       setCanRecall(false);
+      setIsGameOver(false);
 
-      const pIdx = (level - 1) % LEVEL_PATTERNS.length;
-      const patternFn = LEVEL_PATTERNS[pIdx] || LEVEL_PATTERNS[0];
-      const tier = Math.floor((level - 1) / 25);
+      // Check if this level should be the Labyrinth Maze from the screenshot!
+      // Sometime make the level like in the screenshot (every 3rd level e.g. lvl 3, 6, 9...)
+      isMazeMode = level % 3 === 0;
 
-      // Spawn initial 4 rows using app pattern
-      for (let r = 0; r < 4; r++) {
-        const style = BrickRowColors[(r + tier) % BrickRowColors.length];
-        for (let c = 0; c < COLS; c++) {
-          if (!patternFn(r, c)) continue;
+      if (isMazeMode) {
+        // ── LABYRINTH / SNAKE MAZE LEVEL (Ported from Screenshot) ──
+        const mazeWallColor = '#7E6B8F'; // Muted Violet/Purple from screenshot
+        const mazeBorderColor = '#5B4B6E';
+        const targetRedColor = '#D97757'; // Red target blocks from screenshot
+        const targetBorderColor = '#B85D3F';
+        const wallHp = Math.max(50, Math.round(currentBallsCount * 3.5)); // High-HP walls like 260
 
-          const baseHp = Math.max(1, Math.floor(level * 1.5 + (4 - r) * 1.2));
-          const hp = Math.max(1, Math.floor(baseHp * (0.8 + Math.random() * 0.5)));
-          const rect = getTileRect(r, c);
+        const mazeRows = 10;
+        const startY = TOP_OFFSET + 4;
 
+        // 1. Outer perimeter walls (Left, Right, Top)
+        for (let r = 0; r < mazeRows; r++) {
+          const y = startY + r * (MAZE_BRICK_H + 3);
+
+          // Left border wall
           bricks.push({
             id: nextId++,
             row: r,
+            col: 0,
+            x: PLAY_PADDING,
+            y,
+            width: MAZE_BRICK_W,
+            height: MAZE_BRICK_H,
+            hp: wallHp,
+            maxHp: wallHp,
+            color: mazeWallColor,
+            border: mazeBorderColor,
+            pts: 20,
+            alive: true,
+            isMazeWall: true,
+          });
+
+          // Right border wall (with entrance opening on bottom row!)
+          if (r < mazeRows - 1) {
+            bricks.push({
+              id: nextId++,
+              row: r,
+              col: MAZE_COLS - 1,
+              x: PLAY_PADDING + (MAZE_COLS - 1) * (MAZE_BRICK_W + 3),
+              y,
+              width: MAZE_BRICK_W,
+              height: MAZE_BRICK_H,
+              hp: wallHp,
+              maxHp: wallHp,
+              color: mazeWallColor,
+              border: mazeBorderColor,
+              pts: 20,
+              alive: true,
+              isMazeWall: true,
+            });
+          }
+        }
+
+        // Top horizontal border wall
+        for (let c = 1; c < MAZE_COLS - 1; c++) {
+          bricks.push({
+            id: nextId++,
+            row: 0,
             col: c,
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-            hp,
-            maxHp: hp,
-            color: style.color,
-            border: style.border,
-            pts: style.points,
+            x: PLAY_PADDING + c * (MAZE_BRICK_W + 3),
+            y: startY,
+            width: MAZE_BRICK_W,
+            height: MAZE_BRICK_H,
+            hp: wallHp,
+            maxHp: wallHp,
+            color: mazeWallColor,
+            border: mazeBorderColor,
+            pts: 20,
+            alive: true,
+            isMazeWall: true,
+          });
+        }
+
+        // 2. Top Chamber Target Blocks (Red Blocks with low HP [1] from screenshot!)
+        for (let c = 2; c <= 8; c += 2) {
+          bricks.push({
+            id: nextId++,
+            row: 1,
+            col: c,
+            x: PLAY_PADDING + c * (MAZE_BRICK_W + 3),
+            y: startY + 1 * (MAZE_BRICK_H + 3),
+            width: MAZE_BRICK_W,
+            height: MAZE_BRICK_H * 1.5,
+            hp: 1, // Red target blocks take only 1 hit!
+            maxHp: 1,
+            color: targetRedColor,
+            border: targetBorderColor,
+            pts: 100,
             alive: true,
           });
         }
 
-        // Add 1 bonus +1 item per row initially
-        const freeCol = Math.floor(Math.random() * COLS);
-        if (!bricks.some((b) => b.row === r && b.col === freeCol)) {
-          const rect = getTileRect(r, freeCol);
-          boardItems.push({
+        // Bonus 2X multiplier orb in top-right corner chamber (like the [70] orb in screenshot)
+        boardItems.push({
+          id: nextId++,
+          row: 1,
+          col: 10,
+          x: PLAY_PADDING + 10 * (MAZE_BRICK_W + 3) + MAZE_BRICK_W / 2,
+          y: startY + 1 * (MAZE_BRICK_H + 3) + MAZE_BRICK_H / 2,
+          type: 'ball_double',
+          collected: false,
+        });
+
+        // 3. Serpentine Horizontal Channels (Snaking Back and Forth!)
+        // Corridor 1 (Row 3): Gap on the left
+        for (let c = 2; c < MAZE_COLS - 1; c++) {
+          bricks.push({
             id: nextId++,
-            row: r,
-            col: freeCol,
-            x: rect.x + rect.width / 2,
-            y: rect.y + rect.height / 2,
-            type: Math.random() > 0.8 ? 'ball_double' : 'ball_plus',
-            collected: false,
+            row: 3,
+            col: c,
+            x: PLAY_PADDING + c * (MAZE_BRICK_W + 3),
+            y: startY + 3 * (MAZE_BRICK_H + 3),
+            width: MAZE_BRICK_W,
+            height: MAZE_BRICK_H,
+            hp: wallHp,
+            maxHp: wallHp,
+            color: mazeWallColor,
+            border: mazeBorderColor,
+            pts: 20,
+            alive: true,
+            isMazeWall: true,
           });
         }
+
+        // Corridor 2 (Row 5): Gap on the right
+        for (let c = 1; c < MAZE_COLS - 2; c++) {
+          bricks.push({
+            id: nextId++,
+            row: 5,
+            col: c,
+            x: PLAY_PADDING + c * (MAZE_BRICK_W + 3),
+            y: startY + 5 * (MAZE_BRICK_H + 3),
+            width: MAZE_BRICK_W,
+            height: MAZE_BRICK_H,
+            hp: wallHp,
+            maxHp: wallHp,
+            color: mazeWallColor,
+            border: mazeBorderColor,
+            pts: 20,
+            alive: true,
+            isMazeWall: true,
+          });
+        }
+
+        // Corridor 3 (Row 7): Gap on the left
+        for (let c = 2; c < MAZE_COLS - 1; c++) {
+          bricks.push({
+            id: nextId++,
+            row: 7,
+            col: c,
+            x: PLAY_PADDING + c * (MAZE_BRICK_W + 3),
+            y: startY + 7 * (MAZE_BRICK_H + 3),
+            width: MAZE_BRICK_W,
+            height: MAZE_BRICK_H,
+            hp: wallHp,
+            maxHp: wallHp,
+            color: mazeWallColor,
+            border: mazeBorderColor,
+            pts: 20,
+            alive: true,
+            isMazeWall: true,
+          });
+        }
+
+        // Corridor 4 (Row 9 - Bottom entrance corridor): Opening on right for balls to enter!
+        for (let c = 1; c < MAZE_COLS - 2; c++) {
+          bricks.push({
+            id: nextId++,
+            row: 9,
+            col: c,
+            x: PLAY_PADDING + c * (MAZE_BRICK_W + 3),
+            y: startY + 9 * (MAZE_BRICK_H + 3),
+            width: MAZE_BRICK_W,
+            height: MAZE_BRICK_H,
+            hp: wallHp,
+            maxHp: wallHp,
+            color: mazeWallColor,
+            border: mazeBorderColor,
+            pts: 20,
+            alive: true,
+            isMazeWall: true,
+          });
+        }
+
+        // Position launcher near bottom right to easily shoot into maze entrance!
+        launcherX = PLAY_PADDING + (MAZE_COLS - 1) * (MAZE_BRICK_W + 3) - 16;
+        nextLauncherX = launcherX;
+      } else {
+        // ── REGULAR WAVE MODE (Scaled to current balls count) ──
+        const pIdx = (level - 1) % LEVEL_PATTERNS.length;
+        const patternFn = LEVEL_PATTERNS[pIdx] || LEVEL_PATTERNS[0];
+        const tier = Math.floor((level - 1) / 25);
+
+        for (let r = 0; r < 4; r++) {
+          const style = BrickRowColors[(r + tier) % BrickRowColors.length];
+          for (let c = 0; c < COLS; c++) {
+            if (!patternFn(r, c)) continue;
+
+            const hp = getScaledBlockHp();
+            const rect = getTileRect(r, c);
+
+            bricks.push({
+              id: nextId++,
+              row: r,
+              col: c,
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+              hp,
+              maxHp: hp,
+              color: style.color,
+              border: style.border,
+              pts: style.points,
+              alive: true,
+            });
+          }
+
+          const freeCol = Math.floor(Math.random() * COLS);
+          if (!bricks.some((b) => b.row === r && b.col === freeCol)) {
+            const rect = getTileRect(r, freeCol);
+            boardItems.push({
+              id: nextId++,
+              row: r,
+              col: freeCol,
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+              type: Math.random() > 0.8 ? 'ball_double' : 'ball_plus',
+              collected: false,
+            });
+          }
+        }
       }
+    };
+
+    const restartGame = () => {
+      score = 0;
+      phase = 'AIMING';
+      setIsGameOver(false);
+      currentBallsCount = Math.max(5, ballCountRef.current);
+      setBallCount(currentBallsCount);
+      loadLevel(level);
     };
 
     loadLevel(level);
 
     // ─────────────────────────────────────────────────────────────
-    // 4. BALL FIRING & STREAM ENGINE
+    // 5. BALL FIRING & STREAM ENGINE
     // ─────────────────────────────────────────────────────────────
     const fireBalls = (targetX: number, targetY: number) => {
       if (phase !== 'AIMING') return;
@@ -582,7 +809,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     };
 
     // ─────────────────────────────────────────────────────────────
-    // 5. AIMING RAYCAST TRAJECTORY
+    // 6. AIMING RAYCAST TRAJECTORY
     // ─────────────────────────────────────────────────────────────
     const getAimTrajectory = (targetX: number, targetY: number) => {
       const dx = targetX - launcherX;
@@ -663,10 +890,17 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     };
 
     // ─────────────────────────────────────────────────────────────
-    // 6. INPUT POINTER HANDLERS
+    // 7. INPUT POINTER HANDLERS (FIXED GAME OVER RETRY!)
     // ─────────────────────────────────────────────────────────────
     const onPointerDown = (e: PointerEvent) => {
       initAudio();
+
+      // FIXED: When in GAME_OVER, clicking or tapping anywhere immediately restarts the level!
+      if (phase === 'GAME_OVER') {
+        restartGame();
+        return;
+      }
+
       if (phase !== 'AIMING') return;
 
       const rect = canvas.getBoundingClientRect();
@@ -705,7 +939,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     canvas.addEventListener('pointercancel', onPointerUp, { passive: true });
 
     // ─────────────────────────────────────────────────────────────
-    // 7. HIGH-PERFORMANCE 60-120 FPS PHYSICS LOOP
+    // 8. HIGH-PERFORMANCE 60-120 FPS PHYSICS LOOP
     // ─────────────────────────────────────────────────────────────
     let lastTime = performance.now();
 
@@ -713,10 +947,17 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       const elapsed = currentTime - lastTime;
       lastTime = currentTime;
 
+      // Handle external level load trigger
       if (pendingLevelLoadRef.current !== null) {
         const target = pendingLevelLoadRef.current;
         pendingLevelLoadRef.current = null;
         loadLevel(target);
+      }
+
+      // Handle restart trigger
+      if (restartTriggerRef.current) {
+        restartTriggerRef.current = false;
+        restartGame();
       }
 
       const baseDt = Math.min(elapsed / 16.667, 1.8);
@@ -823,7 +1064,6 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
                   vy: -1.2,
                 });
               } else if (item.type === 'ball_double') {
-                // 2X Multiplier directly doubles balls!
                 const doubled = currentBallsCount * 2;
                 extraBallsEarnedThisTurn += currentBallsCount;
                 floatingTexts.push({
@@ -914,7 +1154,6 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
                   });
                 }
 
-                // Random surprise gift
                 if (Math.random() < 0.22) {
                   extraBallsEarnedThisTurn += 1;
                   floatingTexts.push({
@@ -935,9 +1174,13 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
 
         // All balls returned: turn completed
         if (ballsToLaunchQueue === 0 && activeBallsCount === 0) {
-          const remainingBricks = bricks.filter((b) => b.alive).length;
+          // Check level complete
+          // In maze mode: win by clearing all target/inner blocks or all blocks!
+          const nonWallBricks = bricks.filter((b) => !b.isMazeWall && b.alive);
+          const totalRemaining = bricks.filter((b) => b.alive).length;
+          const isCleared = isMazeMode ? nonWallBricks.length === 0 || totalRemaining === 0 : totalRemaining === 0;
 
-          if (remainingBricks === 0) {
+          if (isCleared) {
             phase = 'LEVEL_CLEARED';
             playLevelCompleteFanfare();
 
@@ -951,26 +1194,40 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
               loadLevel(nextLevel);
             }, 1300);
           } else {
-            // Smooth downward shift by 1 row
-            phase = 'SHIFTING';
-            shiftStartTime = currentTime;
-            shiftProgress = 0;
+            if (isMazeMode) {
+              // In maze mode: bricks stay fixed, player aims again!
+              phase = 'AIMING';
+              if (extraBallsEarnedThisTurn > 0) {
+                currentBallsCount += extraBallsEarnedThisTurn;
+                ballCountRef.current = currentBallsCount;
+                setBallCount(currentBallsCount);
+                localStorage.setItem('brick_smash_ball_count', String(currentBallsCount));
+              }
+              launcherX = nextLauncherX;
+              balls.length = 0;
+              setCanRecall(false);
+            } else {
+              // Smooth downward shift by 1 row in wave mode
+              phase = 'SHIFTING';
+              shiftStartTime = currentTime;
+              shiftProgress = 0;
 
-            if (extraBallsEarnedThisTurn > 0) {
-              currentBallsCount += extraBallsEarnedThisTurn;
-              ballCountRef.current = currentBallsCount;
-              setBallCount(currentBallsCount);
-              localStorage.setItem('brick_smash_ball_count', String(currentBallsCount));
+              if (extraBallsEarnedThisTurn > 0) {
+                currentBallsCount += extraBallsEarnedThisTurn;
+                ballCountRef.current = currentBallsCount;
+                setBallCount(currentBallsCount);
+                localStorage.setItem('brick_smash_ball_count', String(currentBallsCount));
+              }
+
+              launcherX = nextLauncherX;
+              balls.length = 0;
+              setCanRecall(false);
             }
-
-            launcherX = nextLauncherX;
-            balls.length = 0;
-            setCanRecall(false);
           }
         }
       }
 
-      // Shifting animation
+      // Shifting animation (Wave mode only)
       if (phase === 'SHIFTING') {
         const shiftElapsed = currentTime - shiftStartTime;
         shiftProgress = Math.min(1, shiftElapsed / shiftDuration);
@@ -986,9 +1243,10 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
             b.x = rect.x;
             b.y = rect.y;
 
-            // Danger line breach
-            if (b.row >= DANGER_ROW) {
+            // Danger line breach (70% height check!)
+            if (b.y + b.height >= DANGER_Y) {
               phase = 'GAME_OVER';
+              setIsGameOver(true);
               playTone(180, 0.25, 'sawtooth', 0.15);
               break;
             }
@@ -1026,7 +1284,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       }
 
       // ─────────────────────────────────────────────────────────────
-      // 8. RENDER: CLAUDE MINIMALIST WARM IVORY THEME (#FAF9F5)
+      // 9. RENDER: CLAUDE MINIMALIST WARM IVORY THEME (#FAF9F5)
       // ─────────────────────────────────────────────────────────────
       ctx.clearRect(0, 0, w, h);
 
@@ -1050,20 +1308,22 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
         ctx.stroke();
       }
 
-      // Danger Line
-      ctx.strokeStyle = 'rgba(217, 119, 87, 0.45)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath();
-      ctx.moveTo(PLAY_PADDING, DANGER_Y);
-      ctx.lineTo(w - PLAY_PADDING, DANGER_Y);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      // Danger Line at 70% below!
+      if (!isMazeMode) {
+        ctx.strokeStyle = 'rgba(217, 119, 87, 0.55)';
+        ctx.lineWidth = 1.6;
+        ctx.setLineDash([6, 5]);
+        ctx.beginPath();
+        ctx.moveTo(PLAY_PADDING, DANGER_Y);
+        ctx.lineTo(w - PLAY_PADDING, DANGER_Y);
+        ctx.stroke();
+        ctx.setLineDash([]);
 
-      ctx.fillStyle = Colors.accent.primary;
-      ctx.font = '600 10px -apple-system, sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText('DANGER LINE', w - PLAY_PADDING - 4, DANGER_Y - 4);
+        ctx.fillStyle = Colors.accent.primary;
+        ctx.font = '600 10px -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText('DANGER LINE (70%)', w - PLAY_PADDING - 4, DANGER_Y - 4);
+      }
 
       const currentShiftOffset =
         phase === 'SHIFTING' ? shiftProgress * (BRICK_HEIGHT + GRID_GAP) : 0;
@@ -1086,7 +1346,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
 
         // Brick Hit Counter Number
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 11px -apple-system, sans-serif';
+        ctx.font = b.isMazeWall ? 'bold 10px -apple-system, sans-serif' : 'bold 11px -apple-system, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(String(b.hp), b.x + b.width / 2, renderY + b.height / 2);
@@ -1224,7 +1484,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       );
       ctx.restore();
 
-      // Ball Count Label (e.g. x5, x6, x10)
+      // Ball Count Label (e.g. x5, x10, x50)
       ctx.fillStyle = Colors.accent.primary;
       ctx.font = 'bold 12px -apple-system, sans-serif';
       ctx.textAlign = 'center';
@@ -1242,17 +1502,20 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
         ctx.fillStyle = Colors.text.secondary;
         ctx.fillText(`Starting Level ${Math.min(300, level + 1)}...`, w / 2, 230);
       } else if (phase === 'GAME_OVER') {
-        ctx.fillStyle = 'rgba(250, 249, 245, 0.95)';
-        ctx.fillRect(0, 140, w, 150);
+        ctx.fillStyle = 'rgba(250, 249, 245, 0.96)';
+        ctx.fillRect(0, 130, w, 160);
         ctx.textAlign = 'center';
         ctx.fillStyle = Colors.accent.primary;
         ctx.font = '700 24px -apple-system, sans-serif';
-        ctx.fillText('GAME OVER', w / 2, 190);
+        ctx.fillText('GAME OVER', w / 2, 180);
         ctx.font = '500 13px -apple-system, sans-serif';
         ctx.fillStyle = Colors.text.secondary;
-        ctx.fillText(`Bricks reached the danger line! Score: ${score}`, w / 2, 220);
+        ctx.fillText(`Bricks crossed the 70% danger line!`, w / 2, 210);
+
+        // Prominent Tap to Retry instruction
         ctx.fillStyle = Colors.accent.primary;
-        ctx.fillText('Tap screen to retry level', w / 2, 246);
+        ctx.font = 'bold 14px -apple-system, sans-serif';
+        ctx.fillText('👉 Tap anywhere or click Retry below 👈', w / 2, 242);
       }
 
       animId = requestAnimationFrame(loop);
@@ -1298,7 +1561,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
           backgroundColor: Colors.bg.elevated,
         }}
       >
-        {/* Restored Title with 🧱 BRICK SMASH */}
+        {/* Title */}
         <div
           style={{
             display: 'flex',
@@ -1311,6 +1574,21 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
           }}
         >
           <span>🧱 BRICK SMASH</span>
+          {currentLevel % 3 === 0 && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                backgroundColor: Colors.accent.soft,
+                color: Colors.accent.primary,
+                padding: '2px 6px',
+                borderRadius: 4,
+                border: `1px solid ${Colors.accent.primary}`,
+              }}
+            >
+              MAZE
+            </span>
+          )}
         </div>
 
         {/* Level & Highscore */}
@@ -1429,6 +1707,42 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
             display: 'block',
           }}
         />
+
+        {/* Dedicated Clickable Game Over Retry Button */}
+        {isGameOver && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '58%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              zIndex: 10,
+            }}
+          >
+            <button
+              onClick={triggerRestart}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '12px 28px',
+                borderRadius: 12,
+                backgroundColor: Colors.accent.primary,
+                border: 'none',
+                color: '#FFFFFF',
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(217, 119, 87, 0.4)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <RefreshCw size={18} />
+              <span>Retry Level {currentLevel}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bottom Control Bar */}
@@ -1448,6 +1762,19 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span>Drag to aim • Shoot {ballCount} balls</span>
+          {isGameOver && (
+            <span
+              onClick={triggerRestart}
+              style={{
+                color: Colors.accent.primary,
+                fontWeight: 700,
+                cursor: 'pointer',
+                textDecoration: 'underline',
+              }}
+            >
+              Tap to Retry
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
