@@ -26,7 +26,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 export async function getOrCreateRoomState(
   roomId: string,
   myHandle: string,
-  isCreator: boolean = false
+  isCreator: boolean = false,
+  pinHash?: string
 ): Promise<RoomStateResponse> {
   const roomRecordId = `room_state_${roomId}`;
   const cleanHandle = myHandle.trim().toLowerCase();
@@ -48,7 +49,9 @@ export async function getOrCreateRoomState(
           creator: cleanHandle,
           guest: null,
           isFull: false,
+          pinHash: pinHash || null,
           createdAt: Date.now(),
+          expiresAt: Date.now() + 86400000, // 24-hour room lifespan
         };
         await supabase.from('messages').insert({
           id: roomRecordId,
@@ -57,7 +60,7 @@ export async function getOrCreateRoomState(
           body: JSON.stringify(statePayload),
           type: 'room_meta',
           created_at: Date.now(),
-          expires_at: Date.now() + 86400000 * 30, // 30 days
+          expires_at: Date.now() + 86400000, // 24 hours
         });
         return { success: true, isCreator: true, isFull: false, partner: null };
       } else {
@@ -68,6 +71,28 @@ export async function getOrCreateRoomState(
     const meta = typeof data.body === 'string' ? JSON.parse(data.body) : data.body;
     const creator = (meta.creator || '').toLowerCase();
     const guest = (meta.guest || '').toLowerCase();
+
+    // 24-Hour Room Window Check
+    if (meta.expiresAt && Date.now() > meta.expiresAt) {
+      return {
+        success: false,
+        isCreator: cleanHandle === creator,
+        isFull: true,
+        partner: null,
+        error: 'This private room has expired (24 hours have passed).',
+      };
+    }
+
+    // Shared Room Password PIN verification (for guest or joining participant)
+    if (meta.pinHash && pinHash && pinHash !== meta.pinHash) {
+      return {
+        success: false,
+        isCreator: false,
+        isFull: false,
+        partner: null,
+        error: 'Incorrect Room PIN! Please enter the 4-digit secret PIN set by the room creator.',
+      };
+    }
 
     if (cleanHandle === creator) {
       return { success: true, isCreator: true, isFull: !!guest, partner: guest || null };
@@ -292,5 +317,10 @@ export async function sendWipeSignal(roomId: string) {
         payload: { roomId },
       });
     }
+    // Zero-trace remote database cleanup
+    await supabase
+      .from('messages')
+      .delete()
+      .or(`receiver.eq.${roomId},receiver.like.${roomId}_%`);
   } catch (_) {}
 }

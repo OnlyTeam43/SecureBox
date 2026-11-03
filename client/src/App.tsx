@@ -64,8 +64,14 @@ export const App: React.FC = () => {
         const map = stored ? JSON.parse(stored) : {};
         if (map[roomId]) {
           // Member returning
-          pendingUnlockAction.current = () => enterRoom(map[roomId]);
-          setIsPinModalOpen(true);
+          const room = map[roomId];
+          if (Date.now() - (room.createdAt || 0) < 24 * 60 * 60 * 1000) {
+            pendingUnlockAction.current = () => enterRoom(room);
+            setIsPinModalOpen(true);
+          } else {
+            alert('This room has expired (24 hours have passed).');
+            setScreenMode('hub');
+          }
         } else {
           // Guest onboarding
           setPendingJoin({ roomId, secretKey });
@@ -215,6 +221,7 @@ export const App: React.FC = () => {
       const key = await importSecretKey(room.secretKey);
       setCryptoKey(key);
       setActiveRoom(room);
+      localStorage.setItem('securebox_active_room_id', room.roomId);
       setScreenMode('chat');
       document.title = `Chat - ${room.partnerHandle || 'Private'}`;
     } catch (_) {
@@ -230,7 +237,7 @@ export const App: React.FC = () => {
     const roomId = generateRoomId();
     const secretKey = await generateSecretKey();
 
-    const state = await getOrCreateRoomState(roomId, handle, true);
+    const state = await getOrCreateRoomState(roomId, handle, true, pHash);
     if (!state.success) {
       alert(state.error || 'Failed to create room.');
       return;
@@ -247,6 +254,7 @@ export const App: React.FC = () => {
 
     saveRoom(room);
     setActiveRoom(room);
+    localStorage.setItem('securebox_active_room_id', roomId);
 
     const base = window.location.origin + window.location.pathname;
     const link = `${base}#id=${roomId}&key=${secretKey}`;
@@ -257,14 +265,15 @@ export const App: React.FC = () => {
   const handleJoinRoom = async (handle: string, pin: string) => {
     if (!pendingJoin) return;
     const pHash = await hashPin(pin);
-    localStorage.setItem('securebox_pin_hash', pHash);
 
-    const state = await getOrCreateRoomState(pendingJoin.roomId, handle, false);
+    const state = await getOrCreateRoomState(pendingJoin.roomId, handle, false, pHash);
     if (!state.success) {
-      alert(state.error || 'This room is closed or full (2/2 members).');
-      setScreenMode('game');
+      alert(state.error || 'Failed to join room.');
       return;
     }
+
+    // Save verified PIN so partner can unlock the game camouflage with the same PIN
+    localStorage.setItem('securebox_pin_hash', pHash);
 
     const room: RoomMetadata = {
       roomId: pendingJoin.roomId,
@@ -276,6 +285,8 @@ export const App: React.FC = () => {
     };
 
     saveRoom(room);
+    setActiveRoom(room);
+    localStorage.setItem('securebox_active_room_id', room.roomId);
     setPendingJoin(null);
     enterRoom(room);
   };
@@ -395,8 +406,29 @@ export const App: React.FC = () => {
           <BrickSmashGame
             onUnlockClick={() => {
               pendingUnlockAction.current = () => {
-                if (activeRoom) setScreenMode('chat');
-                else setScreenMode('hub');
+                // Return to active 24-hour room anytime after minimise
+                const activeId = localStorage.getItem('securebox_active_room_id');
+                const stored = localStorage.getItem('securebox_rooms');
+                const map = stored ? JSON.parse(stored) : {};
+
+                let targetRoom = activeRoom || (activeId && map[activeId] ? map[activeId] : null);
+
+                if (!targetRoom) {
+                  const rooms = Object.values(map) as RoomMetadata[];
+                  if (rooms.length > 0) {
+                    rooms.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+                    const recent = rooms[0];
+                    if (Date.now() - (recent.createdAt || 0) < 24 * 60 * 60 * 1000) {
+                      targetRoom = recent;
+                    }
+                  }
+                }
+
+                if (targetRoom && Date.now() - (targetRoom.createdAt || 0) < 24 * 60 * 60 * 1000) {
+                  enterRoom(targetRoom);
+                } else {
+                  setScreenMode('hub');
+                }
               };
               setIsPinModalOpen(true);
             }}

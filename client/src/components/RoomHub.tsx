@@ -136,7 +136,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
 
             <div>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: Colors.text.secondary, marginBottom: 6 }}>
-                YOUR SECRET PIN (4-6 DIGITS)
+                SHARED ROOM SECRET PIN (4 DIGITS)
               </label>
               <input
                 type="password"

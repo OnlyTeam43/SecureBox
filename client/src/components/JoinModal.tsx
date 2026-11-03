@@ -75,7 +75,7 @@ export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
         </div>
 
         <p style={{ fontSize: 13, color: Colors.text.secondary, lineHeight: 1.45, marginBottom: 18 }}>
-          You’ve been invited to a private 2-person room. Enter your name and choose a disguise PIN to join.
+          You’ve been invited to a private 2-person room. Enter your name and the 4-digit room secret PIN to join.
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -106,7 +106,7 @@ export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
 
           <div>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: Colors.text.secondary, marginBottom: 6 }}>
-              CHOOSE YOUR PIN (4-6 DIGITS)
+              4-DIGIT ROOM SECRET PIN
             </label>
             <input
               type="password"
