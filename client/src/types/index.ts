@@ -10,6 +10,7 @@ export interface RoomMetadata {
   isCreator: boolean;
   createdAt: number;
   expiresAt?: number;
+  pinHash?: string;
 }
 
 export interface ChatMessage {

@@ -6,9 +6,10 @@ import { EncryptedPayload } from '../types';
 
 function uint8ToBase64(uint8: Uint8Array): string {
   let binary = '';
-  const len = uint8.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(uint8[i]);
+  const chunkSize = 0x8000; // 32KB chunks for high performance
+  for (let i = 0; i < uint8.length; i += chunkSize) {
+    const chunk = uint8.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
   }
   return window.btoa(binary);
 }

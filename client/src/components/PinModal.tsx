@@ -1,7 +1,7 @@
 // client/src/components/PinModal.tsx
 import React, { useState, useEffect } from 'react';
 import { Colors } from '../theme/tokens';
-import { hashPin } from '../services/crypto';
+import { hashPin, deriveKeyFromPin, exportKeyToString } from '../services/crypto';
 import { Lock, X, Check, RotateCcw } from 'lucide-react';
 
 interface PinModalProps {
@@ -36,7 +36,7 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, onClose, onSuccess }
       } else if (e.key === 'Backspace') {
         handleBackspace();
       } else if (e.key === 'Enter') {
-        handleVerifyPin(pin);
+        handleVerifyPin(pin, true);
       } else if (e.key === 'Escape') {
         onClose();
       }
@@ -74,25 +74,64 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, onClose, onSuccess }
     }
 
     try {
-      const storedHash = localStorage.getItem('securebox_pin_hash');
+      const storedEntranceHash = localStorage.getItem('securebox_pin_hash');
       const inputHash = await hashPin(candidatePin);
 
-      // If no PIN set yet, any 4-digit PIN becomes the master PIN!
-      if (!storedHash) {
-        localStorage.setItem('securebox_pin_hash', inputHash);
+      // 1. Matches main entrance PIN
+      if (storedEntranceHash && inputHash === storedEntranceHash) {
+        setErrorMsg(null);
         onSuccess();
         return;
       }
 
-      if (inputHash === storedHash) {
+      // 2. Fallback: Does candidatePin match ANY room's secret PIN or key?
+      // This prevents the "wrong pin" issue when returning to game and typing the room's secret PIN!
+      const rawRooms = localStorage.getItem('securebox_rooms');
+      if (rawRooms) {
+        try {
+          const map = JSON.parse(rawRooms);
+          const rooms = Object.values(map) as any[];
+
+          // A: Check saved room pinHash
+          const matchedRoom = rooms.find((r) => r.pinHash && r.pinHash === inputHash);
+          if (matchedRoom) {
+            // Automatically memorize as valid entrance PIN so user is never locked out again
+            localStorage.setItem('securebox_pin_hash', inputHash);
+            setErrorMsg(null);
+            onSuccess();
+            return;
+          }
+
+          // B: Test key derivation for existing rooms without pinHash
+          for (const r of rooms) {
+            if (r.roomId && r.secretKey) {
+              try {
+                const derived = await deriveKeyFromPin(candidatePin, r.roomId);
+                const derivedStr = await exportKeyToString(derived);
+                if (derivedStr === r.secretKey) {
+                  r.pinHash = inputHash;
+                  localStorage.setItem('securebox_rooms', JSON.stringify(map));
+                  localStorage.setItem('securebox_pin_hash', inputHash);
+                  setErrorMsg(null);
+                  onSuccess();
+                  return;
+                }
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 3. If no entrance PIN was ever set, accept this as the master PIN!
+      if (!storedEntranceHash) {
+        localStorage.setItem('securebox_pin_hash', inputHash);
         setErrorMsg(null);
         onSuccess();
-      } else {
-        // If candidate is 6 digits OR user pressed OK/Enter OR candidate didn't match
-        if (candidatePin.length >= 4) {
-          triggerError('Incorrect PIN');
-        }
+        return;
       }
+
+      // 4. Incorrect PIN - show error and allow 1-tap reset
+      triggerError('Incorrect PIN. Try again or reset below.');
     } catch (e) {
       console.error('PIN verification error:', e);
     }
@@ -108,13 +147,11 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, onClose, onSuccess }
   };
 
   const handleResetPin = () => {
-    if (confirm('Reset your secret PIN? This will let you set a new PIN.')) {
-      localStorage.removeItem('securebox_pin_hash');
-      setHasExistingPin(false);
-      setPin('');
-      setErrorMsg(null);
-      alert('PIN has been reset. Enter any 4-digit PIN to set your new one.');
-    }
+    // 1-tap instant reset without blocking alert/confirm dialogs
+    localStorage.removeItem('securebox_pin_hash');
+    setHasExistingPin(false);
+    setPin('');
+    setErrorMsg('Entrance PIN reset! Enter 4 digits to unlock & save as new PIN.');
   };
 
   if (!isOpen) return null;
@@ -196,6 +233,9 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, onClose, onSuccess }
           color: errorMsg ? Colors.status.error : Colors.text.secondary,
           marginBottom: 18,
           fontWeight: errorMsg ? 600 : 400,
+          textAlign: 'center',
+          padding: '0 8px',
+          minHeight: 18,
         }}>
           {errorMsg || (hasExistingPin ? 'Enter your 4-digit PIN' : 'Enter 4 digits to set your PIN')}
         </p>
@@ -297,26 +337,28 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, onClose, onSuccess }
           </button>
         </div>
 
-        {/* Reset PIN link */}
-        {hasExistingPin && (
-          <button
-            onClick={handleResetPin}
-            style={{
-              marginTop: 16,
-              background: 'none',
-              border: 'none',
-              color: Colors.text.placeholder,
-              fontSize: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            <RotateCcw size={12} />
-            <span>Forgot or Reset PIN</span>
-          </button>
-        )}
+        {/* 1-Tap Reset PIN button */}
+        <button
+          onClick={handleResetPin}
+          style={{
+            marginTop: 16,
+            background: 'none',
+            border: 'none',
+            color: Colors.accent.primary,
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '6px 12px',
+            borderRadius: 8,
+            backgroundColor: 'rgba(217, 119, 87, 0.08)',
+          }}
+        >
+          <RotateCcw size={12} />
+          <span>Reset Entrance PIN</span>
+        </button>
       </div>
     </div>
   );

@@ -175,44 +175,6 @@ export const App: React.FC = () => {
     }
   }, [activeRoom]);
 
-  // Real-time Supabase Subscription & Ephemeral Queue Fetch
-  useEffect(() => {
-    if (!activeRoom || !cryptoKey) return;
-
-    // Fetch and clear offline relay messages
-    fetchAndClearOfflineMessages(activeRoom.roomId, activeRoom.myHandle).then((offlinePackets) => {
-      offlinePackets.forEach((p) => handleIncomingPacket(p));
-    });
-
-    const channel = subscribeToRoom(activeRoom.roomId, activeRoom.myHandle, {
-      onMessage: (payload) => {
-        handleIncomingPacket(payload);
-      },
-      onTyping: ({ sender, isTyping }) => {
-        setTypingUser(isTyping ? sender : null);
-      },
-      onPresenceChange: (activeUsers) => {
-        const cleanPartner = (activeRoom.partnerHandle || '').toLowerCase();
-        const isOnline = activeUsers.some((u) => u.toLowerCase() === cleanPartner);
-        setIsPartnerOnline(isOnline);
-      },
-      onRoomExtended: (newExpiresAt) => {
-        setActiveRoom((prev) => {
-          if (!prev) return null;
-          const updated = { ...prev, expiresAt: newExpiresAt };
-          saveRoom(updated);
-          return updated;
-        });
-      },
-    });
-
-    return () => {
-      try {
-        channel.unsubscribe();
-      } catch (_) {}
-    };
-  }, [activeRoom, cryptoKey]);
-
   const handleIncomingPacket = useCallback(
     async (packet: { id: string; sender: string; iv: string; data: string; timestamp?: number }) => {
       if (!cryptoKey || !activeRoom) return;
@@ -241,7 +203,15 @@ export const App: React.FC = () => {
         setMessages((prev) => {
           if (prev.some((m) => m.id === newMsg.id)) return prev;
           const next = [...prev, newMsg];
-          localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
+          try {
+            localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
+          } catch (storageErr) {
+            console.warn('LocalStorage save warning:', storageErr);
+            try {
+              const pruned = next.slice(-25);
+              localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(pruned));
+            } catch (_) {}
+          }
           return next;
         });
 
@@ -277,6 +247,79 @@ export const App: React.FC = () => {
     localStorage.removeItem(`room_chat_${roomId}`);
     setSavedRooms(Object.values(map));
   };
+
+  // Real-time Supabase Subscription & Ephemeral Queue Fetch
+  useEffect(() => {
+    if (!activeRoom || !cryptoKey) return;
+
+    // Fetch and clear offline relay messages
+    fetchAndClearOfflineMessages(activeRoom.roomId, activeRoom.myHandle).then((offlinePackets) => {
+      offlinePackets.forEach((p) => handleIncomingPacket(p));
+    });
+
+    const channel = subscribeToRoom(activeRoom.roomId, activeRoom.myHandle, {
+      onMessage: (payload) => {
+        handleIncomingPacket(payload);
+      },
+      onTyping: ({ sender, isTyping }) => {
+        setTypingUser(isTyping ? sender : null);
+      },
+      onPresenceChange: (activeUsers) => {
+        const myName = activeRoom.myHandle.toLowerCase();
+        const otherUser = activeUsers.find((u) => u.toLowerCase() !== myName);
+        if (otherUser && !activeRoom.partnerHandle) {
+          const updated = { ...activeRoom, partnerHandle: otherUser };
+          saveRoom(updated);
+          setActiveRoom(updated);
+        }
+        const cleanPartner = (activeRoom.partnerHandle || otherUser || '').toLowerCase();
+        const isOnline = cleanPartner ? activeUsers.some((u) => u.toLowerCase() === cleanPartner) : false;
+        setIsPartnerOnline(isOnline);
+      },
+      onRoomExtended: (newExpiresAt) => {
+        setActiveRoom((prev) => {
+          if (!prev) return null;
+          const updated = { ...prev, expiresAt: newExpiresAt };
+          saveRoom(updated);
+          return updated;
+        });
+      },
+    });
+
+    return () => {
+      try {
+        channel.unsubscribe();
+      } catch (_) {}
+    };
+  }, [activeRoom, cryptoKey]);
+
+  // Reliable Ephemeral Queue Sync (every 3s in chat, every 7s in game, plus tab visibility)
+  useEffect(() => {
+    if (!activeRoom || !cryptoKey) return;
+
+    const pullOffline = () => {
+      fetchAndClearOfflineMessages(activeRoom.roomId, activeRoom.myHandle).then((offlinePackets) => {
+        offlinePackets.forEach((p) => handleIncomingPacket(p));
+      });
+    };
+
+    pullOffline();
+
+    const intervalTime = screenMode === 'chat' ? 3000 : 7000;
+    const interval = setInterval(pullOffline, intervalTime);
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        pullOffline();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [activeRoom, cryptoKey, screenMode, handleIncomingPacket]);
 
   const enterRoom = async (room: RoomMetadata) => {
     try {
@@ -314,12 +357,16 @@ export const App: React.FC = () => {
       partnerHandle: null,
       isCreator: true,
       createdAt: Date.now(),
+      pinHash: pHash,
     };
 
     saveRoom(room);
     setActiveRoom(room);
     setCryptoKey(derivedKey);
     localStorage.setItem('securebox_active_room_id', roomId);
+    if (!localStorage.getItem('securebox_pin_hash')) {
+      localStorage.setItem('securebox_pin_hash', pHash);
+    }
 
     // Option 2 Ultra-Short Link: only 38 characters!
     const base = window.location.origin + window.location.pathname;
@@ -357,12 +404,16 @@ export const App: React.FC = () => {
       partnerHandle: state.partner || 'Partner',
       isCreator: false,
       createdAt: Date.now(),
+      pinHash: pHash,
     };
 
     saveRoom(room);
     setActiveRoom(room);
     setCryptoKey(derivedKey);
     localStorage.setItem('securebox_active_room_id', room.roomId);
+    if (!localStorage.getItem('securebox_pin_hash')) {
+      localStorage.setItem('securebox_pin_hash', pHash);
+    }
     setPendingJoin(null);
     enterRoom(room);
   };
@@ -379,7 +430,15 @@ export const App: React.FC = () => {
 
     setMessages((prev) => {
       const next = [...prev, newMsg];
-      localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
+      try {
+        localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
+      } catch (storageErr) {
+        console.warn('LocalStorage save warning:', storageErr);
+        try {
+          const pruned = next.slice(-25);
+          localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(pruned));
+        } catch (_) {}
+      }
       return next;
     });
 
@@ -411,23 +470,36 @@ export const App: React.FC = () => {
 
     setMessages((prev) => {
       const next = [...prev, newMsg];
-      localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
+      try {
+        localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
+      } catch (storageErr) {
+        console.warn('LocalStorage save warning:', storageErr);
+        try {
+          const pruned = next.slice(-25);
+          localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(pruned));
+        } catch (_) {}
+      }
       return next;
     });
 
-    const encrypted = await encryptData(cryptoKey, {
-      text: '',
-      media: base64,
-      timestamp: Date.now(),
-      sender: activeRoom.myHandle,
-    });
+    try {
+      const encrypted = await encryptData(cryptoKey, {
+        text: '',
+        media: base64,
+        timestamp: Date.now(),
+        sender: activeRoom.myHandle,
+      });
 
-    await sendEncryptedMessage({
-      roomId: activeRoom.roomId,
-      sender: activeRoom.myHandle,
-      recipient: activeRoom.partnerHandle,
-      encryptedPayload: encrypted,
-    });
+      await sendEncryptedMessage({
+        roomId: activeRoom.roomId,
+        sender: activeRoom.myHandle,
+        recipient: activeRoom.partnerHandle,
+        encryptedPayload: encrypted,
+      });
+    } catch (err) {
+      console.error('Send encrypted photo error:', err);
+      alert('Failed to transmit photo. Please try again.');
+    }
   };
 
   const handleTyping = () => {

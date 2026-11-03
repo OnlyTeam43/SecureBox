@@ -917,6 +917,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {/* Animal companion icon with direct unread message notification badge */}
           <div
+            onClick={onUnlockClick}
             style={{
               position: 'relative',
               display: 'flex',
@@ -929,7 +930,9 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
               border: `1.5px solid ${Colors.border}`,
               padding: 0,
               boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+              cursor: 'pointer',
             }}
+            title="Security PIN / Open Chat"
           >
             <img
               src="/characters/panda-idle.png"

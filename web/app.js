@@ -388,8 +388,25 @@ class SecureBoxApp {
       const inputHash = await hashPin(this.enteredPin);
       if (inputHash === storedHash) {
         this.finishPinUnlock();
-      } else if (this.enteredPin.length === 6) {
-        // Incorrect 6-digit PIN
+        return;
+      }
+
+      // Fallback: check against any saved room's secret PIN
+      const rawRooms = localStorage.getItem('securebox_rooms');
+      if (rawRooms) {
+        try {
+          const map = JSON.parse(rawRooms);
+          const rooms = Object.values(map);
+          const matched = rooms.find(r => r.pinHash === inputHash);
+          if (matched) {
+            localStorage.setItem('securebox_pin_hash', inputHash);
+            this.finishPinUnlock();
+            return;
+          }
+        } catch (_) {}
+      }
+
+      if (this.enteredPin.length >= 4) {
         this.shakePinKeypad();
       }
     }
@@ -457,7 +474,9 @@ class SecureBoxApp {
 
     // Save PIN hash
     const pHash = await hashPin(pin);
-    localStorage.setItem('securebox_pin_hash', pHash);
+    if (!localStorage.getItem('securebox_pin_hash')) {
+      localStorage.setItem('securebox_pin_hash', pHash);
+    }
 
     // Generate room & 256-bit AES secret key
     const roomId = generateRoomId();
@@ -477,6 +496,7 @@ class SecureBoxApp {
       partnerHandle: null,
       isCreator: true,
       createdAt: Date.now(),
+      pinHash: pHash,
     };
 
     this.saveRoom(roomData);

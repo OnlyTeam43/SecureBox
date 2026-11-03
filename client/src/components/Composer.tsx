@@ -1,7 +1,8 @@
 // client/src/components/Composer.tsx
 import React, { useState, useRef } from 'react';
 import { Colors } from '../theme/tokens';
-import { Image, Send } from 'lucide-react';
+import { Image, Send, Loader2 } from 'lucide-react';
+import { compressImage } from '../utils/imageCompressor';
 
 interface ComposerProps {
   onSendMessage: (text: string) => void;
@@ -11,6 +12,7 @@ interface ComposerProps {
 
 export const Composer: React.FC<ComposerProps> = ({ onSendMessage, onSendMedia, onTyping }) => {
   const [text, setText] = useState('');
+  const [isCompressing, setIsCompressing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSubmit = (e?: React.FormEvent) => {
@@ -29,22 +31,25 @@ export const Composer: React.FC<ComposerProps> = ({ onSendMessage, onSendMedia, 
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
 
-    if (file.size > 4 * 1024 * 1024) {
-      alert('Please select an image under 4MB.');
-      return;
+    try {
+      setIsCompressing(true);
+      // Downscale and compress image to high-clarity JPEG under 90KB
+      // Ensures instant delivery across WebSockets & Supabase Realtime limits
+      const compressedBase64 = await compressImage(file, 1024, 0.72);
+      if (compressedBase64) {
+        onSendMedia(compressedBase64);
+      }
+    } catch (err) {
+      console.error('Image compression failed:', err);
+      alert('Could not prepare image for encrypted transmission. Please try again.');
+    } finally {
+      setIsCompressing(false);
+      e.target.value = '';
     }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (base64) onSendMedia(base64);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
   };
 
   return (
@@ -71,21 +76,23 @@ export const Composer: React.FC<ComposerProps> = ({ onSendMessage, onSendMedia, 
       {/* Attachment Button */}
       <button
         onClick={() => fileInputRef.current?.click()}
+        disabled={isCompressing}
         style={{
           width: 38,
           height: 38,
           borderRadius: '50%',
           backgroundColor: Colors.bg.secondary,
           border: `1px solid ${Colors.border}`,
-          color: Colors.text.secondary,
+          color: isCompressing ? Colors.accent.primary : Colors.text.secondary,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          cursor: 'pointer',
+          cursor: isCompressing ? 'wait' : 'pointer',
+          opacity: isCompressing ? 0.7 : 1,
         }}
         title="Attach image"
       >
-        <Image size={17} />
+        {isCompressing ? <Loader2 size={17} className="animate-spin" /> : <Image size={17} />}
       </button>
 
       {/* Input Field */}
@@ -95,7 +102,7 @@ export const Composer: React.FC<ComposerProps> = ({ onSendMessage, onSendMedia, 
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Encrypted message..."
+          placeholder={isCompressing ? 'Compressing photo...' : 'Encrypted message...'}
           style={{
             width: '100%',
             height: 42,
