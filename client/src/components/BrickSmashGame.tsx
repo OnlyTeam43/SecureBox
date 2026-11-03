@@ -1,10 +1,45 @@
 // client/src/components/BrickSmashGame.tsx
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
 import { Lock } from 'lucide-react';
 
 interface BrickSmashGameProps {
   onUnlockClick: () => void;
+}
+
+type AnimalType = 'panda' | 'cat' | 'puppy';
+type GiftType = 'multiball' | 'points' | 'heart' | 'wide';
+
+interface Gift {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  vy: number;
+  type: GiftType;
+  emoji: string;
+  label: string;
+  color: string;
+  active: boolean;
+}
+
+interface FloatingText {
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  alpha: number;
+}
+
+interface Ball {
+  x: number;
+  y: number;
+  radius: number;
+  dx: number;
+  dy: number;
+  speed: number;
+  character: AnimalType;
+  active: boolean;
 }
 
 export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick }) => {
@@ -48,6 +83,212 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     } catch (_) {}
   };
 
+  const playPowerupChime = () => {
+    playTone(523, 0.07, 'sine');
+    setTimeout(() => playTone(659, 0.07, 'sine'), 60);
+    setTimeout(() => playTone(784, 0.1, 'sine'), 120);
+  };
+
+  // Helper to draw cute scalable animal face directly onto Canvas
+  const drawAnimalFace = (ctx: CanvasRenderingContext2D, x: number, y: number, r: number, char: AnimalType) => {
+    ctx.save();
+    ctx.translate(x, y);
+
+    const scale = r / 16; // Normal face radius is 16
+
+    if (char === 'cat') {
+      // Cat Ears
+      ctx.fillStyle = '#FAC775';
+      ctx.strokeStyle = '#854F0B';
+      ctx.lineWidth = 1.2 * scale;
+
+      // Left Ear
+      ctx.beginPath();
+      ctx.moveTo(-12 * scale, -4 * scale);
+      ctx.lineTo(-10 * scale, -18 * scale);
+      ctx.lineTo(-2 * scale, -11 * scale);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Right Ear
+      ctx.beginPath();
+      ctx.moveTo(12 * scale, -4 * scale);
+      ctx.lineTo(10 * scale, -18 * scale);
+      ctx.lineTo(2 * scale, -11 * scale);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Inner Pink Ears
+      ctx.fillStyle = '#F4A56C';
+      ctx.beginPath();
+      ctx.moveTo(-10 * scale, -5 * scale);
+      ctx.lineTo(-9 * scale, -15 * scale);
+      ctx.lineTo(-3 * scale, -11 * scale);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(10 * scale, -5 * scale);
+      ctx.lineTo(9 * scale, -15 * scale);
+      ctx.lineTo(3 * scale, -11 * scale);
+      ctx.closePath();
+      ctx.fill();
+
+      // Head
+      ctx.fillStyle = '#FAC775';
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Pink Cheeks
+      ctx.fillStyle = '#F4C0D1';
+      ctx.beginPath();
+      ctx.arc(-8 * scale, 3 * scale, 2.8 * scale, 0, Math.PI * 2);
+      ctx.arc(8 * scale, 3 * scale, 2.8 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eyes
+      ctx.fillStyle = '#412402';
+      ctx.beginPath();
+      ctx.arc(-5 * scale, -2 * scale, 2.2 * scale, 0, Math.PI * 2);
+      ctx.arc(5 * scale, -2 * scale, 2.2 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eye Sparkles
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(-4.2 * scale, -2.8 * scale, 0.9 * scale, 0, Math.PI * 2);
+      ctx.arc(5.8 * scale, -2.8 * scale, 0.9 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Nose & Whiskers
+      ctx.fillStyle = '#D4537E';
+      ctx.beginPath();
+      ctx.moveTo(-1.8 * scale, 2 * scale);
+      ctx.lineTo(1.8 * scale, 2 * scale);
+      ctx.lineTo(0, 3.8 * scale);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = '#854F0B';
+      ctx.lineWidth = 0.8 * scale;
+      ctx.beginPath();
+      ctx.moveTo(-7 * scale, 1 * scale);
+      ctx.lineTo(-13 * scale, 0.5 * scale);
+      ctx.moveTo(-7 * scale, 3 * scale);
+      ctx.lineTo(-13 * scale, 3.5 * scale);
+      ctx.moveTo(7 * scale, 1 * scale);
+      ctx.lineTo(13 * scale, 0.5 * scale);
+      ctx.moveTo(7 * scale, 3 * scale);
+      ctx.lineTo(13 * scale, 3.5 * scale);
+      ctx.stroke();
+    } else if (char === 'puppy') {
+      // Puppy Floppy Ears
+      ctx.fillStyle = '#854F0B';
+      ctx.beginPath();
+      ctx.ellipse(-13 * scale, -2 * scale, 4.5 * scale, 9 * scale, Math.PI / 10, 0, Math.PI * 2);
+      ctx.ellipse(13 * scale, -2 * scale, 4.5 * scale, 9 * scale, -Math.PI / 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Head
+      ctx.fillStyle = '#F5C4B3';
+      ctx.strokeStyle = '#993C1D';
+      ctx.lineWidth = 1.2 * scale;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Muzzle
+      ctx.fillStyle = '#FAECE7';
+      ctx.beginPath();
+      ctx.ellipse(0, 4 * scale, 6.5 * scale, 4.5 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cheeks
+      ctx.fillStyle = '#F4C0D1';
+      ctx.beginPath();
+      ctx.arc(-8 * scale, 3 * scale, 2.5 * scale, 0, Math.PI * 2);
+      ctx.arc(8 * scale, 3 * scale, 2.5 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eyes
+      ctx.fillStyle = '#2C2C2A';
+      ctx.beginPath();
+      ctx.arc(-5 * scale, -2 * scale, 2.2 * scale, 0, Math.PI * 2);
+      ctx.arc(5 * scale, -2 * scale, 2.2 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eye Sparkles
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(-4.2 * scale, -2.8 * scale, 0.9 * scale, 0, Math.PI * 2);
+      ctx.arc(5.8 * scale, -2.8 * scale, 0.9 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Nose
+      ctx.fillStyle = '#2C2C2A';
+      ctx.beginPath();
+      ctx.ellipse(0, 2.5 * scale, 2.2 * scale, 1.6 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Default: Panda 🐼
+      // Panda Ears
+      ctx.fillStyle = '#2C2C2A';
+      ctx.beginPath();
+      ctx.arc(-11 * scale, -11 * scale, 5.2 * scale, 0, Math.PI * 2);
+      ctx.arc(11 * scale, -11 * scale, 5.2 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Panda Head
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = '#2C2C2A';
+      ctx.lineWidth = 1.3 * scale;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Eye Patches
+      ctx.fillStyle = '#2C2C2A';
+      ctx.beginPath();
+      ctx.ellipse(-5 * scale, -1.8 * scale, 3.8 * scale, 4.6 * scale, Math.PI / 8, 0, Math.PI * 2);
+      ctx.ellipse(5 * scale, -1.8 * scale, 3.8 * scale, 4.6 * scale, -Math.PI / 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pupils
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(-4.5 * scale, -2.2 * scale, 1.4 * scale, 0, Math.PI * 2);
+      ctx.arc(4.5 * scale, -2.2 * scale, 1.4 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cheeks
+      ctx.fillStyle = '#F4C0D1';
+      ctx.beginPath();
+      ctx.arc(-8 * scale, 4 * scale, 2.4 * scale, 0, Math.PI * 2);
+      ctx.arc(8 * scale, 4 * scale, 2.4 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Snout & Smile
+      ctx.fillStyle = '#2C2C2A';
+      ctx.beginPath();
+      ctx.ellipse(0, 2.6 * scale, 2 * scale, 1.5 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = '#2C2C2A';
+      ctx.lineWidth = 1 * scale;
+      ctx.beginPath();
+      ctx.arc(0, 3.2 * scale, 2.2 * scale, 0.2 * Math.PI, 0.8 * Math.PI);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -81,22 +322,32 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
 
     let { w, h } = updateSize() || { w: 480, h: 640 };
 
-    // Game objects
+    // Progressive snappy ball speed (Increased speed requested by user!)
+    const getBallSpeed = (lvl: number) => 6.8 + Math.min((lvl - 1) * 0.25, 4.0);
+
+    const basePaddleWidth = Math.max(86, Math.min(108, w * 0.24));
+    let paddleWidth = basePaddleWidth;
+    let widePaddleTimer: NodeJS.Timeout | null = null;
+
     const paddle = {
-      x: (w - 90) / 2,
+      x: (w - basePaddleWidth) / 2,
       y: h - 35,
-      width: Math.max(76, Math.min(100, w * 0.22)),
-      height: 12,
+      height: 13,
     };
 
-    const ball = {
-      x: w / 2,
-      y: h - 48,
-      radius: 6,
-      dx: 4,
-      dy: -4,
-      speed: 4.8,
-    };
+    // Balls Pool (Supports Multi-Ball with cute companion animal heads!)
+    const balls: Ball[] = [
+      {
+        x: w / 2,
+        y: h - 50,
+        radius: 12, // Distinct animal face size
+        dx: 4.8,
+        dy: -4.8,
+        speed: getBallSpeed(1),
+        character: 'panda',
+        active: true,
+      },
+    ];
 
     interface Brick {
       x: number;
@@ -110,6 +361,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     }
 
     let bricks: Brick[] = [];
+    const gifts: Gift[] = [];
+    const floatingTexts: FloatingText[] = [];
     const particles: Array<{ x: number; y: number; dx: number; dy: number; r: number; color: string; life: number }> = [];
 
     const initBricks = () => {
@@ -136,16 +389,99 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       }
     };
 
-    const resetBall = () => {
-      ball.x = paddle.x + paddle.width / 2;
-      ball.y = paddle.y - 12;
+    const resetPrimaryBall = () => {
+      balls.length = 0;
+      const speed = getBallSpeed(currentLevel);
       const angle = Math.PI / 4 + (Math.random() * Math.PI) / 2;
-      ball.dx = Math.cos(angle) * (Math.random() > 0.5 ? ball.speed : -ball.speed);
-      ball.dy = -Math.abs(Math.sin(angle) * ball.speed);
+      balls.push({
+        x: paddle.x + paddleWidth / 2,
+        y: paddle.y - 14,
+        radius: 12,
+        dx: Math.cos(angle) * (Math.random() > 0.5 ? speed : -speed),
+        dy: -Math.abs(Math.sin(angle) * speed),
+        speed,
+        character: 'panda',
+        active: true,
+      });
+    };
+
+    const spawnMultiBall = () => {
+      const activeBalls = balls.filter((b) => b.active);
+      const refBall = activeBalls[0] || balls[0];
+
+      // Spawn Cat 🐱 and Puppy 🐶 companion balls!
+      const companions: AnimalType[] = ['cat', 'puppy'];
+      companions.forEach((animal, i) => {
+        const angle = (Math.PI / 3) * (i === 0 ? 0.8 : 1.2);
+        const speed = getBallSpeed(currentLevel) * 1.05;
+        balls.push({
+          x: refBall.x,
+          y: refBall.y,
+          radius: 12,
+          dx: (i === 0 ? 1 : -1) * Math.cos(angle) * speed,
+          dy: -Math.abs(Math.sin(angle) * speed),
+          speed,
+          character: animal,
+          active: true,
+        });
+      });
+    };
+
+    const spawnGift = (bx: number, by: number) => {
+      // 40% chance to drop falling gift from smashed brick!
+      if (Math.random() > 0.4) return;
+
+      const giftPool: Array<{ type: GiftType; emoji: string; label: string; color: string }> = [
+        { type: 'multiball', emoji: '🐾', label: 'Multi-Ball!', color: '#D97757' },
+        { type: 'points', emoji: '🎁', label: '+100!', color: '#E28743' },
+        { type: 'heart', emoji: '❤️', label: '+1 Life!', color: '#FF3366' },
+        { type: 'wide', emoji: '⚡', label: 'Wide Paddle!', color: '#5E9473' },
+      ];
+
+      const chosen = giftPool[Math.floor(Math.random() * giftPool.length)];
+      gifts.push({
+        x: bx - 14,
+        y: by,
+        width: 32,
+        height: 24,
+        vy: 3.2,
+        type: chosen.type,
+        emoji: chosen.emoji,
+        label: chosen.label,
+        color: chosen.color,
+        active: true,
+      });
+    };
+
+    const applyGift = (gift: Gift) => {
+      playPowerupChime();
+      floatingTexts.push({
+        x: paddle.x + paddleWidth / 2,
+        y: paddle.y - 10,
+        text: gift.label,
+        color: gift.color,
+        alpha: 1.0,
+      });
+
+      if (gift.type === 'multiball') {
+        spawnMultiBall();
+      } else if (gift.type === 'points') {
+        currentScore += 100;
+        setScore(currentScore);
+      } else if (gift.type === 'heart') {
+        currentLives = Math.min(currentLives + 1, 5);
+        setLives(currentLives);
+      } else if (gift.type === 'wide') {
+        paddleWidth = basePaddleWidth + 44;
+        if (widePaddleTimer) clearTimeout(widePaddleTimer);
+        widePaddleTimer = setTimeout(() => {
+          paddleWidth = basePaddleWidth;
+        }, 12000);
+      }
     };
 
     initBricks();
-    resetBall();
+    resetPrimaryBall();
 
     // Event handlers
     const onTouchMove = (e: TouchEvent) => {
@@ -154,13 +490,13 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       const touch = e.touches[0];
       const rect = canvas.getBoundingClientRect();
       const touchX = touch.clientX - rect.left;
-      paddle.x = Math.max(0, Math.min(w - paddle.width, touchX - paddle.width / 2));
+      paddle.x = Math.max(0, Math.min(w - paddleWidth, touchX - paddleWidth / 2));
     };
 
     const onMouseMove = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
-      paddle.x = Math.max(0, Math.min(w - paddle.width, mouseX - paddle.width / 2));
+      paddle.x = Math.max(0, Math.min(w - paddleWidth, mouseX - paddleWidth / 2));
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -168,7 +504,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       if (e.key === 'ArrowLeft' || e.key === 'a') {
         paddle.x = Math.max(0, paddle.x - 24);
       } else if (e.key === 'ArrowRight' || e.key === 'd') {
-        paddle.x = Math.min(w - paddle.width, paddle.x + 24);
+        paddle.x = Math.min(w - paddleWidth, paddle.x + 24);
       } else if (e.key === ' ' || e.key === 'Enter') {
         if (gameOver || victory) {
           restartGame();
@@ -182,12 +518,15 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       currentLevel = 1;
       gameOver = false;
       victory = false;
+      gifts.length = 0;
+      floatingTexts.length = 0;
+      paddleWidth = basePaddleWidth;
       setScore(0);
       setLives(3);
       setIsGameOver(false);
       setIsVictory(false);
       initBricks();
-      resetBall();
+      resetPrimaryBall();
     };
 
     canvas.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -198,103 +537,117 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
     });
     window.addEventListener('keydown', onKeyDown);
 
-    // Game loop
+    // Main 60-120fps Game Loop
     const loop = () => {
       if (!gameOver && !victory) {
-        // Move ball
-        ball.x += ball.dx;
-        ball.y += ball.dy;
+        // Update all active balls
+        for (let i = balls.length - 1; i >= 0; i--) {
+          const b = balls[i];
+          if (!b.active) continue;
 
-        // Side walls
-        if (ball.x - ball.radius <= 0) {
-          ball.x = ball.radius;
-          ball.dx = Math.abs(ball.dx);
-          playTone(380, 0.05, 'triangle');
-        } else if (ball.x + ball.radius >= w) {
-          ball.x = w - ball.radius;
-          ball.dx = -Math.abs(ball.dx);
-          playTone(380, 0.05, 'triangle');
-        }
+          b.x += b.dx;
+          b.y += b.dy;
 
-        // Top wall
-        if (ball.y - ball.radius <= 44) {
-          ball.y = 44 + ball.radius;
-          ball.dy = Math.abs(ball.dy);
-          playTone(380, 0.05, 'triangle');
-        }
+          // Side walls
+          if (b.x - b.radius <= 0) {
+            b.x = b.radius;
+            b.dx = Math.abs(b.dx);
+            playTone(380, 0.05, 'triangle');
+          } else if (b.x + b.radius >= w) {
+            b.x = w - b.radius;
+            b.dx = -Math.abs(b.dx);
+            playTone(380, 0.05, 'triangle');
+          }
 
-        // Paddle hit
-        if (
-          ball.y + ball.radius >= paddle.y &&
-          ball.y - ball.radius <= paddle.y + paddle.height &&
-          ball.x >= paddle.x - 2 &&
-          ball.x <= paddle.x + paddle.width + 2
-        ) {
-          const hitRatio = (ball.x - (paddle.x + paddle.width / 2)) / (paddle.width / 2);
-          const maxAngle = (Math.PI / 180) * 60;
-          const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
-          ball.dx = speed * Math.sin(hitRatio * maxAngle);
-          ball.dy = -Math.abs(speed * Math.cos(hitRatio * maxAngle));
-          ball.y = paddle.y - ball.radius;
-          playTone(440, 0.06, 'triangle');
-        }
+          // Top wall
+          if (b.y - b.radius <= 44) {
+            b.y = 44 + b.radius;
+            b.dy = Math.abs(b.dy);
+            playTone(380, 0.05, 'triangle');
+          }
 
-        // Brick collision
-        let remaining = 0;
-        for (const b of bricks) {
-          if (!b.alive) continue;
-          remaining++;
-
+          // Paddle collision
           if (
-            ball.x + ball.radius >= b.x &&
-            ball.x - ball.radius <= b.x + b.width &&
-            ball.y + ball.radius >= b.y &&
-            ball.y - ball.radius <= b.y + b.height
+            b.y + b.radius >= paddle.y &&
+            b.y - b.radius <= paddle.y + paddle.height &&
+            b.x >= paddle.x - 2 &&
+            b.x <= paddle.x + paddleWidth + 2
           ) {
-            b.alive = false;
-            ball.dy = -ball.dy;
-            currentScore += b.pts;
-            setScore(currentScore);
+            const hitRatio = (b.x - (paddle.x + paddleWidth / 2)) / (paddleWidth / 2);
+            const maxAngle = (Math.PI / 180) * 60;
+            const currentSpeed = Math.sqrt(b.dx * b.dx + b.dy * b.dy);
+            b.dx = currentSpeed * Math.sin(hitRatio * maxAngle);
+            b.dy = -Math.abs(currentSpeed * Math.cos(hitRatio * maxAngle));
+            b.y = paddle.y - b.radius;
+            playTone(440, 0.06, 'triangle');
+          }
 
-            const storedHigh = parseInt(localStorage.getItem('brick_smash_high_score') || '0', 10);
-            if (currentScore > storedHigh) {
-              setHighScore(currentScore);
-              localStorage.setItem('brick_smash_high_score', currentScore.toString());
+          // Brick collision
+          let remaining = 0;
+          for (const brick of bricks) {
+            if (!brick.alive) continue;
+            remaining++;
+
+            if (
+              b.x + b.radius >= brick.x &&
+              b.x - b.radius <= brick.x + brick.width &&
+              b.y + b.radius >= brick.y &&
+              b.y - b.radius <= brick.y + brick.height
+            ) {
+              brick.alive = false;
+              b.dy = -b.dy;
+              currentScore += brick.pts;
+              setScore(currentScore);
+
+              const storedHigh = parseInt(localStorage.getItem('brick_smash_high_score') || '0', 10);
+              if (currentScore > storedHigh) {
+                setHighScore(currentScore);
+                localStorage.setItem('brick_smash_high_score', currentScore.toString());
+              }
+
+              // Sparks
+              for (let k = 0; k < 6; k++) {
+                particles.push({
+                  x: brick.x + brick.width / 2,
+                  y: brick.y + brick.height / 2,
+                  dx: (Math.random() - 0.5) * 5,
+                  dy: (Math.random() - 0.5) * 5,
+                  r: Math.random() * 2 + 1,
+                  color: brick.color,
+                  life: 1,
+                });
+              }
+
+              // 40% Chance to drop falling gifts!
+              spawnGift(brick.x + brick.width / 2, brick.y + brick.height);
+
+              playTone(480 + brick.pts * 2, 0.05, 'sine');
+              document.title = `Brick Smash | Score: ${currentScore}`;
+              break;
             }
+          }
 
-            // Sparks
-            for (let i = 0; i < 6; i++) {
-              particles.push({
-                x: b.x + b.width / 2,
-                y: b.y + b.height / 2,
-                dx: (Math.random() - 0.5) * 5,
-                dy: (Math.random() - 0.5) * 5,
-                r: Math.random() * 2 + 1,
-                color: b.color,
-                life: 1,
-              });
+          // Check level complete
+          if (remaining === 0) {
+            currentLevel++;
+            if (currentLevel > 4) {
+              victory = true;
+              setIsVictory(true);
+            } else {
+              initBricks();
+              resetPrimaryBall();
             }
+          }
 
-            playTone(480 + b.pts * 2, 0.05, 'sine');
-            document.title = `Brick Smash | Score: ${currentScore}`;
-            break;
+          // Ball fell below paddle
+          if (b.y - b.radius > h) {
+            b.active = false;
           }
         }
 
-        // Level victory
-        if (remaining === 0) {
-          currentLevel++;
-          if (currentLevel > 4) {
-            victory = true;
-            setIsVictory(true);
-          } else {
-            initBricks();
-            resetBall();
-          }
-        }
-
-        // Fall out
-        if (ball.y - ball.radius > h) {
+        // Check if all balls were lost
+        const activeBallsCount = balls.filter((b) => b.active).length;
+        if (activeBallsCount === 0) {
           currentLives--;
           setLives(currentLives);
           playTone(180, 0.2, 'sawtooth');
@@ -302,11 +655,42 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
             gameOver = true;
             setIsGameOver(true);
           } else {
-            resetBall();
+            resetPrimaryBall();
           }
         }
 
-        // Update particles
+        // Update Falling Gifts
+        for (let i = gifts.length - 1; i >= 0; i--) {
+          const g = gifts[i];
+          if (!g.active) continue;
+
+          g.y += g.vy;
+
+          // Catch gift with paddle!
+          if (
+            g.y + g.height >= paddle.y &&
+            g.y <= paddle.y + paddle.height &&
+            g.x + g.width >= paddle.x &&
+            g.x <= paddle.x + paddleWidth
+          ) {
+            g.active = false;
+            applyGift(g);
+          } else if (g.y > h) {
+            g.active = false;
+          }
+        }
+
+        // Update Floating Texts
+        for (let i = floatingTexts.length - 1; i >= 0; i--) {
+          const ft = floatingTexts[i];
+          ft.y -= 1.2;
+          ft.alpha -= 0.02;
+          if (ft.alpha <= 0) {
+            floatingTexts.splice(i, 1);
+          }
+        }
+
+        // Update Particles
         for (let i = particles.length - 1; i >= 0; i--) {
           const p = particles[i];
           p.x += p.dx;
@@ -316,14 +700,16 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
         }
       }
 
-      // Render
+      // ─────────────────────────────────────────────────────────
+      // RENDER
+      // ─────────────────────────────────────────────────────────
       ctx.clearRect(0, 0, w, h);
 
-      // Background - Claude Warm Palette Canvas
+      // Background - Keep exact web game canvas warm ivory!
       ctx.fillStyle = '#FAF9F5';
       ctx.fillRect(0, 0, w, h);
 
-      // Hairline Grid Lines
+      // Subtle Grid
       ctx.strokeStyle = 'rgba(20, 20, 19, 0.04)';
       ctx.lineWidth = 1;
       for (let x = 0; x < w; x += 32) {
@@ -333,7 +719,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
         ctx.stroke();
       }
 
-      // HUD Background
+      // Top HUD Header
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, w, 44);
       ctx.strokeStyle = 'rgba(20, 20, 19, 0.08)';
@@ -342,7 +728,6 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       ctx.lineTo(w, 44);
       ctx.stroke();
 
-      // HUD Text
       ctx.fillStyle = '#141413';
       ctx.font = '500 13px -apple-system, sans-serif';
       ctx.textAlign = 'left';
@@ -372,7 +757,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
         ctx.stroke();
       }
 
-      // Particles
+      // Smashed Brick Particles
       for (const p of particles) {
         ctx.fillStyle = p.color;
         ctx.globalAlpha = Math.max(0, p.life);
@@ -382,23 +767,59 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
       }
       ctx.globalAlpha = 1.0;
 
+      // Draw Falling Gifts (Capsule Badge with Emoji)
+      for (const g of gifts) {
+        if (!g.active) continue;
+
+        ctx.save();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.strokeStyle = g.color;
+        ctx.lineWidth = 1.5;
+
+        // Pill shape
+        ctx.beginPath();
+        (ctx as any).roundRect
+          ? (ctx as any).roundRect(g.x, g.y, g.width, g.height, 12)
+          : ctx.rect(g.x, g.y, g.width, g.height);
+        ctx.fill();
+        ctx.stroke();
+
+        // Emoji
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(g.emoji, g.x + g.width / 2, g.y + g.height / 2);
+        ctx.restore();
+      }
+
+      // Draw Floating Notification Text
+      for (const ft of floatingTexts) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, ft.alpha);
+        ctx.fillStyle = ft.color;
+        ctx.font = 'bold 13px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(ft.text, ft.x, ft.y);
+        ctx.restore();
+      }
+
       // Paddle - Claude Terracotta Accent
       ctx.fillStyle = Colors.accent.primary;
       ctx.beginPath();
       (ctx as any).roundRect
-        ? (ctx as any).roundRect(paddle.x, paddle.y, paddle.width, paddle.height, 6)
-        : ctx.rect(paddle.x, paddle.y, paddle.width, paddle.height);
+        ? (ctx as any).roundRect(paddle.x, paddle.y, paddleWidth, paddle.height, 6)
+        : ctx.rect(paddle.x, paddle.y, paddleWidth, paddle.height);
       ctx.fill();
 
-      // Ball
-      ctx.fillStyle = '#141413';
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-      ctx.fill();
+      // Draw Animal Character Balls! 🐼 🐱 🐶
+      for (const b of balls) {
+        if (!b.active) continue;
+        drawAnimalFace(ctx, b.x, b.y, b.radius, b.character);
+      }
 
-      // Overlays
+      // Game Over / Victory Overlays
       if (gameOver) {
-        ctx.fillStyle = 'rgba(250, 249, 245, 0.9)';
+        ctx.fillStyle = 'rgba(250, 249, 245, 0.92)';
         ctx.fillRect(0, 140, w, 140);
         ctx.textAlign = 'center';
         ctx.fillStyle = Colors.accent.primary;
@@ -408,7 +829,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
         ctx.fillStyle = '#5E5D59';
         ctx.fillText('Tap screen or press Space to play again', w / 2, 230);
       } else if (victory) {
-        ctx.fillStyle = 'rgba(250, 249, 245, 0.9)';
+        ctx.fillStyle = 'rgba(250, 249, 245, 0.92)';
         ctx.fillRect(0, 140, w, 140);
         ctx.textAlign = 'center';
         ctx.fillStyle = Colors.status.online;
@@ -426,6 +847,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
 
     return () => {
       cancelAnimationFrame(animId);
+      if (widePaddleTimer) clearTimeout(widePaddleTimer);
       canvas.removeEventListener('touchmove', onTouchMove);
       canvas.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('keydown', onKeyDown);
@@ -464,7 +886,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
           letterSpacing: '-0.3px',
           cursor: 'pointer',
         }}>
-          <span>🧱 BRICK SMASH</span>
+          <span>🐼 BRICK SMASH</span>
         </div>
 
         {/* Discreet PIN trigger */}
@@ -518,7 +940,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
         backgroundColor: Colors.bg.elevated,
       }}>
         <span>Drag or arrow keys to move paddle</span>
-        <span style={{ fontSize: 11, opacity: 0.8 }}>Claude Arcade</span>
+        <span style={{ fontSize: 11, opacity: 0.8 }}>🐾 Catch falling gifts!</span>
       </div>
     </div>
   );
