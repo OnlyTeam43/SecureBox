@@ -210,8 +210,9 @@ export async function fetchAndClearOfflineMessages(
     const { data, error } = await supabase
       .from('messages')
       .select('*')
-      .eq('receiver', targetReceiver)
+      .or(`receiver.eq.${targetReceiver},receiver.eq.${roomId}_broadcast`)
       .eq('type', 'room_msg')
+      .neq('sender', cleanHandle)
       .order('created_at', { ascending: true });
 
     if (error || !data || data.length === 0) return [];
@@ -251,6 +252,7 @@ export function subscribeToRoom(
     onMessage: (payload: any) => void;
     onTyping: (payload: { sender: string; isTyping: boolean }) => void;
     onPresenceChange: (activeUsers: string[]) => void;
+    onRoomExtended?: (newExpiresAt: number) => void;
   }
 ): RealtimeChannel {
   const channelName = `room_${roomId}`;
@@ -280,6 +282,11 @@ export function subscribeToRoom(
     .on('broadcast', { event: 'wipe_room' }, () => {
       localStorage.removeItem(`room_chat_${roomId}`);
       window.location.reload();
+    })
+    .on('broadcast', { event: 'extend_room' }, ({ payload }) => {
+      if (payload && payload.newExpiresAt) {
+        handlers.onRoomExtended?.(payload.newExpiresAt);
+      }
     })
     .on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState();
@@ -323,4 +330,52 @@ export async function sendWipeSignal(roomId: string) {
       .delete()
       .or(`receiver.eq.${roomId},receiver.like.${roomId}_%`);
   } catch (_) {}
+}
+
+/**
+ * Extend room lifespan by extra time (e.g. +24 hours)
+ */
+export async function extendRoomLifespan(
+  roomId: string,
+  extraMs: number = 86400000 // 24 hours
+): Promise<{ success: boolean; newExpiresAt: number }> {
+  const roomRecordId = `room_state_${roomId}`;
+
+  try {
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('id', roomRecordId)
+      .maybeSingle();
+
+    const currentMeta = data ? (typeof data.body === 'string' ? JSON.parse(data.body) : data.body) : {};
+    const baseTime = currentMeta.expiresAt && currentMeta.expiresAt > Date.now() ? currentMeta.expiresAt : Date.now();
+    const newExpiresAt = baseTime + extraMs;
+
+    currentMeta.expiresAt = newExpiresAt;
+
+    // Update room record in Supabase
+    await supabase
+      .from('messages')
+      .update({
+        body: JSON.stringify(currentMeta),
+        expires_at: newExpiresAt,
+      })
+      .eq('id', roomRecordId);
+
+    // Broadcast extension event to partner in real-time
+    const channel = supabase.getChannels().find((c) => c.topic === `realtime:room_${roomId}`);
+    if (channel) {
+      await channel.send({
+        type: 'broadcast',
+        event: 'extend_room',
+        payload: { roomId, newExpiresAt },
+      });
+    }
+
+    return { success: true, newExpiresAt };
+  } catch (err) {
+    console.warn('Extend room error:', err);
+    return { success: false, newExpiresAt: Date.now() + extraMs };
+  }
 }

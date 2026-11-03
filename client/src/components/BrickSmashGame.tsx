@@ -18,6 +18,7 @@ import { LEVEL_PATTERNS } from './levelPatterns';
 
 interface BrickSmashGameProps {
   onUnlockClick: () => void;
+  unreadCount?: number;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ interface FloatingText {
   vy: number;
 }
 
-export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick }) => {
+export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, unreadCount = 0 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Persistent User Game State
@@ -1674,29 +1675,30 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick })
               }}
             />
 
-            {/* Notification Badge Dot indicating current level */}
+            {/* Notification Badge Dot directly connected to room unread messages count */}
             <span
-              className="char-badge-pulse"
+              className={unreadCount > 0 ? "char-badge-pulse" : undefined}
               style={{
                 position: 'absolute',
-                top: -2,
-                right: -4,
-                minWidth: 17,
-                height: 17,
+                top: -3,
+                right: -5,
+                minWidth: 18,
+                height: 18,
                 borderRadius: 9,
-                backgroundColor: Colors.accent.primary,
-                color: '#FFFFFF',
+                backgroundColor: unreadCount > 0 ? '#E53E3E' : Colors.bg.secondary,
+                color: unreadCount > 0 ? '#FFFFFF' : Colors.text.placeholder,
                 fontSize: 10,
-                fontWeight: 700,
+                fontWeight: 800,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '0 3px',
-                border: '2px solid #FFFFFF',
-                boxShadow: '0 0 0 1.5px rgba(217, 119, 87, 0.35)',
+                border: unreadCount > 0 ? '2px solid #FFFFFF' : `1.5px solid ${Colors.border}`,
+                boxShadow: unreadCount > 0 ? '0 0 0 1.5px rgba(229, 62, 62, 0.4)' : 'none',
+                transition: 'all 0.2s ease',
               }}
             >
-              {currentLevel}
+              {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           </button>
 

@@ -9,6 +9,7 @@ export interface RoomMetadata {
   partnerHandle: string | null;
   isCreator: boolean;
   createdAt: number;
+  expiresAt?: number;
 }
 
 export interface ChatMessage {

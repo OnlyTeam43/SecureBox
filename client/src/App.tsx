@@ -17,6 +17,7 @@ import {
   subscribeToRoom,
   sendTypingStatus,
   sendWipeSignal,
+  extendRoomLifespan,
 } from './services/supabase';
 
 import { BrickSmashGame } from './components/BrickSmashGame';
@@ -41,6 +42,11 @@ export const App: React.FC = () => {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareLink, setShareLink] = useState('');
   const [pendingJoin, setPendingJoin] = useState<{ roomId: string; secretKey: string } | null>(null);
+  const [unreadCount, setUnreadCount] = useState<number>(() => {
+    const activeId = localStorage.getItem('securebox_active_room_id');
+    if (!activeId) return 0;
+    return parseInt(localStorage.getItem(`securebox_unread_count_${activeId}`) || '0', 10);
+  });
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
@@ -48,6 +54,34 @@ export const App: React.FC = () => {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const pendingUnlockAction = useRef<(() => void) | null>(null);
+
+  // Reset unread count to 0 upon entering chat
+  useEffect(() => {
+    if (screenMode === 'chat' && activeRoom) {
+      setUnreadCount(0);
+      localStorage.setItem(`securebox_unread_count_${activeRoom.roomId}`, '0');
+    }
+  }, [screenMode, activeRoom]);
+
+  // Restore active room & cryptoKey in background on load
+  useEffect(() => {
+    const activeId = localStorage.getItem('securebox_active_room_id');
+    const stored = localStorage.getItem('securebox_rooms');
+    const map = stored ? JSON.parse(stored) : {};
+
+    if (activeId && map[activeId]) {
+      const room = map[activeId] as RoomMetadata;
+      const isStillValid =
+        Date.now() - (room.createdAt || 0) < 24 * 60 * 60 * 1000 ||
+        (room.expiresAt && Date.now() < room.expiresAt);
+      if (isStillValid) {
+        setActiveRoom(room);
+        importSecretKey(room.secretKey)
+          .then((key) => setCryptoKey(key))
+          .catch(() => {});
+      }
+    }
+  }, []);
 
   // Parse URL on load
   useEffect(() => {
@@ -152,6 +186,14 @@ export const App: React.FC = () => {
         const isOnline = activeUsers.some((u) => u.toLowerCase() === cleanPartner);
         setIsPartnerOnline(isOnline);
       },
+      onRoomExtended: (newExpiresAt) => {
+        setActiveRoom((prev) => {
+          if (!prev) return null;
+          const updated = { ...prev, expiresAt: newExpiresAt };
+          saveRoom(updated);
+          return updated;
+        });
+      },
     });
 
     return () => {
@@ -192,6 +234,16 @@ export const App: React.FC = () => {
           localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
           return next;
         });
+
+        if (screenMode !== 'chat') {
+          setUnreadCount((prev) => {
+            const next = prev + 1;
+            if (activeRoom) {
+              localStorage.setItem(`securebox_unread_count_${activeRoom.roomId}`, String(next));
+            }
+            return next;
+          });
+        }
       } catch (err) {
         console.warn('Failed to decrypt packet:', err);
       }
@@ -363,6 +415,21 @@ export const App: React.FC = () => {
     }, 2000);
   };
 
+  const handleExtendRoom = async () => {
+    if (!activeRoom) return;
+    const confirmExtend = confirm('Extend this room lifespan by another 24 hours?');
+    if (!confirmExtend) return;
+
+    const res = await extendRoomLifespan(activeRoom.roomId, 86400000);
+    const updated: RoomMetadata = {
+      ...activeRoom,
+      expiresAt: res.newExpiresAt,
+    };
+    saveRoom(updated);
+    setActiveRoom(updated);
+    alert('Room successfully extended by +24 hours!');
+  };
+
   const handleRoomOptions = () => {
     if (!activeRoom) return;
     const choice = prompt(
@@ -417,6 +484,7 @@ export const App: React.FC = () => {
         {/* Screen 1: Brick Smash Game Camouflage */}
         {screenMode === 'game' && (
           <BrickSmashGame
+            unreadCount={unreadCount}
             onUnlockClick={() => {
               pendingUnlockAction.current = () => {
                 // Return to active 24-hour room anytime after minimise
@@ -481,6 +549,9 @@ export const App: React.FC = () => {
             <ChatHeader
               partnerName={activeRoom.partnerHandle || 'Waiting for partner...'}
               isOnline={isPartnerOnline}
+              roomCreatedAt={activeRoom.createdAt}
+              roomExpiresAt={activeRoom.expiresAt}
+              onExtendRoom={handleExtendRoom}
               onGameClick={() => {
                 setScreenMode('game');
                 document.title = 'Brick Smash | Arcade Retro Game';

@@ -1,7 +1,7 @@
 // client/src/components/ChatHeader.tsx
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Colors } from '../theme/tokens';
-import { Gamepad2, Lock, MoreVertical, ArrowLeft } from 'lucide-react';
+import { Gamepad2, Lock, MoreVertical, ArrowLeft, Clock } from 'lucide-react';
 
 interface ChatHeaderProps {
   partnerName: string;
@@ -9,6 +9,9 @@ interface ChatHeaderProps {
   onGameClick: () => void;
   onLockClick: () => void;
   onOptionsClick: () => void;
+  roomCreatedAt?: number;
+  roomExpiresAt?: number;
+  onExtendRoom?: () => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -17,8 +20,26 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onGameClick,
   onLockClick,
   onOptionsClick,
+  roomCreatedAt,
+  roomExpiresAt,
+  onExtendRoom,
 }) => {
   const initial = partnerName ? partnerName.charAt(0).toUpperCase() : 'P';
+
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15000); // refresh countdown every 15s
+    return () => clearInterval(timer);
+  }, []);
+
+  const effectiveExpiresAt =
+    roomExpiresAt || (roomCreatedAt ? roomCreatedAt + 24 * 60 * 60 * 1000 : Date.now() + 24 * 60 * 60 * 1000);
+  const diff = Math.max(0, effectiveExpiresAt - now);
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  const timeRemainingStr = diff <= 0 ? 'Expired' : `${hours}h ${minutes}m left`;
+  const isExpiringSoon = hours < 2;
 
   return (
     <header style={{
@@ -83,7 +104,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
             <span style={{
-              fontSize: 14,
+              fontSize: 13.5,
               fontWeight: 600,
               color: Colors.text.primary,
               whiteSpace: 'nowrap',
@@ -100,7 +121,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                 backgroundColor: isOnline ? Colors.status.online : Colors.status.offline,
                 flexShrink: 0,
               }} />
-              <span style={{ fontSize: 11, color: Colors.text.placeholder }}>
+              <span style={{ fontSize: 10.5, color: Colors.text.placeholder }}>
                 {isOnline ? 'Online' : 'Offline'}
               </span>
             </div>
@@ -108,15 +129,50 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         </div>
       </div>
 
-      {/* Right Actions: Lock with PIN & Options */}
+      {/* Middle/Right: Room 24h Countdown Timer & +24h Extension Button */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          padding: '4px 8px',
+          borderRadius: 9999,
+          backgroundColor: isExpiringSoon ? 'rgba(229, 62, 62, 0.08)' : Colors.bg.secondary,
+          border: `1px solid ${isExpiringSoon ? 'rgba(229, 62, 62, 0.3)' : Colors.border}`,
+          fontSize: 11,
+          color: isExpiringSoon ? '#E53E3E' : Colors.text.secondary,
+          fontWeight: 600,
+        }}>
+          <Clock size={12} color={isExpiringSoon ? '#E53E3E' : Colors.accent.primary} />
+          <span>{timeRemainingStr}</span>
+          {onExtendRoom && (
+            <button
+              onClick={onExtendRoom}
+              title="Extend room cycle by +24 hours"
+              style={{
+                backgroundColor: Colors.accent.soft,
+                border: `1px solid ${Colors.accent.light}`,
+                color: Colors.accent.primary,
+                fontSize: 10,
+                fontWeight: 700,
+                cursor: 'pointer',
+                padding: '2px 5px',
+                borderRadius: 5,
+                marginLeft: 1,
+              }}
+            >
+              +24h
+            </button>
+          )}
+        </div>
+
         {/* Lock with PIN */}
         <button
           onClick={onLockClick}
           title="Lock room with PIN"
           style={{
-            width: 36,
-            height: 36,
+            width: 34,
+            height: 34,
             borderRadius: 10,
             backgroundColor: Colors.accent.soft,
             border: `1px solid ${Colors.border}`,
@@ -135,8 +191,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           onClick={onOptionsClick}
           title="Room Options"
           style={{
-            width: 36,
-            height: 36,
+            width: 34,
+            height: 34,
             borderRadius: 10,
             backgroundColor: 'transparent',
             border: 'none',
