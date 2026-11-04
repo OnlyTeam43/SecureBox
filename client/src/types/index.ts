@@ -39,5 +39,6 @@ export interface RoomStateResponse {
   isCreator: boolean;
   isFull: boolean;
   partner: string | null;
+  destroyed?: boolean;
   error?: string;
 }

@@ -96,12 +96,13 @@ export async function exportKeyToString(key: CryptoKey): Promise<string> {
  * Import a URL-safe secret key string into a CryptoKey for AES-GCM
  */
 export async function importSecretKey(keyString: string): Promise<CryptoKey> {
-  const base64 = fromBase64Url(keyString);
+  const clean = (keyString || '').trim().replace(/^#/, '');
+  const base64 = fromBase64Url(clean);
   const rawKey = base64ToUint8(base64);
   return await window.crypto.subtle.importKey(
     'raw',
     rawKey as any,
-    { name: 'AES-GCM', length: 256 },
+    { name: 'AES-GCM' },
     false,
     ['encrypt', 'decrypt']
   );

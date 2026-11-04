@@ -70,11 +70,29 @@ export async function getOrCreateRoomState(
         });
         return { success: true, isCreator: true, isFull: false, partner: null };
       } else {
-        return { success: true, isCreator: false, isFull: false, partner: null };
+        // Room does not exist on server (was never created or has been destroyed)
+        return {
+          success: false,
+          isCreator: false,
+          isFull: false,
+          partner: null,
+          destroyed: true,
+          error: 'This room has been destroyed and the invite link has expired.',
+        };
       }
     }
 
     const meta = typeof data.body === 'string' ? JSON.parse(data.body) : data.body;
+    if (meta && meta.destroyed) {
+      return {
+        success: false,
+        isCreator: false,
+        isFull: false,
+        partner: null,
+        destroyed: true,
+        error: 'This room was destroyed by the creator. The invite link has expired.',
+      };
+    }
     const creator = (meta.creator || '').trim();
     const guest = (meta.guest || '').trim();
 
@@ -365,10 +383,21 @@ export async function sendTypingStatus(roomId: string, myHandle: string, session
 
 export async function sendWipeSignal(roomId: string) {
   try {
+    // 1. Purge ephemeral relay packets
     await supabase.from('messages').delete().eq('receiver', roomId);
     await supabase.from('messages').delete().eq('receiver', `relay_${roomId}`);
-    await supabase.from('messages').delete().eq('id', `room_state_${roomId}`);
 
+    // 2. Mark the room state as explicitly destroyed on Supabase (expires the invite link)
+    await supabase.from('messages').upsert({
+      id: `room_state_${roomId}`,
+      sender: 'system',
+      receiver: roomId,
+      body: JSON.stringify({ destroyed: true, destroyedAt: Date.now() }),
+      type: 'room_meta',
+      created_at: Date.now(),
+    });
+
+    // 3. Broadcast wipe to active real-time sockets
     const channel = supabase.getChannels().find((c) => c.topic === `realtime:room_${roomId}`);
     if (channel) {
       await channel.send({

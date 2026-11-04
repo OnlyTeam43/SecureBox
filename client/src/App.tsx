@@ -229,14 +229,25 @@ export const App: React.FC = () => {
       const map = stored ? JSON.parse(stored) : {};
 
       if (map[roomId]) {
-        // Existing saved room: ask for Hub Password to unlock
+        // Existing saved room: verify it's still alive on the server first
         const room = map[roomId] as RoomMetadata;
+        const state = await getOrCreateRoomState(roomId, room.myHandle, room.isCreator);
+        if (state.destroyed || (!state.success && !room.isCreator)) {
+          deleteRoom(roomId);
+          alert('This room was destroyed by the creator. The invite link has expired.');
+          return;
+        }
         setPinModalTitle('Unlock Room');
         setPinModalSubtitle('Enter your Hub Password to open chat');
         pendingUnlockAction.current = () => enterRoom(room);
         setIsPinModalOpen(true);
       } else if (secretKey) {
-        // Direct room invite via link click!
+        // Direct room invite via link click: verify room is still alive on server!
+        const state = await getOrCreateRoomState(roomId, 'guest', false);
+        if (state.destroyed || !state.success) {
+          alert('This room has been destroyed by the creator. The invite link has expired.');
+          return;
+        }
         const hasProfile = !!localStorage.getItem('securebox_user_handle') && !!localStorage.getItem(HUB_KEY);
         if (!hasProfile) {
           // Brand new user from link: must complete handle & hub password onboarding first
@@ -248,12 +259,16 @@ export const App: React.FC = () => {
           setPinModalTitle('Unlock Secret Room Invite');
           setPinModalSubtitle('Enter your Hub Password to access this room');
           pendingUnlockAction.current = async () => {
-            const state = await getOrCreateRoomState(roomId, userHandle, false);
+            const joinState = await getOrCreateRoomState(roomId, userHandle, false);
+            if (joinState.destroyed || !joinState.success) {
+              alert('This room has been destroyed by the creator. The invite link has expired.');
+              return;
+            }
             const room: RoomMetadata = {
               roomId,
               secretKey,
               myHandle: userHandle,
-              partnerHandle: state.partner || null,
+              partnerHandle: joinState.partner || null,
               isCreator: false,
               createdAt: Date.now(),
             };
@@ -425,24 +440,33 @@ export const App: React.FC = () => {
       const packets = await fetchAndClearOfflineMessages(activeRoom.roomId, mySess);
       packets.forEach((p) => handleIncomingPacket({ ...p, sessionId: '' }));
 
-      // 2. Discover partner handle if not set yet
-      if (!activeRoomRef.current?.partnerHandle) {
-        try {
-          const state = await getOrCreateRoomState(
-            activeRoom.roomId,
-            activeRoom.myHandle,
-            activeRoom.isCreator
-          );
-          if (state.partner) {
-            const cur = activeRoomRef.current;
-            if (cur && !cur.partnerHandle) {
-              const updated = { ...cur, partnerHandle: state.partner };
-              saveRoom(updated);
-              setActiveRoom(updated);
-            }
+      // 2. Discover partner handle and check if creator destroyed the room
+      try {
+        const state = await getOrCreateRoomState(
+          activeRoom.roomId,
+          activeRoom.myHandle,
+          activeRoom.isCreator
+        );
+        if (state.destroyed || (!state.success && !activeRoom.isCreator)) {
+          const targetId = activeRoom.roomId;
+          deleteRoom(targetId);
+          localStorage.removeItem(ACTIVE_ROOM_KEY);
+          setMessages([]);
+          setActiveRoom(null);
+          setCryptoKey(null);
+          alert('This room was destroyed by the creator and completely wiped.');
+          setScreenMode('hub');
+          return;
+        }
+        if (state.partner) {
+          const cur = activeRoomRef.current;
+          if (cur && !cur.partnerHandle) {
+            const updated = { ...cur, partnerHandle: state.partner };
+            saveRoom(updated);
+            setActiveRoom(updated);
           }
-        } catch (_) {}
-      }
+        }
+      } catch (_) {}
     };
 
     pullOfflineAndCheckPartner();
@@ -709,7 +733,13 @@ export const App: React.FC = () => {
           <RoomHub
             savedRooms={savedRooms}
             onCreateRoom={handleCreateRoom}
-            onEnterRoom={(room) => {
+            onEnterRoom={async (room) => {
+              const state = await getOrCreateRoomState(room.roomId, room.myHandle, room.isCreator);
+              if (state.destroyed || (!state.success && !room.isCreator)) {
+                deleteRoom(room.roomId);
+                alert('This room was destroyed by the creator and has been removed from your saved rooms.');
+                return;
+              }
               setMessages([]);
               enterRoom(room);
             }}
@@ -784,6 +814,11 @@ export const App: React.FC = () => {
               const invite = pendingInvite;
               setPendingInvite(null);
               const state = await getOrCreateRoomState(invite.roomId, chosenHandle, false);
+              if (state.destroyed || !state.success) {
+                alert('This room has been destroyed by the creator. The invite link has expired.');
+                setScreenMode('hub');
+                return;
+              }
               const room: RoomMetadata = {
                 roomId: invite.roomId,
                 secretKey: invite.secretKey,
