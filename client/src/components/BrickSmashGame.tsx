@@ -1,17 +1,18 @@
 // client/src/components/BrickSmashGame.tsx
 // High-Performance 60-120 FPS Physics Engine with 0ms React State Overhead
 // Pre-rendered offscreen sprite caches for Animal Character Balls (Panda, Cat, Puppy) using real assets
-// Clean vector arcade gift capsules (NO EMOJIS), BOMB bricks with 25% blast mechanic, Speed Controller, Sound toggle & Kanelijo style modal
+// Clean vector arcade gift capsules (NO EMOJIS), BOMB bricks with 25% blast mechanic, Speed Controller, Sound toggle & Dedicated SecureBox Showcase
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
 import { Lock, Volume2, VolumeX, Zap } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
-import { FeaturesModal } from './FeaturesModal';
+
 
 interface BrickSmashGameProps {
   onUnlockClick: () => void;
   unreadCount?: number;
+  onOpenSecureboxPage?: () => void;
 }
 
 type AnimalType = 'panda' | 'cat' | 'puppy';
@@ -62,9 +63,9 @@ interface Brick {
 
 const SPEED_OPTIONS = [0.8, 1.0, 1.3, 1.6];
 
-export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, unreadCount = 0 }) => {
+export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, unreadCount = 0, onOpenSecureboxPage }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
+
 
   // Speed multiplier state
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(() => {
@@ -901,7 +902,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
           ctx.stroke();
         }
 
-        // HUD Header (kanelijo style: LVL, SCORE, BEST, LIVES)
+        // HUD Header (Arcade status: LVL, SCORE, BEST, LIVES)
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, w, 44);
         ctx.strokeStyle = 'rgba(20, 20, 19, 0.08)';
@@ -1067,7 +1068,14 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       }}>
         {/* Clickable Title: Brick Wall Peeker + "Brick Smash × SecureBox" Font (NO INFO TAG) */}
         <div
-          onClick={() => setIsFeaturesOpen(true)}
+          onClick={() => {
+            if (onOpenSecureboxPage) {
+              onOpenSecureboxPage();
+            } else {
+              window.history.pushState(null, '', '/Securebox');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }
+          }}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1077,7 +1085,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             borderRadius: 8,
             transition: 'background-color 0.15s ease',
           }}
-          title="SecureBox by Kanelijo & Team43 — Click to open blueprint"
+          title="SecureBox — Click to explore features and download APK"
         >
           {/* Brick wall with panda peeking behind it */}
           <BrickWallPeeker width={34} height={28} />
@@ -1276,12 +1284,12 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         <span style={{ fontSize: 11, opacity: 0.85 }}>Bombs Detonate 25% • Vector Powerups Active</span>
       </div>
 
-      {/* Complete SecureBox Features Information Modal (kanelijo.com/securebox style) */}
-      <FeaturesModal
-        isOpen={isFeaturesOpen}
-        onClose={() => setIsFeaturesOpen(false)}
-        onOpenVault={onUnlockClick}
-      />
+
+
+
+
+
+
     </div>
   );
 };

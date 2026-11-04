@@ -29,11 +29,17 @@ import { ShareModal } from './components/ShareModal';
 import { ChatHeader } from './components/ChatHeader';
 import { ChatMessages } from './components/ChatMessages';
 import { Composer } from './components/Composer';
+import { SecureboxPage } from './components/SecureboxPage';
 
 // ─── Storage Key Constants ──────────────────────────────────────────────────
 const HUB_KEY = 'securebox_hub_hash';
 const ROOMS_KEY = 'securebox_rooms';
 const ACTIVE_ROOM_KEY = 'securebox_active_room_id';
+
+const isSecureboxRoute = (path: string): boolean => {
+  const clean = path.toLowerCase().replace(/\/+$/, '');
+  return clean === '/securebox' || clean.endsWith('/securebox');
+};
 
 // Helper to sum unread messages across all saved rooms
 const getTotalUnreadCount = (): number => {
@@ -53,6 +59,17 @@ const getTotalUnreadCount = (): number => {
 };
 
 export const App: React.FC = () => {
+  const [isDedicatedPage, setIsDedicatedPage] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? isSecureboxRoute(window.location.pathname) : false
+  );
+
+  useEffect(() => {
+    const handlePop = () => {
+      setIsDedicatedPage(isSecureboxRoute(window.location.pathname));
+    };
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
+  }, []);
   const [screenMode, setScreenMode] = useState<ScreenMode>('game');
   const screenModeRef = useRef<ScreenMode>(screenMode);
   screenModeRef.current = screenMode;
@@ -593,6 +610,40 @@ export const App: React.FC = () => {
     }
   };
 
+  if (isDedicatedPage) {
+
+
+    return (
+
+
+      <SecureboxPage
+
+
+        onLaunchApp={() => {
+
+
+          window.history.pushState(null, '', '/');
+
+
+          setIsDedicatedPage(false);
+
+
+          setScreenMode('game');
+
+
+        }}
+
+
+      />
+
+
+    );
+
+
+  }
+
+
+
   return (
     <div style={{
       width: '100%',
@@ -614,6 +665,10 @@ export const App: React.FC = () => {
         {screenMode === 'game' && (
           <BrickSmashGame
             unreadCount={unreadCount}
+            onOpenSecureboxPage={() => {
+              window.history.pushState(null, '', '/Securebox');
+              setIsDedicatedPage(true);
+            }}
             onUnlockClick={() => {
               // Action when unlocked via Hub Password
               pendingUnlockAction.current = () => {

@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build:web",
+  "buildCommand": "git lfs pull || true && npm run build:web",
   "outputDirectory": "dist",
   "rewrites": [
     {
