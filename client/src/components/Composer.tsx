@@ -19,8 +19,15 @@ export const Composer: React.FC<ComposerProps> = ({
   const [text, setText] = useState('');
   const [isCompressing, setIsCompressing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textInputRef = useRef<HTMLInputElement | null>(null);
   const typingActiveRef = useRef(false);
   const typingStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (replyingTo) {
+      textInputRef.current?.focus();
+    }
+  }, [replyingTo]);
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -159,6 +166,7 @@ export const Composer: React.FC<ComposerProps> = ({
 
         <div style={{ flex: 1, position: 'relative' }}>
           <input
+            ref={textInputRef}
             type="text"
             value={text}
             onChange={handleChange}

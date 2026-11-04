@@ -48,26 +48,43 @@ const StatusTick: React.FC<{ status?: 'sent' | 'delivered' | 'seen' }> = ({ stat
   return <CheckCheck size={12} color={Colors.accent.primary} />;
 };
 
-const ReplyPreview: React.FC<{ replyTo: ChatMessage['replyTo']; myHandle: string }> = ({ replyTo, myHandle }) => {
+const ReplyPreview: React.FC<{
+  replyTo: ChatMessage['replyTo'];
+  onClick?: () => void;
+}> = ({ replyTo, onClick }) => {
   if (!replyTo) return null;
-  const isMe = replyTo.sender === myHandle;
   return (
-    <div style={{
-      borderLeft: `3px solid ${Colors.accent.primary}`,
-      paddingLeft: 8,
-      marginBottom: 6,
-      opacity: 0.8,
-    }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: Colors.accent.primary, marginBottom: 2 }}>
-        {isMe ? 'You' : replyTo.sender}
+    <div
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      style={{
+        borderLeft: `3px solid ${Colors.accent.primary}`,
+        padding: '5px 8px',
+        marginBottom: 6,
+        backgroundColor: 'rgba(0, 0, 0, 0.05)',
+        borderRadius: 4,
+        cursor: 'pointer',
+        userSelect: 'none',
+        transition: 'background-color 0.15s ease',
+      }}
+      title="Tap to jump to original message"
+    >
+      <div style={{ fontSize: 11, fontWeight: 700, color: Colors.accent.primary, marginBottom: 2 }}>
+        {replyTo.sender}
       </div>
       {replyTo.media && !replyTo.text && (
         <div style={{ fontSize: 11, color: Colors.text.secondary }}>📷 Photo</div>
       )}
       {replyTo.text && (
         <div style={{
-          fontSize: 12, color: Colors.text.secondary,
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180,
+          fontSize: 12,
+          color: Colors.text.secondary,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: 220,
         }}>
           {replyTo.text}
         </div>
@@ -77,16 +94,16 @@ const ReplyPreview: React.FC<{ replyTo: ChatMessage['replyTo']; myHandle: string
 };
 
 export const ChatMessages: React.FC<ChatMessagesProps> = ({
-  messages, typingUser, partnerLastSeen, onReply, onMessageVisible,
+  messages, typingUser, onReply, onMessageVisible,
 }) => {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   // Swipe-to-reply state
   const [swipeState, setSwipeState] = useState<{ id: string; x: number } | null>(null);
   const touchStartX = useRef<number>(0);
   const touchStartY = useRef<number>(0);
-  const swipedRef = useRef<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -96,41 +113,40 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
   useEffect(() => {
     const incoming = messages.filter((m) => !m.isOutgoing && m.status !== 'seen');
     incoming.forEach((m) => onMessageVisible(m.id));
-  }, [messages.length]);
+  }, [messages.length, onMessageVisible]);
+
+  const scrollToMessage = useCallback((msgId: string) => {
+    const el = document.getElementById(`msg-${msgId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedId(msgId);
+      setTimeout(() => setHighlightedId(null), 1800);
+    }
+  }, []);
 
   const handleTouchStart = useCallback((e: React.TouchEvent, msgId: string) => {
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
-    swipedRef.current = msgId;
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent, msgId: string) => {
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
-    if (dy > 20) return; // vertical scroll wins
-    if (dx > 8 && dx < 80) {
-      setSwipeState({ id: msgId, x: dx });
+    if (dy > 30) return; // user is scrolling vertically
+    if (Math.abs(dx) > 6) {
+      const clamped = dx > 0 ? Math.min(dx, 65) : Math.max(dx, -65);
+      setSwipeState({ id: msgId, x: clamped });
     }
   }, []);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent, msg: ChatMessage) => {
     const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
     setSwipeState(null);
-    swipedRef.current = null;
-    if (dx > 50) {
+    if (Math.abs(dx) > 35 && dy < 35) {
       onReply(msg);
     }
   }, [onReply]);
-
-  const lastSeenStr = partnerLastSeen
-    ? (() => {
-        const diff = Date.now() - partnerLastSeen;
-        if (diff < 60000) return 'last seen just now';
-        if (diff < 3600000) return `last seen ${Math.floor(diff / 60000)}m ago`;
-        if (diff < 86400000) return `last seen ${Math.floor(diff / 3600000)}h ago`;
-        return `last seen ${new Date(partnerLastSeen).toLocaleDateString()}`;
-      })()
-    : null;
 
   return (
     <div style={{
@@ -156,36 +172,46 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
       </div>
 
       {/* Messages */}
-      {messages.map((msg, idx) => {
+      {messages.map((msg) => {
         const isOut = msg.isOutgoing;
         const timeStr = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const swipeX = (swipeState?.id === msg.id) ? swipeState.x : 0;
-        const isLastOut = isOut && (idx === messages.length - 1 || !messages.slice(idx + 1).some(m => m.isOutgoing));
+        const isHighlighted = highlightedId === msg.id;
 
         return (
           <div
+            id={`msg-${msg.id}`}
             key={msg.id}
             style={{
               display: 'flex',
               flexDirection: 'column',
               alignSelf: isOut ? 'flex-end' : 'flex-start',
-              maxWidth: '82%',
+              maxWidth: '84%',
               gap: 2,
               transform: `translateX(${swipeX}px)`,
-              transition: swipeX === 0 ? 'transform 0.2s ease' : 'none',
+              transition: swipeX === 0 ? 'transform 0.2s ease, box-shadow 0.25s ease' : 'none',
               position: 'relative',
+              borderRadius: 16,
+              boxShadow: isHighlighted ? `0 0 0 2.5px ${Colors.accent.primary}, 0 4px 14px rgba(217, 119, 87, 0.35)` : undefined,
             }}
             onTouchStart={(e) => handleTouchStart(e, msg.id)}
             onTouchMove={(e) => handleTouchMove(e, msg.id)}
             onTouchEnd={(e) => handleTouchEnd(e, msg)}
           >
-            {/* Reply arrow icon shown on swipe */}
-            {swipeX > 20 && (
+            {/* Reply icon indicator when dragging/swiping */}
+            {Math.abs(swipeX) > 15 && (
               <div style={{
-                position: 'absolute', left: -32, top: '50%',
-                transform: 'translateY(-50%)', opacity: Math.min(1, (swipeX - 20) / 30),
+                position: 'absolute',
+                left: swipeX > 0 ? -28 : undefined,
+                right: swipeX < 0 ? -28 : undefined,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                opacity: Math.min(1, (Math.abs(swipeX) - 15) / 25),
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}>
-                <Reply size={20} color={Colors.accent.primary} />
+                <Reply size={18} color={Colors.accent.primary} />
               </div>
             )}
 
@@ -200,8 +226,13 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
               color: Colors.text.primary,
               fontSize: 14.5, lineHeight: 1.45, wordBreak: 'break-word',
             }}>
-              {/* Reply preview */}
-              {msg.replyTo && <ReplyPreview replyTo={msg.replyTo} myHandle={msg.sender} />}
+              {/* Linked Reply Preview */}
+              {msg.replyTo && (
+                <ReplyPreview
+                  replyTo={msg.replyTo}
+                  onClick={() => msg.replyTo?.id && scrollToMessage(msg.replyTo.id)}
+                />
+              )}
 
               {msg.media && (
                 <div
@@ -218,15 +249,36 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
               {msg.text && <div>{msg.text}</div>}
             </div>
 
-            {/* Time + ticks */}
+            {/* Time + Status Ticks + Quick Reply Button */}
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 4,
+              display: 'flex', alignItems: 'center', gap: 5,
               fontSize: 10, color: Colors.text.placeholder,
               alignSelf: isOut ? 'flex-end' : 'flex-start',
               padding: '0 4px',
             }}>
               <span>{timeStr}</span>
               {isOut && <StatusTick status={msg.status} />}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReply(msg);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: '2px 4px',
+                  cursor: 'pointer',
+                  color: Colors.text.placeholder,
+                  display: 'flex',
+                  alignItems: 'center',
+                  borderRadius: 4,
+                  opacity: 0.7,
+                  marginLeft: 2,
+                }}
+                title="Reply"
+              >
+                <Reply size={11} />
+              </button>
             </div>
           </div>
         );

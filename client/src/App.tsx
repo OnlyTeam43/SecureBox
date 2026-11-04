@@ -314,6 +314,8 @@ export const App: React.FC = () => {
           media: parsed.media || null,
           timestamp: packet.timestamp || Date.now(),
           isOutgoing: false,
+          status: 'delivered',
+          replyTo: parsed.replyTo || null,
         };
 
         setMessages((prev) => {
@@ -515,10 +517,10 @@ export const App: React.FC = () => {
   };
 
   // ─── Send Message ────────────────────────────────────────────────────────
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, replyTo?: ChatMessage['replyTo']) => {
     if (!activeRoom || !cryptoKey) return;
     const isOnline = isPartnerOnline;
-    const payload = JSON.stringify({ text });
+    const payload = JSON.stringify({ text, replyTo: replyTo || null });
 
     try {
       const encrypted = await encryptData(cryptoKey, payload);
@@ -531,6 +533,8 @@ export const App: React.FC = () => {
         media: null,
         timestamp: Date.now(),
         isOutgoing: true,
+        status: 'sent',
+        replyTo: replyTo || null,
       };
 
       setMessages((prev) => {
@@ -554,10 +558,10 @@ export const App: React.FC = () => {
   };
 
   // ─── Send Media ──────────────────────────────────────────────────────────
-  const handleSendMedia = async (mediaDataUrl: string) => {
+  const handleSendMedia = async (mediaDataUrl: string, replyTo?: ChatMessage['replyTo']) => {
     if (!activeRoom || !cryptoKey) return;
     const isOnline = isPartnerOnline;
-    const payload = JSON.stringify({ media: mediaDataUrl });
+    const payload = JSON.stringify({ media: mediaDataUrl, replyTo: replyTo || null });
 
     try {
       const encrypted = await encryptData(cryptoKey, payload);
@@ -570,6 +574,8 @@ export const App: React.FC = () => {
         media: mediaDataUrl,
         timestamp: Date.now(),
         isOutgoing: true,
+        status: 'sent',
+        replyTo: replyTo || null,
       };
 
       setMessages((prev) => {
