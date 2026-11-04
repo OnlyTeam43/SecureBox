@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
-import { Lock, Volume2, VolumeX, Zap, Trophy, RotateCcw, ArrowRight, UploadCloud } from 'lucide-react';
+import { Lock, Volume2, VolumeX, Zap, Trophy, RotateCcw, ArrowRight, UploadCloud, Menu, X, ChevronRight, ShieldCheck } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
 
 interface BrickSmashGameProps {
@@ -74,6 +74,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
 
   // High-level React game states for clean UI overlays
   const [gameState, setGameState] = useState<GamePlayState>('ready');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [levelDisplay, setLevelDisplay] = useState(1);
   const [scoreDisplay, setScoreDisplay] = useState(0);
 
@@ -1416,9 +1417,9 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
           </div>
         </div>
 
-        {/* Right Controls: Speed Controller, Sound Toggle, Animal Companion Badge, PIN Trigger */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {/* QuickDrop Media Shuttle Button */}
+        {/* Right Controls: QuickDrop, PIN, and Hamburger Menu */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+          {/* QuickDrop Media Shuttle Button (Kept out on header) */}
           {onOpenQuickDrop && (
             <button
               onClick={onOpenQuickDrop}
@@ -1442,126 +1443,316 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
               <span>QuickDrop</span>
             </button>
           )}
-          {/* Ball Speed Controller Button */}
+
+          {/* PIN Trigger Button (Kept out on header) */}
           <button
-            onClick={cycleSpeed}
+            onClick={onUnlockClick}
             style={{
-              padding: '5px 8px',
-              borderRadius: 8,
-              border: `1px solid ${Colors.border}`,
-              backgroundColor: Colors.bg.primary,
               display: 'flex',
               alignItems: 'center',
               gap: 4,
-              cursor: 'pointer',
-              color: Colors.text.secondary,
-              fontSize: 11,
-              fontWeight: 700,
-              fontFamily: 'monospace',
-            }}
-            title={`Ball Speed: ${speedMultiplier}x (Click to cycle)`}
-          >
-            <Zap size={13} color="#E05A38" />
-            <span>{speedMultiplier}x</span>
-          </button>
-
-          {/* Sound Mute/Unmute Toggle Button */}
-          <button
-            onClick={toggleSound}
-            style={{
-              padding: '6px',
+              padding: '5px 9px',
               borderRadius: 8,
               border: `1px solid ${Colors.border}`,
-              backgroundColor: isMuted ? Colors.bg.primary : Colors.accent.soft,
-              color: isMuted ? Colors.text.secondary : Colors.accent.primary,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              backgroundColor: unreadCount > 0 ? Colors.accent.soft : 'transparent',
+              color: unreadCount > 0 ? Colors.accent.primary : Colors.text.secondary,
+              fontSize: 12,
+              fontWeight: 600,
               cursor: 'pointer',
-            }}
-            title={isMuted ? 'Turn Sound ON' : 'Turn Sound OFF'}
-          >
-            {isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
-          </button>
-
-          {/* Animal companion icon with direct unread message notification badge */}
-          <div
-            onClick={onUnlockClick}
-            style={{
               position: 'relative',
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              backgroundColor: '#FAF0EB',
-              border: unreadCount > 0 ? '1.5px solid #EF4444' : `1px solid ${Colors.border}`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
+              transition: 'all 0.15s ease',
             }}
-            title={unreadCount > 0 ? `${unreadCount} unread message(s) - Click to unlock` : 'Secret Vault / Open Chat'}
+            title="Unlock Secret Vault / Enter PIN"
           >
-            <img
-              src="/characters/panda-idle.png"
-              alt="Companion"
-              style={{
-                width: 25,
-                height: 25,
-                borderRadius: '50%',
-                objectFit: 'contain',
-              }}
-            />
-
-            {/* Notification Badge Dot (Vibrant red, only visible when unreadCount > 0) */}
+            <Lock size={13} />
+            <span>PIN</span>
             {unreadCount > 0 && (
               <span
                 style={{
                   position: 'absolute',
                   top: -4,
                   right: -4,
-                  minWidth: 16,
-                  height: 16,
+                  minWidth: 15,
+                  height: 15,
                   borderRadius: '999px',
                   backgroundColor: '#EF4444',
                   color: '#FFFFFF',
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: 800,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: '0 4px',
-                  boxShadow: '0 2px 5px rgba(239, 68, 68, 0.4)',
+                  padding: '0 3px',
                   border: '1.5px solid #FFFFFF',
+                  boxShadow: '0 2px 4px rgba(239, 68, 68, 0.4)',
                 }}
               >
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
-          </div>
+          </button>
 
-          {/* Discrete Lock Icon */}
+          {/* Hamburger Menu Button */}
           <button
-            onClick={onUnlockClick}
+            onClick={() => setIsMenuOpen((prev) => !prev)}
             style={{
+              padding: '5px 7px',
+              borderRadius: 8,
+              border: `1px solid ${isMenuOpen ? Colors.accent.primary : Colors.border}`,
+              backgroundColor: isMenuOpen ? Colors.accent.soft : Colors.bg.primary,
+              color: isMenuOpen ? Colors.accent.primary : Colors.text.primary,
               display: 'flex',
               alignItems: 'center',
-              gap: 4,
-              padding: '6px 10px',
-              borderRadius: 8,
-              border: `1px solid ${Colors.border}`,
-              backgroundColor: 'transparent',
-              color: Colors.text.secondary,
-              fontSize: 12,
-              fontWeight: 600,
+              justifyContent: 'center',
               cursor: 'pointer',
+              position: 'relative',
+              transition: 'all 0.15s ease',
             }}
-            title="Security PIN"
+            title={isMenuOpen ? 'Close Menu' : 'Game Options & Settings'}
           >
-            <Lock size={13} />
-            <span>PIN</span>
+            {isMenuOpen ? <X size={16} /> : <Menu size={16} />}
+            {unreadCount > 0 && !isMenuOpen && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: 2,
+                  right: 2,
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  backgroundColor: '#EF4444',
+                }}
+              />
+            )}
           </button>
         </div>
       </div>
+
+      {/* ─── Hamburger Dropdown Menu ───────────────────────────────────────── */}
+      {isMenuOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setIsMenuOpen(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 90,
+              backgroundColor: 'rgba(0, 0, 0, 0.18)',
+            }}
+          />
+
+          {/* Menu Dropdown Card */}
+          <div
+            style={{
+              position: 'absolute',
+              top: 52,
+              right: 12,
+              zIndex: 100,
+              width: 250,
+              backgroundColor: Colors.bg.elevated,
+              borderRadius: 14,
+              border: `1px solid ${Colors.border}`,
+              boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+              padding: '8px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            {/* Header label */}
+            <div
+              style={{
+                padding: '4px 8px 6px',
+                borderBottom: `1px solid ${Colors.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ fontSize: 10, fontWeight: 700, color: Colors.text.placeholder, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                Game Options
+              </span>
+              <button
+                onClick={() => setIsMenuOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: Colors.text.placeholder,
+                  padding: 2,
+                  display: 'flex',
+                }}
+              >
+                <X size={13} />
+              </button>
+            </div>
+
+            {/* Unread Vault Messages Alert */}
+            {unreadCount > 0 && (
+              <div
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  onUnlockClick();
+                }}
+                style={{
+                  padding: '7px 9px',
+                  borderRadius: 8,
+                  backgroundColor: '#FEF2F2',
+                  border: '1px solid #FCA5A5',
+                  color: '#DC2626',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                }}
+              >
+                <span>✉ {unreadCount} New Message{unreadCount > 1 ? 's' : ''}</span>
+                <span style={{ fontSize: 10, textDecoration: 'underline' }}>Unlock →</span>
+              </div>
+            )}
+
+            {/* Item 1: Arcade Sound */}
+            <div
+              onClick={() => toggleSound()}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '9px 9px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                backgroundColor: isMuted ? 'transparent' : 'rgba(217, 119, 87, 0.08)',
+                transition: 'background-color 0.15s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                {isMuted ? <VolumeX size={16} color={Colors.text.secondary} /> : <Volume2 size={16} color={Colors.accent.primary} />}
+                <span style={{ fontSize: 12, fontWeight: 600, color: Colors.text.primary }}>
+                  Arcade Sound
+                </span>
+              </div>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '2px 7px',
+                  borderRadius: 6,
+                  backgroundColor: isMuted ? Colors.bg.secondary : Colors.accent.soft,
+                  color: isMuted ? Colors.text.placeholder : Colors.accent.primary,
+                }}
+              >
+                {isMuted ? 'MUTED' : 'ON'}
+              </span>
+            </div>
+
+            {/* Item 2: Ball Speed Controller */}
+            <div
+              onClick={() => cycleSpeed()}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '9px 9px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                transition: 'background-color 0.15s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <Zap size={16} color="#E05A38" />
+                <span style={{ fontSize: 12, fontWeight: 600, color: Colors.text.primary }}>
+                  Ball Speed
+                </span>
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '2px 7px',
+                  borderRadius: 6,
+                  backgroundColor: Colors.bg.secondary,
+                  color: Colors.accent.primary,
+                  fontFamily: 'monospace',
+                  border: `1px solid ${Colors.border}`,
+                }}
+              >
+                {speedMultiplier}x
+              </span>
+            </div>
+
+            {/* Item 3: Companion Skin */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '9px 9px',
+                borderRadius: 8,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <img
+                  src="/characters/panda-idle.png"
+                  alt="Companion"
+                  style={{ width: 18, height: 18, borderRadius: '50%' }}
+                />
+                <span style={{ fontSize: 12, fontWeight: 600, color: Colors.text.primary }}>
+                  Ball Skin
+                </span>
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: '2px 7px',
+                  borderRadius: 6,
+                  backgroundColor: Colors.bg.secondary,
+                  color: Colors.text.secondary,
+                }}
+              >
+                Panda
+              </span>
+            </div>
+
+            {/* Divider */}
+            <div style={{ height: 1, backgroundColor: Colors.border, margin: '3px 0' }} />
+
+            {/* Item 4: About SecureBox & APK */}
+            <div
+              onClick={() => {
+                setIsMenuOpen(false);
+                if (onOpenSecureboxPage) {
+                  onOpenSecureboxPage();
+                } else {
+                  window.history.pushState(null, '', '/Securebox');
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '9px 9px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                backgroundColor: 'rgba(217, 107, 67, 0.05)',
+                transition: 'background-color 0.15s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <ShieldCheck size={16} color={Colors.accent.primary} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: Colors.accent.primary }}>
+                  About SecureBox & APK
+                </span>
+              </div>
+              <ChevronRight size={14} color={Colors.accent.primary} />
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ─── Main Game Canvas Area & Overlays ───────────────────────────────── */}
       <div
