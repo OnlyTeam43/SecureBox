@@ -18,11 +18,20 @@ interface PinModalProps {
   isOpen: boolean;
   /** localStorage key to read/write the hub password hash. Passed from App. */
   hubKey: string;
+  title?: string;
+  subtitle?: string;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export const PinModal: React.FC<PinModalProps> = ({ isOpen, hubKey, onClose, onSuccess }) => {
+export const PinModal: React.FC<PinModalProps> = ({
+  isOpen,
+  hubKey,
+  title: customTitle,
+  subtitle: customSubtitle,
+  onClose,
+  onSuccess,
+}) => {
   const [phase, setPhase] = useState<'unlock' | 'setup' | 'confirm'>('unlock');
   const [input, setInput] = useState('');
   const [confirmInput, setConfirmInput] = useState('');
@@ -57,7 +66,7 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, hubKey, onClose, onS
 
   const handleUnlock = async () => {
     if (!input.trim()) { triggerError('Please enter your Hub Password.'); return; }
-    if (input.trim().length < 4) { triggerError('Password must be at least 4 characters.'); return; }
+    if (input.trim().length < 3) { triggerError('Password must be at least 3 characters.'); return; }
 
     const stored = localStorage.getItem(hubKey);
     const hash = await hashPin(input.trim());
@@ -71,7 +80,7 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, hubKey, onClose, onS
 
   const handleSetup = () => {
     if (!input.trim()) { triggerError('Please enter a password.'); return; }
-    if (input.trim().length < 4) { triggerError('Password must be at least 4 characters.'); return; }
+    if (input.trim().length < 3) { triggerError('Password must be at least 3 characters.'); return; }
     setErrorMsg(null);
     setPhase('confirm');
   };
@@ -82,14 +91,11 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, hubKey, onClose, onS
       return;
     }
     const hash = await hashPin(input.trim());
-    // ★ Only write to hubKey — NEVER to any room-related key ★
     localStorage.setItem(hubKey, hash);
     onSuccess();
   };
 
   const handleResetPassword = () => {
-    // Only removes the hub entrance password.
-    // All rooms (securebox_rooms), chat history, and active room are preserved.
     localStorage.removeItem(hubKey);
     setInput('');
     setConfirmInput('');
@@ -100,14 +106,16 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, hubKey, onClose, onS
   if (!isOpen) return null;
 
   const title =
-    phase === 'unlock' ? 'Enter Hub Password' :
+    customTitle ||
+    (phase === 'unlock' ? 'Enter Hub Password' :
     phase === 'confirm' ? 'Confirm Password' :
-    'Create Hub Password';
+    'Create Hub Password');
 
   const subtitle =
-    phase === 'unlock' ? 'Your personal entrance lock — keep chat hidden' :
+    customSubtitle ||
+    (phase === 'unlock' ? 'Your personal entrance lock — keep chat hidden' :
     phase === 'confirm' ? 'Re-enter to confirm your new password' :
-    'Protects the game disguise on this device only';
+    'Protects the game disguise on this device only');
 
   return (
     <div style={{
@@ -178,149 +186,188 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, hubKey, onClose, onS
           fontWeight: errorMsg ? 600 : 400,
           textAlign: 'center',
           minHeight: 18,
-          padding: '0 8px',
         }}>
           {errorMsg || subtitle}
         </p>
 
-        {/* Password Input */}
-        <div style={{ width: '100%', position: 'relative', marginBottom: 12 }}>
-          <input
-            type={showPw ? 'text' : 'password'}
-            value={input}
-            onChange={(e) => { setInput(e.target.value); setErrorMsg(null); }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                if (phase === 'unlock') handleUnlock();
-                else if (phase === 'setup') handleSetup();
-                else handleConfirm();
-              }
-            }}
-            placeholder={phase === 'confirm' ? 'Re-enter password' : 'Enter password...'}
-            autoFocus
-            style={{
-              width: '100%',
-              height: 46,
-              borderRadius: 12,
-              backgroundColor: Colors.bg.primary,
-              border: `1.5px solid ${Colors.borderStrong}`,
-              padding: '0 44px 0 16px',
-              fontSize: 15,
-              color: Colors.text.primary,
-              outline: 'none',
-              boxSizing: 'border-box',
-              letterSpacing: showPw ? 'normal' : '0.2em',
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => setShowPw(!showPw)}
-            style={{
-              position: 'absolute', right: 12, top: '50%',
-              transform: 'translateY(-50%)',
-              background: 'none', border: 'none',
-              color: Colors.text.placeholder, cursor: 'pointer', padding: 2,
-            }}
+        {/* UNLOCK PHASE */}
+        {phase === 'unlock' && (
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleUnlock(); }}
+            style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}
           >
-            {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
-          </button>
-        </div>
+            <div style={{ position: 'relative', width: '100%' }}>
+              <input
+                type={showPw ? 'text' : 'password'}
+                value={input}
+                onChange={(e) => { setInput(e.target.value); setErrorMsg(null); }}
+                placeholder="Enter password..."
+                autoFocus
+                style={{
+                  width: '100%', height: 46, borderRadius: 12,
+                  backgroundColor: Colors.bg.primary,
+                  border: `1.5px solid ${errorMsg ? Colors.status.error : Colors.borderStrong}`,
+                  padding: '0 44px 0 14px', fontSize: 16,
+                  color: Colors.text.primary, outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw(!showPw)}
+                style={{
+                  position: 'absolute', right: 12, top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none', border: 'none',
+                  color: Colors.text.placeholder, cursor: 'pointer', padding: 2,
+                }}
+              >
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
 
-        {/* Confirm Input (setup → confirm phase) */}
-        {phase === 'confirm' && (
-          <div style={{ width: '100%', position: 'relative', marginBottom: 12 }}>
-            <input
-              type={showConfirm ? 'text' : 'password'}
-              value={confirmInput}
-              onChange={(e) => { setConfirmInput(e.target.value); setErrorMsg(null); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleConfirm(); }}
-              placeholder="Confirm password..."
-              autoFocus
-              style={{
-                width: '100%',
-                height: 46,
-                borderRadius: 12,
-                backgroundColor: Colors.bg.primary,
-                border: `1.5px solid ${Colors.borderStrong}`,
-                padding: '0 44px 0 16px',
-                fontSize: 15,
-                color: Colors.text.primary,
-                outline: 'none',
-                boxSizing: 'border-box',
-                letterSpacing: showConfirm ? 'normal' : '0.2em',
-              }}
-            />
             <button
-              type="button"
-              onClick={() => setShowConfirm(!showConfirm)}
+              type="submit"
               style={{
-                position: 'absolute', right: 12, top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none', border: 'none',
-                color: Colors.text.placeholder, cursor: 'pointer', padding: 2,
+                width: '100%', height: 46, borderRadius: 12,
+                backgroundColor: Colors.accent.primary,
+                border: 'none', color: Colors.text.inverse,
+                fontSize: 14, fontWeight: 600, cursor: 'pointer',
               }}
             >
-              {showConfirm ? <EyeOff size={17} /> : <Eye size={17} />}
+              Unlock Hub
             </button>
-          </div>
+
+            {/* Reset option */}
+            <button
+              type="button"
+              onClick={handleResetPassword}
+              style={{
+                background: 'none', border: 'none',
+                color: Colors.text.placeholder, fontSize: 11,
+                cursor: 'pointer', marginTop: 4,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              }}
+            >
+              <RotateCcw size={11} />
+              <span>Forgot password? Reset</span>
+            </button>
+          </form>
         )}
 
-        {/* Primary Action Button */}
-        <button
-          onClick={
-            phase === 'unlock' ? handleUnlock :
-            phase === 'setup'  ? handleSetup  :
-            handleConfirm
-          }
-          style={{
-            width: '100%', height: 46,
-            borderRadius: 12,
-            backgroundColor: Colors.accent.primary,
-            border: 'none',
-            color: '#FFF',
-            fontSize: 14, fontWeight: 700,
-            cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-            marginBottom: 4,
-          }}
-        >
-          <Check size={16} />
-          <span>
-            {phase === 'unlock' ? 'Unlock Hub' :
-             phase === 'setup'  ? 'Next — Confirm' :
-             'Save & Enter Hub'}
-          </span>
-        </button>
+        {/* SETUP PHASE */}
+        {phase === 'setup' && (
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleSetup(); }}
+            style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}
+          >
+            <div style={{ position: 'relative', width: '100%' }}>
+              <input
+                type={showPw ? 'text' : 'password'}
+                value={input}
+                onChange={(e) => { setInput(e.target.value); setErrorMsg(null); }}
+                placeholder="Create password..."
+                autoFocus
+                style={{
+                  width: '100%', height: 46, borderRadius: 12,
+                  backgroundColor: Colors.bg.primary,
+                  border: `1.5px solid ${errorMsg ? Colors.status.error : Colors.borderStrong}`,
+                  padding: '0 44px 0 14px', fontSize: 16,
+                  color: Colors.text.primary, outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw(!showPw)}
+                style={{
+                  position: 'absolute', right: 12, top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none', border: 'none',
+                  color: Colors.text.placeholder, cursor: 'pointer', padding: 2,
+                }}
+              >
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
 
-        {/* Back button during confirm phase */}
+            <button
+              type="submit"
+              style={{
+                width: '100%', height: 46, borderRadius: 12,
+                backgroundColor: Colors.accent.primary,
+                border: 'none', color: Colors.text.inverse,
+                fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}
+            >
+              <Check size={16} />
+              <span>Next — Confirm</span>
+            </button>
+          </form>
+        )}
+
+        {/* CONFIRM PHASE */}
         {phase === 'confirm' && (
-          <button
-            onClick={() => { setPhase('setup'); setConfirmInput(''); setErrorMsg(null); }}
-            style={{
-              marginTop: 8, background: 'none', border: 'none',
-              color: Colors.text.secondary, fontSize: 12,
-              cursor: 'pointer', padding: '4px 0',
-            }}
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleConfirm(); }}
+            style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}
           >
-            ← Back
-          </button>
-        )}
+            <div style={{ position: 'relative', width: '100%' }}>
+              <input
+                type={showConfirm ? 'text' : 'password'}
+                value={confirmInput}
+                onChange={(e) => { setConfirmInput(e.target.value); setErrorMsg(null); }}
+                placeholder="Re-type password..."
+                autoFocus
+                style={{
+                  width: '100%', height: 46, borderRadius: 12,
+                  backgroundColor: Colors.bg.primary,
+                  border: `1.5px solid ${errorMsg ? Colors.status.error : Colors.borderStrong}`,
+                  padding: '0 44px 0 14px', fontSize: 16,
+                  color: Colors.text.primary, outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm(!showConfirm)}
+                style={{
+                  position: 'absolute', right: 12, top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none', border: 'none',
+                  color: Colors.text.placeholder, cursor: 'pointer', padding: 2,
+                }}
+              >
+                {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
 
-        {/* Reset Password (only in unlock mode) — NEVER touches rooms */}
-        {phase === 'unlock' && (
-          <button
-            onClick={handleResetPassword}
-            style={{
-              marginTop: 14, background: 'none', border: 'none',
-              color: Colors.text.placeholder, fontSize: 11.5,
-              fontWeight: 500, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '5px 10px', borderRadius: 8,
-            }}
-          >
-            <RotateCcw size={11} />
-            <span>Forgot Password (rooms are kept safe)</span>
-          </button>
+            <button
+              type="submit"
+              style={{
+                width: '100%', height: 46, borderRadius: 12,
+                backgroundColor: Colors.accent.primary,
+                border: 'none', color: Colors.text.inverse,
+                fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}
+            >
+              <Check size={16} />
+              <span>Save &amp; Unlock</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setPhase('setup'); setConfirmInput(''); setErrorMsg(null); }}
+              style={{
+                background: 'none', border: 'none',
+                color: Colors.text.placeholder, fontSize: 12, cursor: 'pointer',
+              }}
+            >
+              Back
+            </button>
+          </form>
         )}
       </div>
     </div>

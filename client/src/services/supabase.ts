@@ -49,9 +49,8 @@ export async function getOrCreateRoomState(
           creator: cleanHandle,
           guest: null,
           isFull: false,
-          pinHash: pinHash || null,
+          pinHash: null,
           createdAt: Date.now(),
-          expiresAt: Date.now() + 86400000, // 24-hour room lifespan
         };
         await supabase.from('messages').insert({
           id: roomRecordId,
@@ -60,7 +59,6 @@ export async function getOrCreateRoomState(
           body: JSON.stringify(statePayload),
           type: 'room_meta',
           created_at: Date.now(),
-          expires_at: Date.now() + 86400000, // 24 hours
         });
         return { success: true, isCreator: true, isFull: false, partner: null };
       } else {
@@ -72,27 +70,7 @@ export async function getOrCreateRoomState(
     const creator = (meta.creator || '').toLowerCase();
     const guest = (meta.guest || '').toLowerCase();
 
-    // 24-Hour Room Window Check
-    if (meta.expiresAt && Date.now() > meta.expiresAt) {
-      return {
-        success: false,
-        isCreator: cleanHandle === creator,
-        isFull: true,
-        partner: null,
-        error: 'This private room has expired (24 hours have passed).',
-      };
-    }
-
-    // Shared Room Password PIN verification (for guest or joining participant)
-    if (meta.pinHash && pinHash && pinHash !== meta.pinHash) {
-      return {
-        success: false,
-        isCreator: false,
-        isFull: false,
-        partner: null,
-        error: 'Incorrect Room PIN! Please enter the 4-digit secret PIN set by the room creator.',
-      };
-    }
+    // No expiration and no room PIN check required per configuration
 
     if (cleanHandle === creator) {
       return { success: true, isCreator: true, isFull: !!guest, partner: guest || null };

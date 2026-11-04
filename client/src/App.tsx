@@ -4,12 +4,11 @@ import { Colors } from './theme/tokens';
 import { RoomMetadata, ChatMessage, ScreenMode } from './types';
 import {
   generateRoomId,
+  generateSecretKey,
   importSecretKey,
   encryptData,
   decryptData,
   hashPin,
-  deriveKeyFromPin,
-  exportKeyToString,
 } from './services/crypto';
 import {
   getOrCreateRoomState,
@@ -18,13 +17,11 @@ import {
   subscribeToRoom,
   sendTypingStatus,
   sendWipeSignal,
-  extendRoomLifespan,
 } from './services/supabase';
 
 import { BrickSmashGame } from './components/BrickSmashGame';
 import { PinModal } from './components/PinModal';
 import { RoomHub } from './components/RoomHub';
-import { JoinModal } from './components/JoinModal';
 import { OnboardingModal } from './components/OnboardingModal';
 import { ShareModal } from './components/ShareModal';
 import { ChatHeader } from './components/ChatHeader';
@@ -137,7 +134,9 @@ export const App: React.FC = () => {
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareLink, setShareLink] = useState('');
-  const [pendingJoin, setPendingJoin] = useState<{ roomId: string; secretKey: string } | null>(null);
+  const [pendingInvite, setPendingInvite] = useState<{ roomId: string; secretKey: string } | null>(null);
+  const [pinModalTitle, setPinModalTitle] = useState<string | undefined>();
+  const [pinModalSubtitle, setPinModalSubtitle] = useState<string | undefined>();
 
   // Unread badge count connected directly across all rooms
   const [unreadCount, setUnreadCount] = useState<number>(() => getTotalUnreadCount());
@@ -168,19 +167,10 @@ export const App: React.FC = () => {
     }
 
     if (targetRoom) {
-      const isStillValid =
-        (targetRoom.expiresAt && Date.now() < targetRoom.expiresAt) ||
-        (!targetRoom.expiresAt && Date.now() - (targetRoom.createdAt || 0) < 24 * 60 * 60 * 1000);
-      if (isStillValid) {
-        setActiveRoom(targetRoom);
-        importSecretKey(targetRoom.secretKey)
-          .then((key) => setCryptoKey(key))
-          .catch(() => {});
-      } else {
-        deleteRoom(targetRoom.roomId);
-        setActiveRoom(null);
-        setCryptoKey(null);
-      }
+      setActiveRoom(targetRoom);
+      importSecretKey(targetRoom.secretKey)
+        .then((key) => setCryptoKey(key))
+        .catch(() => {});
     }
     // Update badge count on initial load
     setUnreadCount(getTotalUnreadCount());
@@ -228,24 +218,38 @@ export const App: React.FC = () => {
       const map = stored ? JSON.parse(stored) : {};
 
       if (map[roomId]) {
-        // Returning member — validate expiry then ask for hub password to unlock
+        // Existing saved room: ask for Hub Password to unlock
         const room = map[roomId] as RoomMetadata;
-        const isStillValid =
-          (room.expiresAt && Date.now() < room.expiresAt) ||
-          (!room.expiresAt && Date.now() - (room.createdAt || 0) < 24 * 60 * 60 * 1000);
-
-        if (isStillValid) {
-          pendingUnlockAction.current = () => enterRoom(room);
-          setIsPinModalOpen(true);
+        setPinModalTitle('Unlock Room');
+        setPinModalSubtitle('Enter your Hub Password to open chat');
+        pendingUnlockAction.current = () => enterRoom(room);
+        setIsPinModalOpen(true);
+      } else if (secretKey) {
+        // Direct room invite via link click!
+        const hasProfile = !!localStorage.getItem('securebox_user_handle') && !!localStorage.getItem(HUB_KEY);
+        if (!hasProfile) {
+          // Brand new user from link: must complete handle & hub password onboarding first
+          setPendingInvite({ roomId, secretKey });
+          setIsOnboardingOpen(true);
         } else {
-          alert('This room has expired (24 hours have passed).');
-          deleteRoom(roomId);
-          setScreenMode('hub');
+          // Returning user on this device: enter hub password to access room
+          const userHandle = localStorage.getItem('securebox_user_handle') || 'Partner';
+          setPinModalTitle('Unlock Secret Room Invite');
+          setPinModalSubtitle('Enter your Hub Password to access this room');
+          pendingUnlockAction.current = async () => {
+            const room: RoomMetadata = {
+              roomId,
+              secretKey,
+              myHandle: userHandle,
+              partnerHandle: null,
+              isCreator: false,
+              createdAt: Date.now(),
+            };
+            saveRoom(room);
+            await enterRoom(room);
+          };
+          setIsPinModalOpen(true);
         }
-      } else {
-        // Brand new guest — go to join screen to enter room PIN
-        setPendingJoin({ roomId, secretKey });
-        setScreenMode('join');
       }
     };
 
@@ -377,14 +381,7 @@ export const App: React.FC = () => {
           : false;
         setIsPartnerOnline(isOnline);
       },
-      onRoomExtended: (newExpiresAt) => {
-        setActiveRoom((prev) => {
-          if (!prev) return null;
-          const updated = { ...prev, expiresAt: newExpiresAt };
-          saveRoom(updated);
-          return updated;
-        });
-      },
+
       onWipe: () => {
         if (activeRoom) deleteRoom(activeRoom.roomId);
         localStorage.removeItem(ACTIVE_ROOM_KEY);
@@ -450,14 +447,13 @@ export const App: React.FC = () => {
     }
   };
 
-  // ─── Create Room ─────────────────────────────────────────────────────────
-  const handleCreateRoom = async (handle: string, roomPin: string) => {
-    const pHash = await hashPin(roomPin);
+  // ─── Create Room (No Room PIN - Pure 256-bit AES-GCM Direct Access) ─────────
+  const handleCreateRoom = async (handle: string) => {
     const roomId = generateRoomId();
-    const derivedKey = await deriveKeyFromPin(roomPin, roomId);
-    const secretKey = await exportKeyToString(derivedKey);
+    const secretKey = await generateSecretKey();
+    const key = await importSecretKey(secretKey);
 
-    const state = await getOrCreateRoomState(roomId, handle, true, pHash);
+    const state = await getOrCreateRoomState(roomId, handle, true);
     if (!state.success) {
       alert(state.error || 'Failed to create room.');
       return;
@@ -470,67 +466,17 @@ export const App: React.FC = () => {
       partnerHandle: null,
       isCreator: true,
       createdAt: Date.now(),
-      pinHash: pHash,
     };
 
     setMessages([]);
     saveRoom(room);
     setActiveRoom(room);
-    setCryptoKey(derivedKey);
+    setCryptoKey(key);
     localStorage.setItem(ACTIVE_ROOM_KEY, roomId);
 
     const base = window.location.origin + window.location.pathname;
-    setShareLink(`${base}#${roomId}`);
+    setShareLink(`${base}#room=${roomId}&key=${secretKey}`);
     setIsShareModalOpen(true);
-  };
-
-  // ─── Join Room (guest via link) ──────────────────────────────────────────
-  const handleJoinRoom = async (handle: string, roomPin: string) => {
-    if (!pendingJoin) return;
-    const pHash = await hashPin(roomPin);
-
-    const state = await getOrCreateRoomState(pendingJoin.roomId, handle, false, pHash);
-    if (!state.success) {
-      alert(state.error || 'Failed to join room. Check your 4-digit Room PIN.');
-      return;
-    }
-
-    let derivedKey: CryptoKey;
-    let secretKey: string;
-    if (pendingJoin.secretKey) {
-      derivedKey = await importSecretKey(pendingJoin.secretKey);
-      secretKey = pendingJoin.secretKey;
-    } else {
-      derivedKey = await deriveKeyFromPin(roomPin, pendingJoin.roomId);
-      secretKey = await exportKeyToString(derivedKey);
-    }
-
-    const room: RoomMetadata = {
-      roomId: pendingJoin.roomId,
-      secretKey,
-      myHandle: handle,
-      partnerHandle: state.partner || null,
-      isCreator: false,
-      createdAt: Date.now(),
-      pinHash: pHash,
-    };
-
-    setMessages([]);
-    saveRoom(room);
-    setCryptoKey(derivedKey);
-    localStorage.setItem(ACTIVE_ROOM_KEY, room.roomId);
-    setPendingJoin(null);
-
-    setActiveRoom(room);
-    setScreenMode('chat');
-    document.title = `Chat - ${room.partnerHandle || 'Private'}`;
-
-    if (!localStorage.getItem(HUB_KEY)) {
-      setTimeout(() => {
-        pendingUnlockAction.current = null;
-        setIsPinModalOpen(true);
-      }, 1500);
-    }
   };
 
   // ─── Send Message ────────────────────────────────────────────────────────
@@ -622,49 +568,19 @@ export const App: React.FC = () => {
     }, 2000);
   };
 
-  // ─── Room Options (Extend Lifespan / Wipe Room) ───────────────────────────
-  const handleExtendRoom = async () => {
+  // ─── Wipe and Self-Destruct Room ──────────────────────────────────────────
+  const handleWipeRoom = async () => {
     if (!activeRoom) return;
-    const success = await extendRoomLifespan(activeRoom.roomId);
-    if (success) {
-      const newExpiry = (activeRoom.expiresAt || Date.now()) + 24 * 60 * 60 * 1000;
-      const updated = { ...activeRoom, expiresAt: newExpiry };
-      saveRoom(updated);
-      setActiveRoom(updated);
-      alert('Room lifespan extended by +24 hours.');
-    } else {
-      alert('Failed to extend room lifespan.');
-    }
-  };
-
-  const handleRoomOptions = async () => {
-    if (!activeRoom) return;
-    const choice = prompt(
-      'Room Options:\n1. Return to SecureBox Hub\n2. Play Retro Game Disguise\n3. Extend room lifespan (+24 hours)\n4. Wipe and self-destruct room\n\nEnter 1, 2, 3, or 4:'
-    );
-
-    if (choice === '1') {
+    if (confirm('Are you sure you want to completely wipe this room? All history will self-destruct permanently on both devices.')) {
+      const rId = activeRoom.roomId;
+      await sendWipeSignal(rId);
+      deleteRoom(rId);
       localStorage.removeItem(ACTIVE_ROOM_KEY);
+      setMessages([]);
       setActiveRoom(null);
       setCryptoKey(null);
-      setMessages([]);
+      alert('Room destroyed. Returning to SecureBox Hub.');
       setScreenMode('hub');
-    } else if (choice === '2') {
-      setScreenMode('game');
-    } else if (choice === '3') {
-      await handleExtendRoom();
-    } else if (choice === '4') {
-      if (confirm('Are you sure you want to completely wipe this room? All history will self-destruct permanently on both devices.')) {
-        const rId = activeRoom.roomId;
-        await sendWipeSignal(rId);
-        deleteRoom(rId);
-        localStorage.removeItem(ACTIVE_ROOM_KEY);
-        setMessages([]);
-        setActiveRoom(null);
-        setCryptoKey(null);
-        alert('Room destroyed. Returning to SecureBox Hub.');
-        setScreenMode('hub');
-      }
     }
   };
 
@@ -762,17 +678,7 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* Screen 3: Guest Join (via link) */}
-        {screenMode === 'join' && pendingJoin && (
-          <JoinModal
-            roomId={pendingJoin.roomId}
-            onJoin={handleJoinRoom}
-            onCancel={() => {
-              setPendingJoin(null);
-              setScreenMode('hub');
-            }}
-          />
-        )}
+
 
         {/* Screen 4: Encrypted Chat */}
         {screenMode === 'chat' && activeRoom && (
@@ -784,9 +690,6 @@ export const App: React.FC = () => {
             <ChatHeader
               partnerName={activeRoom.partnerHandle || 'Waiting for partner...'}
               isOnline={isPartnerOnline}
-              roomCreatedAt={activeRoom.createdAt}
-              roomExpiresAt={activeRoom.expiresAt}
-              onExtendRoom={handleExtendRoom}
               onHubClick={() => {
                 localStorage.removeItem(ACTIVE_ROOM_KEY);
                 setActiveRoom(null);
@@ -803,7 +706,7 @@ export const App: React.FC = () => {
                 pendingUnlockAction.current = () => setScreenMode('hub');
                 setIsPinModalOpen(true);
               }}
-              onOptionsClick={handleRoomOptions}
+              onWipeClick={handleWipeRoom}
             />
             <ChatMessages messages={messages} typingUser={typingUser} />
             <Composer
@@ -817,9 +720,22 @@ export const App: React.FC = () => {
         {/* First-time Profile & Password Onboarding */}
         <OnboardingModal
           isOpen={isOnboardingOpen}
-          onComplete={(chosenHandle, hash) => {
+          onComplete={async (chosenHandle) => {
             setIsOnboardingOpen(false);
-            if (!pendingJoin) {
+            if (pendingInvite) {
+              const invite = pendingInvite;
+              setPendingInvite(null);
+              const room: RoomMetadata = {
+                roomId: invite.roomId,
+                secretKey: invite.secretKey,
+                myHandle: chosenHandle,
+                partnerHandle: null,
+                isCreator: false,
+                createdAt: Date.now(),
+              };
+              saveRoom(room);
+              await enterRoom(room);
+            } else {
               setScreenMode('hub');
             }
           }}
@@ -829,7 +745,13 @@ export const App: React.FC = () => {
         <PinModal
           isOpen={isPinModalOpen}
           hubKey={HUB_KEY}
-          onClose={() => setIsPinModalOpen(false)}
+          title={pinModalTitle}
+          subtitle={pinModalSubtitle}
+          onClose={() => {
+            setIsPinModalOpen(false);
+            setPinModalTitle(undefined);
+            setPinModalSubtitle(undefined);
+          }}
           onSuccess={() => {
             setIsPinModalOpen(false);
             if (pendingUnlockAction.current) {

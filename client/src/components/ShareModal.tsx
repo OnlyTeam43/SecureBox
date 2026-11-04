@@ -79,13 +79,13 @@ export const ShareModal: React.FC<ShareModalProps> = ({ shareLink, onClose, onOp
               Room Link Created
             </h3>
             <span style={{ fontSize: 12, color: Colors.text.secondary }}>
-              One-time private invite
+              Private end-to-end encrypted invite
             </span>
           </div>
         </div>
 
         <p style={{ fontSize: 13, color: Colors.text.secondary, lineHeight: 1.45, marginBottom: 12 }}>
-          Share this short link with your partner. They will enter your 4-digit Secret PIN to unlock and join the room.
+          Share this link with your partner. When they open it, they can access the secret chat directly with their Hub Password.
         </p>
 
         <input
@@ -124,6 +124,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ shareLink, onClose, onOp
               justifyContent: 'center',
               gap: 8,
               cursor: 'pointer',
+              transition: 'background-color 0.2s',
             }}
           >
             {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -134,14 +135,15 @@ export const ShareModal: React.FC<ShareModalProps> = ({ shareLink, onClose, onOp
             onClick={onOpenChat}
             style={{
               width: '100%',
-              height: 42,
+              height: 44,
               borderRadius: 10,
               backgroundColor: Colors.bg.secondary,
-              border: `1px solid ${Colors.borderStrong}`,
+              border: `1px solid ${Colors.border}`,
               color: Colors.text.primary,
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: 500,
               cursor: 'pointer',
+              transition: 'background-color 0.2s',
             }}
           >
             Open Chat Room Now
