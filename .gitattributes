@@ -1,1 +1,0 @@
-client/public/*.apk filter=lfs diff=lfs merge=lfs -text

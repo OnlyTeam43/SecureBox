@@ -1,6 +1,18 @@
 {
-  "buildCommand": "git lfs pull || true && npm run build:web",
+  "buildCommand": "npm run build:web",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/securebox.apk",
+      "destination": "https://github.com/OnlyTeam43/SecureBox/releases/download/V1/SecureBox.apk",
+      "permanent": false
+    },
+    {
+      "source": "/SecureBox.apk",
+      "destination": "https://github.com/OnlyTeam43/SecureBox/releases/download/V1/SecureBox.apk",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",
