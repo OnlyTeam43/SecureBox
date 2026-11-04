@@ -1,171 +1,122 @@
 // client/src/components/PinModal.tsx
+// Hub Entrance Password Modal
+// ─────────────────────────────────────────────────────────────────────────────
+// This modal ONLY manages the hub entrance password stored in hubKey.
+// It has ZERO knowledge of room PINs or room state.
+// Two modes:
+//   • Setup mode  — no password exists yet → user creates it (typed twice)
+//   • Unlock mode — password exists         → user enters it to unlock
+// Resetting the hub password NEVER touches rooms or chat history.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import React, { useState, useEffect } from 'react';
 import { Colors } from '../theme/tokens';
-import { hashPin, deriveKeyFromPin, exportKeyToString } from '../services/crypto';
-import { Lock, X, Check, RotateCcw } from 'lucide-react';
+import { hashPin } from '../services/crypto';
+import { Lock, X, Eye, EyeOff, RotateCcw, Check } from 'lucide-react';
 
 interface PinModalProps {
   isOpen: boolean;
+  /** localStorage key to read/write the hub password hash. Passed from App. */
+  hubKey: string;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export const PinModal: React.FC<PinModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const [pin, setPin] = useState('');
-  const [shake, setShake] = useState(false);
+export const PinModal: React.FC<PinModalProps> = ({ isOpen, hubKey, onClose, onSuccess }) => {
+  const [phase, setPhase] = useState<'unlock' | 'setup' | 'confirm'>('unlock');
+  const [input, setInput] = useState('');
+  const [confirmInput, setConfirmInput] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [hasExistingPin, setHasExistingPin] = useState(true);
+  const [shake, setShake] = useState(false);
 
-  useEffect(() => {
-    if (isOpen) {
-      setPin('');
-      setShake(false);
-      setErrorMsg(null);
-      const stored = localStorage.getItem('securebox_pin_hash');
-      setHasExistingPin(Boolean(stored));
-    }
-  }, [isOpen]);
-
-  // Keyboard typing
+  // Determine initial phase every time modal opens
   useEffect(() => {
     if (!isOpen) return;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key >= '0' && e.key <= '9') {
-        handleDigit(e.key);
-      } else if (e.key === 'Backspace') {
-        handleBackspace();
-      } else if (e.key === 'Enter') {
-        handleVerifyPin(pin, true);
-      } else if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, pin]);
-
-  const handleDigit = (d: string) => {
-    if (pin.length >= 6) return;
+    setInput('');
+    setConfirmInput('');
     setErrorMsg(null);
-    const nextPin = pin + d;
-    setPin(nextPin);
+    setShake(false);
+    setShowPw(false);
+    setShowConfirm(false);
 
-    // If 4 digits reached, automatically attempt verification
-    if (nextPin.length === 4) {
-      handleVerifyPin(nextPin, false);
-    } else if (nextPin.length === 6) {
-      handleVerifyPin(nextPin, true);
-    }
-  };
-
-  const handleBackspace = () => {
-    setErrorMsg(null);
-    setPin((prev) => prev.slice(0, -1));
-  };
-
-  const handleVerifyPin = async (candidatePin: string, isFinal = false) => {
-    if (candidatePin.length < 4) {
-      if (isFinal) {
-        triggerError('PIN must be at least 4 digits');
-      }
-      return;
-    }
-
-    try {
-      const storedEntranceHash = localStorage.getItem('securebox_pin_hash');
-      const inputHash = await hashPin(candidatePin);
-
-      // 1. Matches main entrance PIN
-      if (storedEntranceHash && inputHash === storedEntranceHash) {
-        setErrorMsg(null);
-        onSuccess();
-        return;
-      }
-
-      // 2. Fallback: Does candidatePin match ANY room's secret PIN or key?
-      // This prevents the "wrong pin" issue when returning to game and typing the room's secret PIN!
-      const rawRooms = localStorage.getItem('securebox_rooms');
-      if (rawRooms) {
-        try {
-          const map = JSON.parse(rawRooms);
-          const rooms = Object.values(map) as any[];
-
-          // A: Check saved room pinHash
-          const matchedRoom = rooms.find((r) => r.pinHash && r.pinHash === inputHash);
-          if (matchedRoom) {
-            // Automatically memorize as valid entrance PIN so user is never locked out again
-            localStorage.setItem('securebox_pin_hash', inputHash);
-            setErrorMsg(null);
-            onSuccess();
-            return;
-          }
-
-          // B: Test key derivation for existing rooms without pinHash
-          for (const r of rooms) {
-            if (r.roomId && r.secretKey) {
-              try {
-                const derived = await deriveKeyFromPin(candidatePin, r.roomId);
-                const derivedStr = await exportKeyToString(derived);
-                if (derivedStr === r.secretKey) {
-                  r.pinHash = inputHash;
-                  localStorage.setItem('securebox_rooms', JSON.stringify(map));
-                  localStorage.setItem('securebox_pin_hash', inputHash);
-                  setErrorMsg(null);
-                  onSuccess();
-                  return;
-                }
-              } catch (_) {}
-            }
-          }
-        } catch (_) {}
-      }
-
-      // 3. If no entrance PIN was ever set, accept this as the master PIN!
-      if (!storedEntranceHash) {
-        localStorage.setItem('securebox_pin_hash', inputHash);
-        setErrorMsg(null);
-        onSuccess();
-        return;
-      }
-
-      // 4. Incorrect PIN - show error and allow 1-tap reset
-      triggerError('Incorrect PIN. Try again or reset below.');
-    } catch (e) {
-      console.error('PIN verification error:', e);
-    }
-  };
+    const stored = localStorage.getItem(hubKey);
+    setPhase(stored ? 'unlock' : 'setup');
+  }, [isOpen, hubKey]);
 
   const triggerError = (msg: string) => {
     setShake(true);
     setErrorMsg(msg);
     setTimeout(() => {
-      setPin('');
+      setInput('');
+      setConfirmInput('');
       setShake(false);
     }, 450);
   };
 
-  const handleResetPin = () => {
-    // 1-tap instant reset without blocking alert/confirm dialogs
-    localStorage.removeItem('securebox_pin_hash');
-    setHasExistingPin(false);
-    setPin('');
-    setErrorMsg('Entrance PIN reset! Enter 4 digits to unlock & save as new PIN.');
+  const handleUnlock = async () => {
+    if (!input.trim()) { triggerError('Please enter your Hub Password.'); return; }
+    if (input.trim().length < 4) { triggerError('Password must be at least 4 characters.'); return; }
+
+    const stored = localStorage.getItem(hubKey);
+    const hash = await hashPin(input.trim());
+
+    if (hash === stored) {
+      onSuccess();
+    } else {
+      triggerError('Incorrect password. Try again.');
+    }
+  };
+
+  const handleSetup = () => {
+    if (!input.trim()) { triggerError('Please enter a password.'); return; }
+    if (input.trim().length < 4) { triggerError('Password must be at least 4 characters.'); return; }
+    setErrorMsg(null);
+    setPhase('confirm');
+  };
+
+  const handleConfirm = async () => {
+    if (input.trim() !== confirmInput.trim()) {
+      triggerError('Passwords do not match. Try again.');
+      return;
+    }
+    const hash = await hashPin(input.trim());
+    // ★ Only write to hubKey — NEVER to any room-related key ★
+    localStorage.setItem(hubKey, hash);
+    onSuccess();
+  };
+
+  const handleResetPassword = () => {
+    // Only removes the hub entrance password.
+    // All rooms (securebox_rooms), chat history, and active room are preserved.
+    localStorage.removeItem(hubKey);
+    setInput('');
+    setConfirmInput('');
+    setErrorMsg('Password reset. Enter a new password below.');
+    setPhase('setup');
   };
 
   if (!isOpen) return null;
 
+  const title =
+    phase === 'unlock' ? 'Enter Hub Password' :
+    phase === 'confirm' ? 'Confirm Password' :
+    'Create Hub Password';
+
+  const subtitle =
+    phase === 'unlock' ? 'Your personal entrance lock — keep chat hidden' :
+    phase === 'confirm' ? 'Re-enter to confirm your new password' :
+    'Protects the game disguise on this device only';
+
   return (
     <div style={{
       position: 'fixed',
-      top: 0,
-      left: 0,
-      width: '100vw',
-      height: '100vh',
+      top: 0, left: 0,
+      width: '100vw', height: '100vh',
       backgroundColor: Colors.bg.overlay,
-      backdropFilter: 'blur(8px)',
-      WebkitBackdropFilter: 'blur(8px)',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -174,12 +125,12 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, onClose, onSuccess }
     }}>
       <div style={{
         width: '100%',
-        maxWidth: 320,
+        maxWidth: 340,
         backgroundColor: Colors.bg.elevated,
         border: `1px solid ${Colors.borderStrong}`,
         borderRadius: 20,
-        padding: '24px 20px',
-        boxShadow: '0 12px 36px rgba(0,0,0,0.12)',
+        padding: '28px 22px 22px',
+        boxShadow: '0 16px 48px rgba(0,0,0,0.14)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -187,178 +138,190 @@ export const PinModal: React.FC<PinModalProps> = ({ isOpen, onClose, onSuccess }
         transform: shake ? 'translateX(-8px)' : 'none',
         transition: 'transform 0.08s ease',
       }}>
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          style={{
-            position: 'absolute',
-            top: 14,
-            right: 14,
-            background: 'none',
-            border: 'none',
-            color: Colors.text.placeholder,
-            cursor: 'pointer',
-            padding: 4,
-          }}
-        >
-          <X size={18} />
-        </button>
+        {/* Close — only shown in unlock mode */}
+        {phase === 'unlock' && (
+          <button
+            onClick={onClose}
+            style={{
+              position: 'absolute', top: 14, right: 14,
+              background: 'none', border: 'none',
+              color: Colors.text.placeholder,
+              cursor: 'pointer', padding: 4,
+            }}
+          >
+            <X size={18} />
+          </button>
+        )}
 
-        {/* Header Icon */}
+        {/* Icon */}
         <div style={{
-          width: 48,
-          height: 48,
-          borderRadius: 16,
+          width: 52, height: 52, borderRadius: 16,
           backgroundColor: Colors.accent.soft,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: 12,
-          color: Colors.accent.primary,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          marginBottom: 14, color: Colors.accent.primary,
         }}>
-          <Lock size={22} />
+          <Lock size={24} />
         </div>
 
         <h3 style={{
-          fontSize: 17,
-          fontWeight: 600,
+          fontSize: 17, fontWeight: 700,
           color: Colors.text.primary,
-          marginBottom: 4,
-          letterSpacing: '-0.3px',
+          marginBottom: 4, letterSpacing: '-0.3px',
+          textAlign: 'center',
         }}>
-          {hasExistingPin ? 'Security PIN' : 'Set Your PIN'}
+          {title}
         </h3>
         <p style={{
           fontSize: 12,
           color: errorMsg ? Colors.status.error : Colors.text.secondary,
-          marginBottom: 18,
+          marginBottom: 20,
           fontWeight: errorMsg ? 600 : 400,
           textAlign: 'center',
-          padding: '0 8px',
           minHeight: 18,
+          padding: '0 8px',
         }}>
-          {errorMsg || (hasExistingPin ? 'Enter your 4-digit PIN' : 'Enter 4 digits to set your PIN')}
+          {errorMsg || subtitle}
         </p>
 
-        {/* PIN Dots (4 dots) */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 22 }}>
-          {[0, 1, 2, 3].map((idx) => {
-            const isFilled = idx < pin.length;
-            return (
-              <div
-                key={idx}
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: '50%',
-                  border: `2px solid ${isFilled ? Colors.accent.primary : Colors.borderStrong}`,
-                  backgroundColor: isFilled ? Colors.accent.primary : 'transparent',
-                  transform: isFilled ? 'scale(1.15)' : 'scale(1)',
-                  transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-                }}
-              />
-            );
-          })}
+        {/* Password Input */}
+        <div style={{ width: '100%', position: 'relative', marginBottom: 12 }}>
+          <input
+            type={showPw ? 'text' : 'password'}
+            value={input}
+            onChange={(e) => { setInput(e.target.value); setErrorMsg(null); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                if (phase === 'unlock') handleUnlock();
+                else if (phase === 'setup') handleSetup();
+                else handleConfirm();
+              }
+            }}
+            placeholder={phase === 'confirm' ? 'Re-enter password' : 'Enter password...'}
+            autoFocus
+            style={{
+              width: '100%',
+              height: 46,
+              borderRadius: 12,
+              backgroundColor: Colors.bg.primary,
+              border: `1.5px solid ${Colors.borderStrong}`,
+              padding: '0 44px 0 16px',
+              fontSize: 15,
+              color: Colors.text.primary,
+              outline: 'none',
+              boxSizing: 'border-box',
+              letterSpacing: showPw ? 'normal' : '0.2em',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPw(!showPw)}
+            style={{
+              position: 'absolute', right: 12, top: '50%',
+              transform: 'translateY(-50%)',
+              background: 'none', border: 'none',
+              color: Colors.text.placeholder, cursor: 'pointer', padding: 2,
+            }}
+          >
+            {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+          </button>
         </div>
 
-        {/* Keypad */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 10,
-          width: '100%',
-        }}>
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
-            <button
-              key={digit}
-              onClick={() => handleDigit(digit)}
+        {/* Confirm Input (setup → confirm phase) */}
+        {phase === 'confirm' && (
+          <div style={{ width: '100%', position: 'relative', marginBottom: 12 }}>
+            <input
+              type={showConfirm ? 'text' : 'password'}
+              value={confirmInput}
+              onChange={(e) => { setConfirmInput(e.target.value); setErrorMsg(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleConfirm(); }}
+              placeholder="Confirm password..."
+              autoFocus
               style={{
-                height: 52,
+                width: '100%',
+                height: 46,
                 borderRadius: 12,
-                backgroundColor: Colors.bg.secondary,
-                border: `1px solid ${Colors.border}`,
+                backgroundColor: Colors.bg.primary,
+                border: `1.5px solid ${Colors.borderStrong}`,
+                padding: '0 44px 0 16px',
+                fontSize: 15,
                 color: Colors.text.primary,
-                fontSize: 20,
-                fontWeight: 500,
-                cursor: 'pointer',
+                outline: 'none',
+                boxSizing: 'border-box',
+                letterSpacing: showConfirm ? 'normal' : '0.2em',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirm(!showConfirm)}
+              style={{
+                position: 'absolute', right: 12, top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none', border: 'none',
+                color: Colors.text.placeholder, cursor: 'pointer', padding: 2,
               }}
             >
-              {digit}
+              {showConfirm ? <EyeOff size={17} /> : <Eye size={17} />}
             </button>
-          ))}
-          <button
-            onClick={handleBackspace}
-            style={{
-              height: 52,
-              borderRadius: 12,
-              backgroundColor: Colors.bg.secondary,
-              border: `1px solid ${Colors.border}`,
-              color: Colors.text.secondary,
-              fontSize: 16,
-              fontWeight: 500,
-              cursor: 'pointer',
-            }}
-          >
-            ⌫
-          </button>
-          <button
-            onClick={() => handleDigit('0')}
-            style={{
-              height: 52,
-              borderRadius: 12,
-              backgroundColor: Colors.bg.secondary,
-              border: `1px solid ${Colors.border}`,
-              color: Colors.text.primary,
-              fontSize: 20,
-              fontWeight: 500,
-              cursor: 'pointer',
-            }}
-          >
-            0
-          </button>
-          <button
-            onClick={() => handleVerifyPin(pin, true)}
-            style={{
-              height: 52,
-              borderRadius: 12,
-              backgroundColor: Colors.accent.primary,
-              border: 'none',
-              color: '#FFF',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            title="Unlock"
-          >
-            <Check size={18} />
-          </button>
-        </div>
+          </div>
+        )}
 
-        {/* 1-Tap Reset PIN button */}
+        {/* Primary Action Button */}
         <button
-          onClick={handleResetPin}
+          onClick={
+            phase === 'unlock' ? handleUnlock :
+            phase === 'setup'  ? handleSetup  :
+            handleConfirm
+          }
           style={{
-            marginTop: 16,
-            background: 'none',
+            width: '100%', height: 46,
+            borderRadius: 12,
+            backgroundColor: Colors.accent.primary,
             border: 'none',
-            color: Colors.accent.primary,
-            fontSize: 12,
-            fontWeight: 500,
+            color: '#FFF',
+            fontSize: 14, fontWeight: 700,
             cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-            padding: '6px 12px',
-            borderRadius: 8,
-            backgroundColor: 'rgba(217, 119, 87, 0.08)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+            marginBottom: 4,
           }}
         >
-          <RotateCcw size={12} />
-          <span>Reset Entrance PIN</span>
+          <Check size={16} />
+          <span>
+            {phase === 'unlock' ? 'Unlock Hub' :
+             phase === 'setup'  ? 'Next — Confirm' :
+             'Save & Enter Hub'}
+          </span>
         </button>
+
+        {/* Back button during confirm phase */}
+        {phase === 'confirm' && (
+          <button
+            onClick={() => { setPhase('setup'); setConfirmInput(''); setErrorMsg(null); }}
+            style={{
+              marginTop: 8, background: 'none', border: 'none',
+              color: Colors.text.secondary, fontSize: 12,
+              cursor: 'pointer', padding: '4px 0',
+            }}
+          >
+            ← Back
+          </button>
+        )}
+
+        {/* Reset Password (only in unlock mode) — NEVER touches rooms */}
+        {phase === 'unlock' && (
+          <button
+            onClick={handleResetPassword}
+            style={{
+              marginTop: 14, background: 'none', border: 'none',
+              color: Colors.text.placeholder, fontSize: 11.5,
+              fontWeight: 500, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '5px 10px', borderRadius: 8,
+            }}
+          >
+            <RotateCcw size={11} />
+            <span>Forgot Password (rooms are kept safe)</span>
+          </button>
+        )}
       </div>
     </div>
   );

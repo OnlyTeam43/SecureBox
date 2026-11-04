@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Colors } from '../theme/tokens';
 import { RoomMetadata } from '../types';
-import { Plus, Gamepad2, Trash2, ArrowRight } from 'lucide-react';
+import { Plus, Gamepad2, Trash2, ArrowRight, Eye, EyeOff, Copy, Check } from 'lucide-react';
 
 interface RoomHubProps {
   savedRooms: RoomMetadata[];
@@ -21,21 +21,64 @@ export const RoomHub: React.FC<RoomHubProps> = ({
 }) => {
   const [handle, setHandle] = useState('');
   const [pin, setPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
+  const [handleError, setHandleError] = useState('');
+  const [pinError, setPinError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createdPin, setCreatedPin] = useState<string | null>(null);
+  const [pinCopied, setPinCopied] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Only allow digits, max 4
+    const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+    setPin(val);
+    if (pinError) setPinError('');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    let valid = true;
+
     if (!handle.trim()) {
-      alert('Please enter your display name / handle.');
-      return;
+      setHandleError('Please enter your display handle.');
+      valid = false;
+    } else {
+      setHandleError('');
     }
-    if (pin.trim().length < 4) {
-      alert('Please enter a PIN of at least 4 digits.');
-      return;
+
+    if (!/^\d{4}$/.test(pin)) {
+      setPinError('Room Secret PIN must be exactly 4 digits (e.g. 1234).');
+      valid = false;
+    } else {
+      setPinError('');
     }
+
+    if (!valid) return;
+
     setIsSubmitting(true);
-    onCreateRoom(handle.trim(), pin.trim());
+    setCreatedPin(pin); // Show PIN for user to copy before closing
+    onCreateRoom(handle.trim(), pin);
     setIsSubmitting(false);
+  };
+
+  const handleCopyPin = () => {
+    if (createdPin) {
+      navigator.clipboard.writeText(createdPin).catch(() => {});
+      setPinCopied(true);
+      setTimeout(() => setPinCopied(false), 2000);
+    }
+  };
+
+  const handleDeleteClick = (roomId: string) => {
+    if (deleteConfirmId === roomId) {
+      onDeleteRoom(roomId);
+      setDeleteConfirmId(null);
+    } else {
+      setDeleteConfirmId(roomId);
+      // Auto-cancel after 3s
+      setTimeout(() => setDeleteConfirmId(null), 3000);
+    }
   };
 
   return (
@@ -68,7 +111,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
               SecureBox Hub
             </h1>
             <span style={{ fontSize: 13, color: Colors.text.secondary }}>
-              Encrypted rooms & local inventory
+              Encrypted rooms &amp; local inventory
             </span>
           </div>
 
@@ -105,8 +148,55 @@ export const RoomHub: React.FC<RoomHubProps> = ({
             Create a Secret Room
           </h2>
           <p style={{ fontSize: 13, color: Colors.text.secondary, lineHeight: 1.45, marginBottom: 18 }}>
-            Generate a private room link. When your partner opens it, the link is locked to you two.
+            Generate a private encrypted link. Share the link <strong>and</strong> the 4-digit PIN with your partner.
           </p>
+
+          {/* PIN Created Banner */}
+          {createdPin && (
+            <div style={{
+              marginBottom: 16,
+              padding: '12px 16px',
+              borderRadius: 10,
+              backgroundColor: 'rgba(34, 197, 94, 0.1)',
+              border: '1px solid rgba(34, 197, 94, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+            }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#16a34a', marginBottom: 2, letterSpacing: '0.05em' }}>
+                  ROOM SECRET PIN — SHARE WITH PARTNER
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: Colors.text.primary, letterSpacing: '0.3em' }}>
+                  {createdPin}
+                </div>
+                <div style={{ fontSize: 11, color: Colors.text.secondary, marginTop: 2 }}>
+                  Your partner needs this to join. Copy it now.
+                </div>
+              </div>
+              <button
+                onClick={handleCopyPin}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  backgroundColor: pinCopied ? '#16a34a' : Colors.accent.primary,
+                  border: 'none',
+                  color: '#FFF',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  flexShrink: 0,
+                }}
+              >
+                {pinCopied ? <Check size={14} /> : <Copy size={14} />}
+                {pinCopied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
@@ -116,7 +206,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
               <input
                 type="text"
                 value={handle}
-                onChange={(e) => setHandle(e.target.value)}
+                onChange={(e) => { setHandle(e.target.value); if (handleError) setHandleError(''); }}
                 placeholder="e.g. Alex"
                 maxLength={20}
                 style={{
@@ -124,7 +214,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
                   height: 44,
                   borderRadius: 10,
                   backgroundColor: Colors.bg.primary,
-                  border: `1px solid ${Colors.borderStrong}`,
+                  border: `1px solid ${handleError ? '#ef4444' : Colors.borderStrong}`,
                   padding: '0 14px',
                   fontSize: 14,
                   color: Colors.text.primary,
@@ -132,32 +222,63 @@ export const RoomHub: React.FC<RoomHubProps> = ({
                   boxSizing: 'border-box',
                 }}
               />
+              {handleError && (
+                <div style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>{handleError}</div>
+              )}
             </div>
 
             <div>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: Colors.text.secondary, marginBottom: 6 }}>
-                SHARED ROOM SECRET PIN (4 DIGITS)
+                4-DIGIT ROOM SECRET PIN &nbsp;
+                <span style={{ fontWeight: 400, color: Colors.text.placeholder }}>(share with partner — different from your Hub Password)</span>
               </label>
-              <input
-                type="password"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="••••"
-                maxLength={6}
-                inputMode="numeric"
-                style={{
-                  width: '100%',
-                  height: 44,
-                  borderRadius: 10,
-                  backgroundColor: Colors.bg.primary,
-                  border: `1px solid ${Colors.borderStrong}`,
-                  padding: '0 14px',
-                  fontSize: 14,
-                  color: Colors.text.primary,
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                }}
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPin ? 'text' : 'password'}
+                  value={pin}
+                  onChange={handlePinChange}
+                  placeholder="••••"
+                  maxLength={4}
+                  inputMode="numeric"
+                  pattern="\d{4}"
+                  style={{
+                    width: '100%',
+                    height: 44,
+                    borderRadius: 10,
+                    backgroundColor: Colors.bg.primary,
+                    border: `1px solid ${pinError ? '#ef4444' : Colors.borderStrong}`,
+                    padding: '0 44px 0 14px',
+                    fontSize: 20,
+                    letterSpacing: '0.3em',
+                    color: Colors.text.primary,
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPin((v) => !v)}
+                  style={{
+                    position: 'absolute',
+                    right: 12,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: Colors.text.secondary,
+                    display: 'flex',
+                    padding: 2,
+                  }}
+                  tabIndex={-1}
+                  aria-label={showPin ? 'Hide PIN' : 'Show PIN'}
+                >
+                  {showPin ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {pinError && (
+                <div style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>{pinError}</div>
+              )}
             </div>
 
             <button
@@ -178,6 +299,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
                 gap: 8,
                 cursor: 'pointer',
                 marginTop: 4,
+                opacity: isSubmitting ? 0.7 : 1,
               }}
             >
               <Plus size={16} />
@@ -255,22 +377,25 @@ export const RoomHub: React.FC<RoomHubProps> = ({
                       <ArrowRight size={12} />
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm('Delete this room and its local history?')) {
-                          onDeleteRoom(room.roomId);
-                        }
-                      }}
+                      onClick={() => handleDeleteClick(room.roomId)}
                       style={{
-                        padding: 6,
+                        padding: '6px 10px',
                         borderRadius: 8,
-                        backgroundColor: 'transparent',
-                        border: 'none',
-                        color: Colors.text.placeholder,
+                        backgroundColor: deleteConfirmId === room.roomId ? '#fee2e2' : 'transparent',
+                        border: deleteConfirmId === room.roomId ? '1px solid #fca5a5' : 'none',
+                        color: deleteConfirmId === room.roomId ? '#dc2626' : Colors.text.placeholder,
                         cursor: 'pointer',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 3,
+                        transition: 'all 0.15s',
                       }}
-                      title="Delete"
+                      title={deleteConfirmId === room.roomId ? 'Click again to confirm delete' : 'Delete room'}
                     >
-                      <Trash2 size={15} />
+                      <Trash2 size={13} />
+                      {deleteConfirmId === room.roomId && <span>Confirm?</span>}
                     </button>
                   </div>
                 </div>
