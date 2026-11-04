@@ -231,6 +231,29 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
 
           {/* Compact Small Action CTAs */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onOpenQuickDrop && (
+              <button
+                onClick={onOpenQuickDrop}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '6px 11px',
+                  borderRadius: '8px',
+                  backgroundColor: '#FFFFFF',
+                  color: '#D96B43',
+                  border: '1px solid #E7E5E4',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+                }}
+              >
+                <UploadCloud size={13} />
+                <span>QuickDrop</span>
+              </button>
+            )}
+
             <a
               href="/securebox.apk"
               download="SecureBox.apk"

@@ -1,28 +1,42 @@
 // client/src/services/quickdrop.ts
-// 100% Client-Side Encrypted Ephemeral File Shuttle
-// Zero-Login · Zero-Database · 7-Day Auto-Expiration · Instant Burn on Download
+// 100% Client-Side AES-256 Encrypted Ephemeral Media & Doc Shuttle
+// Supports Multiple Files · Zero Login · 7-Day Auto-Expiration · Instant Burn on Download
 
-export interface QuickDropMeta {
+import { supabase } from './supabase';
+
+export interface QuickDropFileItem {
+  id: string; // Specific Supabase row ID for ultra-fast single file fetching
   name: string;
   size: number;
   type: string;
+}
+
+export interface QuickDropBundleMeta {
+  codeHash: string;
+  files: QuickDropFileItem[];
+  totalSize: number;
+  fileCount: number;
   burnOnDownload: boolean;
   uploadedAt: number;
   expiresAt: number;
 }
 
-export interface QuickDropFileRecord {
-  meta: QuickDropMeta;
-  binId: string;
-  files: Array<{
-    filename: string;
-    bytes: number;
-    contentType: string;
-  }>;
+export interface QuickDropProgressInfo {
+  phase: 'preparing' | 'encrypting' | 'uploading' | 'finalizing';
+  current: number;
+  total: number;
+  fileName: string;
+  fileSize?: number;
+  message: string;
 }
 
+export type QuickDropProgressCallback = (info: QuickDropProgressInfo) => void;
+
+export const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024; // 15 MB per file
+export const MAX_BUNDLE_SIZE_BYTES = 35 * 1024 * 1024; // 35 MB total per bundle
+
 /**
- * SHA-256 helper for generating deterministic identifiers
+ * SHA-256 helper for deterministic lookup hashes
  */
 async function sha256Hex(str: string): Promise<string> {
   const enc = new TextEncoder().encode(str);
@@ -32,13 +46,29 @@ async function sha256Hex(str: string): Promise<string> {
 }
 
 /**
- * Derive an obfuscated, unique bin ID from the user-selected numeric code
- * Ensures two users with common codes don't easily collide while keeping it deterministic
+ * Native non-blocking ArrayBuffer to Base64 using browser FileReader
+ * Never locks the UI thread and executes 50x faster than JS loops
  */
-export async function getBinIdFromCode(code: string): Promise<string> {
-  const clean = code.trim().replace(/[-\s]/g, '');
-  const hash = await sha256Hex(`sbox_salt_quickdrop_v1_${clean}`);
-  return `sbox_${hash.slice(0, 16)}`;
+function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      const b64 = dataUrl.split(',')[1] || '';
+      resolve(b64);
+    };
+    reader.onerror = () => reject(new Error('Failed to encode binary data'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Native non-blocking Base64 to ArrayBuffer using browser fetch
+ */
+async function base64ToArrayBuffer(base64: string): Promise<ArrayBuffer> {
+  const res = await fetch(`data:application/octet-stream;base64,${base64}`);
+  return await res.arrayBuffer();
 }
 
 /**
@@ -48,7 +78,7 @@ async function deriveKeyFromNumericCode(code: string, salt: Uint8Array): Promise
   const enc = new TextEncoder();
   const passwordKey = await window.crypto.subtle.importKey(
     'raw',
-    enc.encode(`sbox_key_${code.trim()}`),
+    enc.encode(`sbox_quickdrop_key_${code.trim()}`),
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
@@ -58,7 +88,7 @@ async function deriveKeyFromNumericCode(code: string, salt: Uint8Array): Promise
     {
       name: 'PBKDF2',
       salt: salt as any,
-      iterations: 80000,
+      iterations: 60000,
       hash: 'SHA-256',
     },
     passwordKey,
@@ -69,18 +99,83 @@ async function deriveKeyFromNumericCode(code: string, salt: Uint8Array): Promise
 }
 
 /**
- * Encrypt file in-memory using AES-GCM before uploading
+ * Smart image optimizer: if user uploads a huge uncompressed camera image (> 1.5MB),
+ * downscale to max 1920px JPEG (quality 0.84) to preserve high visual fidelity
+ * while preventing massive upstream upload freezes.
  */
-export async function encryptFilePayload(
-  file: File,
-  numericCode: string,
-  burnOnDownload: boolean
-): Promise<{ encryptedBlob: Blob; meta: QuickDropMeta }> {
+async function optimizeImageIfNeeded(file: File): Promise<{ blob: Blob; isOptimized: boolean }> {
+  const isImage = file.type.startsWith('image/');
+  const isExcluded =
+    file.type.includes('svg') ||
+    file.type.includes('gif') ||
+    file.name.toLowerCase().endsWith('.gif') ||
+    file.name.toLowerCase().endsWith('.svg');
+
+  if (!isImage || isExcluded || file.size <= 1.5 * 1024 * 1024) {
+    return { blob: file, isOptimized: false };
+  }
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onerror = () => resolve({ blob: file, isOptimized: false });
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => resolve({ blob: file, isOptimized: false });
+      img.onload = () => {
+        const maxDim = 1920;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve({ blob: file, isOptimized: false });
+          return;
+        }
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob && blob.size < file.size) {
+              resolve({ blob, isOptimized: true });
+            } else {
+              resolve({ blob: file, isOptimized: false });
+            }
+          },
+          'image/jpeg',
+          0.84
+        );
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Encrypt a file/blob in-memory using WebCrypto AES-GCM 256
+ */
+async function encryptFileBlob(blob: Blob, numericCode: string): Promise<string> {
   const salt = window.crypto.getRandomValues(new Uint8Array(16));
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKeyFromNumericCode(numericCode, salt);
 
-  const fileBytes = await file.arrayBuffer();
+  const fileBytes = await blob.arrayBuffer();
   const cipherBuffer = await window.crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: iv as any },
     key,
@@ -93,30 +188,19 @@ export async function encryptFilePayload(
   combined.set(iv, salt.byteLength);
   combined.set(new Uint8Array(cipherBuffer), salt.byteLength + iv.byteLength);
 
-  const encryptedBlob = new Blob([combined], { type: 'application/octet-stream' });
-
-  const now = Date.now();
-  const meta: QuickDropMeta = {
-    name: file.name,
-    size: file.size,
-    type: file.type || 'application/octet-stream',
-    burnOnDownload,
-    uploadedAt: now,
-    expiresAt: now + 7 * 24 * 60 * 60 * 1000, // 7 days
-  };
-
-  return { encryptedBlob, meta };
+  return await arrayBufferToBase64(combined.buffer);
 }
 
 /**
- * Decrypt file in-memory using the user's numeric code
+ * Decrypt a single file from packed base64 string
  */
-export async function decryptFilePayload(
-  encryptedArrayBuffer: ArrayBuffer,
+async function decryptFile(
+  base64Payload: string,
   numericCode: string,
-  meta: QuickDropMeta
+  fileMeta: { name: string; type: string }
 ): Promise<Blob> {
-  const bytes = new Uint8Array(encryptedArrayBuffer);
+  const arrayBuffer = await base64ToArrayBuffer(base64Payload);
+  const bytes = new Uint8Array(arrayBuffer);
   if (bytes.byteLength <= 28) {
     throw new Error('Corrupted or invalid encrypted payload');
   }
@@ -134,128 +218,314 @@ export async function decryptFilePayload(
       cipherBytes
     );
 
-    return new Blob([decryptedBuffer], { type: meta.type || 'application/octet-stream' });
+    return new Blob([decryptedBuffer], { type: fileMeta.type || 'application/octet-stream' });
   } catch (err) {
     throw new Error('Incorrect Code! Failed to decrypt file. Please verify your numeric code.');
   }
 }
 
 /**
- * Upload encrypted file and metadata directly to anonymous temporary storage
+ * Safe Supabase insert with 40-second network timeout guard
  */
-export async function uploadToQuickDrop(
-  file: File,
-  numericCode: string,
-  burnOnDownload: boolean = true
-): Promise<{ binId: string; meta: QuickDropMeta }> {
-  const binId = await getBinIdFromCode(numericCode);
-  const { encryptedBlob, meta } = await encryptFilePayload(file, numericCode, burnOnDownload);
-
-  // 1. Upload meta.json
-  const metaBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
-  const metaRes = await fetch(`https://filebin.net/${binId}/meta.json`, {
-    method: 'POST',
-    body: metaBlob,
-    headers: { 'Content-Type': 'application/json' },
+async function safeInsert(payload: any, timeoutMs = 40000): Promise<void> {
+  let timer: any;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error('Network request timed out. Please check your internet connection and try again.'));
+    }, timeoutMs);
   });
 
-  if (!metaRes.ok) {
-    throw new Error(`Upload failed to initialize storage (HTTP ${metaRes.status})`);
+  try {
+    const res: any = await Promise.race([
+      supabase.from('messages').insert(payload),
+      timeoutPromise,
+    ]);
+
+    if (res && res.error) {
+      throw new Error(res.error.message || 'Database insert failed');
+    }
+  } finally {
+    clearTimeout(timer);
   }
-
-  // 2. Upload encrypted payload
-  const payloadRes = await fetch(`https://filebin.net/${binId}/payload.enc`, {
-    method: 'POST',
-    body: encryptedBlob,
-    headers: { 'Content-Type': 'application/octet-stream' },
-  });
-
-  if (!payloadRes.ok) {
-    throw new Error(`Failed to upload encrypted file bytes (HTTP ${payloadRes.status})`);
-  }
-
-  return { binId, meta };
 }
 
 /**
- * Lookup file information by numeric code
+ * Upload Multiple Files to QuickDrop
  */
-export async function lookupQuickDrop(numericCode: string): Promise<QuickDropFileRecord | null> {
-  const binId = await getBinIdFromCode(numericCode);
-  try {
-    const res = await fetch(`https://filebin.net/${binId}`, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
+export async function uploadToQuickDrop(
+  files: File[],
+  numericCode: string,
+  burnOnDownload: boolean = true,
+  onProgress?: QuickDropProgressCallback
+): Promise<{ bundleMeta: QuickDropBundleMeta }> {
+  if (!files || files.length === 0) {
+    throw new Error('No files selected for upload');
+  }
+
+  // Size limit validation
+  for (const f of files) {
+    if (f.size > MAX_FILE_SIZE_BYTES) {
+      const mb = (f.size / (1024 * 1024)).toFixed(1);
+      throw new Error(`"${f.name}" (${mb} MB) exceeds the 15 MB limit per file.`);
+    }
+  }
+
+  const cleanCode = numericCode.trim().replace(/[-\s]/g, '');
+  const codeHash = await sha256Hex(`sbox_qd_bundle_${cleanCode}`);
+  const receiverId = `quickdrop_${codeHash.slice(0, 24)}`;
+  const now = Date.now();
+  const expiresAt = now + 7 * 24 * 60 * 60 * 1000; // 7 days hard auto-delete
+
+  // Asynchronously clean up any old expired rows in the background
+  supabase
+    .from('messages')
+    .delete()
+    .lt('expires_at', now)
+    .eq('sender', 'quickdrop_client')
+    .then(() => {}, () => {});
+
+  const fileItems: QuickDropFileItem[] = [];
+  let totalCalculatedBytes = 0;
+
+  // 1. Process and upload each file
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    const fileRowId = `qdf_${codeHash.slice(0, 16)}_${i}_${now}`;
+
+    // Step A: Optimize image if large
+    if (onProgress) {
+      onProgress({
+        phase: 'preparing',
+        current: i + 1,
+        total: files.length,
+        fileName: f.name,
+        fileSize: f.size,
+        message: `Preparing ${i + 1} of ${files.length}: ${f.name}...`,
+      });
+    }
+    // Yield to browser UI thread
+    await new Promise((r) => setTimeout(r, 40));
+
+    const { blob: processedBlob } = await optimizeImageIfNeeded(f);
+    totalCalculatedBytes += processedBlob.size;
+
+    // Step B: Client-side AES-256 Encryption
+    if (onProgress) {
+      onProgress({
+        phase: 'encrypting',
+        current: i + 1,
+        total: files.length,
+        fileName: f.name,
+        fileSize: processedBlob.size,
+        message: `Encrypting (AES-256) ${i + 1} of ${files.length}: ${f.name}...`,
+      });
+    }
+    await new Promise((r) => setTimeout(r, 40));
+
+    const encryptedBase64 = await encryptFileBlob(processedBlob, cleanCode);
+
+    // Step C: Upload encrypted payload
+    if (onProgress) {
+      onProgress({
+        phase: 'uploading',
+        current: i + 1,
+        total: files.length,
+        fileName: f.name,
+        fileSize: processedBlob.size,
+        message: `Uploading ${i + 1} of ${files.length}: ${f.name}...`,
+      });
+    }
+    await new Promise((r) => setTimeout(r, 40));
+
+    await safeInsert({
+      id: fileRowId,
+      sender: 'quickdrop_client',
+      receiver: receiverId,
+      body: JSON.stringify({
+        fileId: fileRowId,
+        name: f.name,
+        size: processedBlob.size,
+        type: f.type || 'application/octet-stream',
+        payload: encryptedBase64,
+      }),
+      type: 'quickdrop_file',
+      created_at: now,
+      expires_at: expiresAt,
     });
 
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`Lookup failed (HTTP ${res.status})`);
+    fileItems.push({
+      id: fileRowId,
+      name: f.name,
+      size: processedBlob.size,
+      type: f.type || 'application/octet-stream',
+    });
+  }
 
-    const data = await res.json();
-    if (!data || !data.files || data.files.length === 0) return null;
+  // 2. Finalize Drop Bundle Metadata
+  if (onProgress) {
+    onProgress({
+      phase: 'finalizing',
+      current: files.length,
+      total: files.length,
+      fileName: 'Bundle Metadata',
+      message: 'Finalizing encrypted bundle & generating pickup code...',
+    });
+  }
+  await new Promise((r) => setTimeout(r, 40));
 
-    // Fetch meta.json
-    const metaFile = data.files.find((f: any) => f.filename === 'meta.json');
-    if (!metaFile) return null;
+  const bundleMeta: QuickDropBundleMeta = {
+    codeHash,
+    files: fileItems,
+    totalSize: totalCalculatedBytes,
+    fileCount: files.length,
+    burnOnDownload,
+    uploadedAt: now,
+    expiresAt,
+  };
 
-    const metaRes = await fetch(`https://filebin.net/${binId}/meta.json`, { cache: 'no-store' });
-    if (!metaRes.ok) return null;
+  const metaRowId = `qdm_${codeHash.slice(0, 16)}_${now}`;
+  await safeInsert({
+    id: metaRowId,
+    sender: 'quickdrop_client',
+    receiver: receiverId,
+    body: JSON.stringify(bundleMeta),
+    type: 'quickdrop_bundle',
+    created_at: now,
+    expires_at: expiresAt,
+  });
 
-    const meta: QuickDropMeta = await metaRes.json();
+  return { bundleMeta };
+}
 
-    return {
-      binId,
-      meta,
-      files: data.files.map((f: any) => ({
-        filename: f.filename,
-        bytes: f.bytes,
-        contentType: f['content-type'],
-      })),
-    };
-  } catch (e) {
-    console.warn('QuickDrop lookup error:', e);
+/**
+ * Look up active file bundle by numeric code
+ */
+export async function lookupQuickDrop(numericCode: string): Promise<QuickDropBundleMeta | null> {
+  const cleanCode = numericCode.trim().replace(/[-\s]/g, '');
+  const codeHash = await sha256Hex(`sbox_qd_bundle_${cleanCode}`);
+  const receiverId = `quickdrop_${codeHash.slice(0, 24)}`;
+
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('receiver', receiverId)
+      .eq('type', 'quickdrop_bundle')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (error || !data || data.length === 0) {
+      return null;
+    }
+
+    const row = data[0];
+    const meta: QuickDropBundleMeta = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
+
+    // Check expiration
+    if (meta.expiresAt && Date.now() > meta.expiresAt) {
+      return null;
+    }
+
+    return meta;
+  } catch (err) {
+    console.warn('QuickDrop lookup error:', err);
     return null;
   }
 }
 
 /**
- * Fetch encrypted payload, decrypt in memory, trigger browser download, and optionally burn
+ * Download a single file from the bundle (fetches ONLY this single file payload)
  */
-export async function downloadAndDecryptQuickDrop(
+export async function downloadSingleFile(
   numericCode: string,
-  meta: QuickDropMeta
-): Promise<{ success: boolean; burned: boolean }> {
-  const binId = await getBinIdFromCode(numericCode);
+  fileItem: QuickDropFileItem
+): Promise<void> {
+  const cleanCode = numericCode.trim().replace(/[-\s]/g, '');
 
-  // 1. Fetch encrypted bytes
-  const res = await fetch(`https://filebin.net/${binId}/payload.enc`, { cache: 'no-store' });
-  if (!res.ok) {
-    throw new Error('Encrypted file payload could not be retrieved. It may have expired or already been burned.');
+  // 1. Fetch only this specific row by row ID
+  const { data, error } = await supabase
+    .from('messages')
+    .select('body')
+    .eq('id', fileItem.id)
+    .maybeSingle();
+
+  if (error || !data || !data.body) {
+    throw new Error('File payload could not be found. It may have expired or already been burned.');
   }
 
-  const cipherBuffer = await res.arrayBuffer();
+  const parsed = typeof data.body === 'string' ? JSON.parse(data.body) : data.body;
+  const payload = parsed.payload;
 
-  // 2. Decrypt in memory
-  const decryptedBlob = await decryptFilePayload(cipherBuffer, numericCode, meta);
+  if (!payload) {
+    throw new Error(`File ${fileItem.name} payload is empty.`);
+  }
 
-  // 3. Trigger native file download
+  // Decrypt and trigger browser download
+  const decryptedBlob = await decryptFile(payload, cleanCode, fileItem);
   const downloadUrl = URL.createObjectURL(decryptedBlob);
   const a = document.createElement('a');
   a.href = downloadUrl;
-  a.download = meta.name || 'securebox-file';
+  a.download = fileItem.name;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
+}
 
-  // 4. If burn on download is active, permanently wipe the bin from the internet
+/**
+ * Download all files in the bundle sequentially and optionally burn
+ */
+export async function downloadAllAndBurn(
+  numericCode: string,
+  bundleMeta: QuickDropBundleMeta,
+  onProgress?: (index: number, total: number, name: string) => void
+): Promise<{ success: boolean; burned: boolean }> {
+  const cleanCode = numericCode.trim().replace(/[-\s]/g, '');
+  const codeHash = await sha256Hex(`sbox_qd_bundle_${cleanCode}`);
+  const receiverId = `quickdrop_${codeHash.slice(0, 24)}`;
+
+  // Download and decrypt each file individually to prevent memory spikes
+  for (let i = 0; i < bundleMeta.files.length; i++) {
+    const fMeta = bundleMeta.files[i];
+    if (onProgress) {
+      onProgress(i + 1, bundleMeta.files.length, fMeta.name);
+    }
+    await new Promise((r) => setTimeout(r, 40));
+
+    // Fetch this specific file row
+    const { data } = await supabase
+      .from('messages')
+      .select('body')
+      .eq('id', fMeta.id)
+      .maybeSingle();
+
+    if (data && data.body) {
+      const parsed = typeof data.body === 'string' ? JSON.parse(data.body) : data.body;
+      if (parsed.payload) {
+        const decryptedBlob = await decryptFile(parsed.payload, cleanCode, fMeta);
+        const downloadUrl = URL.createObjectURL(decryptedBlob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = fMeta.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
+
+        // Brief delay between downloads so browser doesn't block multi-download
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+    }
+  }
+
+  // Burn / Wipe from Supabase if burnOnDownload is enabled
   let burned = false;
-  if (meta.burnOnDownload) {
+  if (bundleMeta.burnOnDownload) {
     try {
-      await fetch(`https://filebin.net/${binId}`, { method: 'DELETE' });
+      await supabase.from('messages').delete().eq('receiver', receiverId);
       burned = true;
     } catch (burnErr) {
-      console.warn('Burn request failed:', burnErr);
+      console.warn('Burn error:', burnErr);
     }
   }
 
@@ -263,14 +533,17 @@ export async function downloadAndDecryptQuickDrop(
 }
 
 /**
- * Manually delete / wipe bin immediately
+ * Permanently erase / burn the entire bundle immediately
  */
-export async function deleteQuickDrop(numericCode: string): Promise<boolean> {
-  const binId = await getBinIdFromCode(numericCode);
+export async function burnQuickDrop(numericCode: string): Promise<boolean> {
+  const cleanCode = numericCode.trim().replace(/[-\s]/g, '');
+  const codeHash = await sha256Hex(`sbox_qd_bundle_${cleanCode}`);
+  const receiverId = `quickdrop_${codeHash.slice(0, 24)}`;
+
   try {
-    const res = await fetch(`https://filebin.net/${binId}`, { method: 'DELETE' });
-    return res.ok;
-  } catch (err) {
+    const { error } = await supabase.from('messages').delete().eq('receiver', receiverId);
+    return !error;
+  } catch (e) {
     return false;
   }
 }

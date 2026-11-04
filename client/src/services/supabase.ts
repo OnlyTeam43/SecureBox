@@ -253,6 +253,7 @@ export function subscribeToRoom(
     onTyping: (payload: { sender: string; isTyping: boolean }) => void;
     onPresenceChange: (activeUsers: string[]) => void;
     onRoomExtended?: (newExpiresAt: number) => void;
+    onWipe?: () => void;
   }
 ): RealtimeChannel {
   const channelName = `room_${roomId}`;
@@ -279,9 +280,25 @@ export function subscribeToRoom(
     .on('broadcast', { event: 'typing' }, ({ payload }) => {
       if (payload && payload.sender !== cleanMy) handlers.onTyping(payload);
     })
-    .on('broadcast', { event: 'wipe_room' }, () => {
-      localStorage.removeItem(`room_chat_${roomId}`);
-      window.location.reload();
+    .on('broadcast', { event: 'wipe_room' }, ({ payload }) => {
+      const targetId = payload?.roomId || roomId;
+      localStorage.removeItem(`room_chat_${targetId}`);
+      localStorage.removeItem(`securebox_unread_count_${targetId}`);
+      try {
+        const raw = localStorage.getItem('securebox_rooms');
+        const map = raw ? JSON.parse(raw) : {};
+        delete map[targetId];
+        localStorage.setItem('securebox_rooms', JSON.stringify(map));
+        if (localStorage.getItem('securebox_active_room_id') === targetId) {
+          localStorage.removeItem('securebox_active_room_id');
+        }
+      } catch (_) {}
+
+      if (handlers.onWipe) {
+        handlers.onWipe();
+      } else {
+        window.location.reload();
+      }
     })
     .on('broadcast', { event: 'extend_room' }, ({ payload }) => {
       if (payload && payload.newExpiresAt) {

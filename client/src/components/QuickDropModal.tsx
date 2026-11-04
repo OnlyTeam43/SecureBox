@@ -1,6 +1,6 @@
 // client/src/components/QuickDropModal.tsx
 // Zero-Login Ephemeral Media & Document Shuttle
-// Upload images, videos, and docs on any PC -> Download securely anywhere with a custom numeric code
+// Upload multiple images, videos, and docs on any PC -> Download securely anywhere with a custom numeric code
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Colors } from '../theme/tokens';
@@ -20,18 +20,22 @@ import {
   X,
   AlertCircle,
   QrCode,
-  Lock,
-  ArrowRight,
-  ExternalLink,
   Trash2,
+  Plus,
+  FolderArchive,
+  Download,
 } from 'lucide-react';
 import {
   uploadToQuickDrop,
   lookupQuickDrop,
-  downloadAndDecryptQuickDrop,
-  deleteQuickDrop,
-  QuickDropMeta,
-  QuickDropFileRecord,
+  downloadSingleFile,
+  downloadAllAndBurn,
+  burnQuickDrop,
+  QuickDropBundleMeta,
+  QuickDropFileItem,
+  QuickDropProgressInfo,
+  MAX_FILE_SIZE_BYTES,
+  MAX_BUNDLE_SIZE_BYTES,
 } from '../services/quickdrop';
 
 interface QuickDropModalProps {
@@ -42,7 +46,7 @@ interface QuickDropModalProps {
 }
 
 function formatBytes(bytes: number, decimals: number = 2): string {
-  if (bytes === 0) return '0 Bytes';
+  if (!bytes || bytes === 0) return '0 Bytes';
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
@@ -53,15 +57,15 @@ function formatBytes(bytes: number, decimals: number = 2): string {
 function getFileIcon(type: string, name: string) {
   const lower = name.toLowerCase();
   if (type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(lower)) {
-    return <ImageIcon size={28} color="#D97757" />;
+    return <ImageIcon size={22} color="#D97757" />;
   }
   if (type.startsWith('video/') || /\.(mp4|webm|mkv|mov|avi)$/i.test(lower)) {
-    return <Video size={28} color="#4A8B88" />;
+    return <Video size={22} color="#4A8B88" />;
   }
   if (type.startsWith('text/') || /\.(pdf|doc|docx|xls|xlsx|txt|csv|json)$/i.test(lower)) {
-    return <FileText size={28} color="#5E9473" />;
+    return <FileText size={22} color="#5E9473" />;
   }
-  return <GenericFile size={28} color={Colors.text.secondary} />;
+  return <GenericFile size={22} color={Colors.text.secondary} />;
 }
 
 export const QuickDropModal: React.FC<QuickDropModalProps> = ({
@@ -72,15 +76,17 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'retrieve'>(initialTab);
 
-  // Upload State
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Upload State (Multiple Files)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [customCode, setCustomCode] = useState<string>('');
   const [burnOnDownload, setBurnOnDownload] = useState<boolean>(true);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<QuickDropProgressInfo | null>(null);
+  const [uploadProgressMsg, setUploadProgressMsg] = useState<string>('');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<{
     code: string;
-    meta: QuickDropMeta;
+    bundleMeta: QuickDropBundleMeta;
     shareUrl: string;
   } | null>(null);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
@@ -90,8 +96,9 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
   const [searchCode, setSearchCode] = useState<string>(initialCode);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [foundRecord, setFoundRecord] = useState<QuickDropFileRecord | null>(null);
+  const [foundBundle, setFoundBundle] = useState<QuickDropBundleMeta | null>(null);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [downloadProgressMsg, setDownloadProgressMsg] = useState<string>('');
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
 
   // Copy Feedback
@@ -121,6 +128,43 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Append new files with size limit validations
+  const appendFiles = (newFiles: FileList | File[]) => {
+    const list = Array.from(newFiles);
+
+    // Validate per-file limit
+    for (const f of list) {
+      if (f.size > MAX_FILE_SIZE_BYTES) {
+        setUploadError(
+          `"${f.name}" is too large (${formatBytes(f.size)}). Max allowed is 15 MB per file for fast browser pickup.`
+        );
+        return;
+      }
+    }
+
+    setSelectedFiles((prev) => {
+      const existingKeys = new Set(prev.map((f) => `${f.name}_${f.size}`));
+      const filtered = list.filter((f) => !existingKeys.has(`${f.name}_${f.size}`));
+      const combined = [...prev, ...filtered];
+
+      const totalBytes = combined.reduce((acc, f) => acc + f.size, 0);
+      if (totalBytes > MAX_BUNDLE_SIZE_BYTES) {
+        setUploadError(
+          `Total drop size (${formatBytes(totalBytes)}) exceeds the 35 MB limit for anonymous browser shuttle.`
+        );
+        return prev;
+      }
+
+      return combined;
+    });
+    setUploadError(null);
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+    setUploadError(null);
+  };
+
   // Handle Drag & Drop
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -135,16 +179,15 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setSelectedFile(e.dataTransfer.files[0]);
-      setUploadError(null);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      appendFiles(e.dataTransfer.files);
     }
   };
 
   // Handle Upload Submission
   const handleUpload = async () => {
-    if (!selectedFile) {
-      setUploadError('Please select an image, video, or document to upload.');
+    if (selectedFiles.length === 0) {
+      setUploadError('Please select at least one image, video, or document to upload.');
       return;
     }
     const cleanCode = customCode.trim().replace(/[-\s]/g, '');
@@ -156,15 +199,25 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
     try {
       setIsUploading(true);
       setUploadError(null);
+      setUploadProgress(null);
+      setUploadProgressMsg('Starting encryption...');
 
-      const { meta } = await uploadToQuickDrop(selectedFile, cleanCode, burnOnDownload);
+      const { bundleMeta } = await uploadToQuickDrop(
+        selectedFiles,
+        cleanCode,
+        burnOnDownload,
+        (info) => {
+          setUploadProgress(info);
+          setUploadProgressMsg(info.message);
+        }
+      );
 
       const baseUrl = window.location.origin;
       const shareUrl = `${baseUrl}/drop#code=${cleanCode}`;
 
       setUploadSuccess({
         code: cleanCode,
-        meta,
+        bundleMeta,
         shareUrl,
       });
     } catch (err: any) {
@@ -172,6 +225,8 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
       setUploadError(err.message || 'Upload failed. Please check your internet connection.');
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
+      setUploadProgressMsg('');
     }
   };
 
@@ -186,14 +241,16 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
     try {
       setIsSearching(true);
       setSearchError(null);
-      setFoundRecord(null);
+      setFoundBundle(null);
       setDownloadSuccess(null);
 
-      const record = await lookupQuickDrop(cleanCode);
-      if (!record) {
-        setSearchError('No active file found for this code. It may have expired (7 days), already been burned, or the code was entered incorrectly.');
+      const meta = await lookupQuickDrop(cleanCode);
+      if (!meta) {
+        setSearchError(
+          'No active files found for this code. They may have expired (7 days), already been burned, or the code was entered incorrectly.'
+        );
       } else {
-        setFoundRecord(record);
+        setFoundBundle(meta);
       }
     } catch (err: any) {
       setSearchError(err.message || 'Lookup failed.');
@@ -202,45 +259,63 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
     }
   };
 
-  // Handle Download & Decrypt
-  const handleDownload = async () => {
-    if (!foundRecord) return;
+  // Handle Download Single File
+  const handleDownloadSingle = async (fileItem: QuickDropFileItem) => {
+    const cleanCode = searchCode.trim().replace(/[-\s]/g, '');
+    try {
+      setSearchError(null);
+      await downloadSingleFile(cleanCode, fileItem);
+    } catch (err: any) {
+      setSearchError(err.message || `Failed to download ${fileItem.name}`);
+    }
+  };
+
+  // Handle Download All & Burn
+  const handleDownloadAll = async () => {
+    if (!foundBundle) return;
     const cleanCode = searchCode.trim().replace(/[-\s]/g, '');
 
     try {
       setIsDownloading(true);
       setSearchError(null);
 
-      const { burned } = await downloadAndDecryptQuickDrop(cleanCode, foundRecord.meta);
+      const { burned } = await downloadAllAndBurn(
+        cleanCode,
+        foundBundle,
+        (index, total, name) => {
+          setDownloadProgressMsg(`Decrypting & downloading ${index} of ${total}: ${name}`);
+        }
+      );
 
       if (burned) {
-        setDownloadSuccess('File successfully decrypted, downloaded, and permanently BURNED from the cloud!');
-        setFoundRecord(null);
+        setDownloadSuccess('All files successfully decrypted, downloaded, and permanently BURNED from the cloud!');
+        setFoundBundle(null);
       } else {
-        setDownloadSuccess('File successfully decrypted and downloaded!');
+        setDownloadSuccess('All files successfully decrypted and downloaded!');
       }
     } catch (err: any) {
       console.error('Download error:', err);
       setSearchError(err.message || 'Decryption failed. Please confirm the numeric code.');
     } finally {
       setIsDownloading(false);
+      setDownloadProgressMsg('');
     }
   };
 
   // Handle Manual Delete / Burn
   const handleManualBurn = async () => {
-    if (!foundRecord) return;
+    if (!foundBundle) return;
     const cleanCode = searchCode.trim().replace(/[-\s]/g, '');
-    if (!confirm('Are you sure you want to permanently delete this file now? It cannot be recovered.')) {
+    if (!confirm('Are you sure you want to permanently delete all files in this drop? They cannot be recovered.')) {
       return;
     }
 
-    const ok = await deleteQuickDrop(cleanCode);
+    const ok = await burnQuickDrop(cleanCode);
     if (ok) {
-      setFoundRecord(null);
-      setDownloadSuccess('File has been permanently burned and deleted from the cloud.');
+      setFoundBundle(null);
+      setDownloadSuccess('All files in this drop have been permanently burned and deleted from the cloud.');
     } else {
-      setSearchError('Could not delete file.');
+      setSearchError('Could not delete files.');
     }
   };
 
@@ -254,6 +329,23 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
       setTimeout(() => setCopiedLink(false), 2000);
     }
   };
+
+  const totalSelectedSize = selectedFiles.reduce((acc, f) => acc + f.size, 0);
+
+  // Calculate live progress percentage
+  let progressPercent = 0;
+  if (uploadProgress && selectedFiles.length > 0) {
+    const perFileWeight = 100 / selectedFiles.length;
+    let stepRatio = 0.1;
+    if (uploadProgress.phase === 'encrypting') stepRatio = 0.4;
+    if (uploadProgress.phase === 'uploading') stepRatio = 0.8;
+    if (uploadProgress.phase === 'finalizing') stepRatio = 1.0;
+
+    progressPercent = Math.min(
+      98,
+      Math.round((uploadProgress.current - 1) * perFileWeight + perFileWeight * stepRatio)
+    );
+  }
 
   return (
     <div
@@ -270,13 +362,13 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
         boxSizing: 'border-box',
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !isUploading) onClose();
       }}
     >
       <div
         style={{
           width: '100%',
-          maxWidth: 540,
+          maxWidth: 560,
           maxHeight: '92vh',
           backgroundColor: Colors.bg.elevated,
           borderRadius: 18,
@@ -343,13 +435,14 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                 </span>
               </div>
               <p style={{ margin: 0, fontSize: 12, color: Colors.text.secondary }}>
-                Anonymous Cross-Device Media & Doc Transfer
+                Anonymous Cross-Device Media & Doc Shuttle
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
+            disabled={isUploading}
             style={{
               width: 32,
               height: 32,
@@ -360,7 +453,8 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               color: Colors.text.secondary,
-              cursor: 'pointer',
+              cursor: isUploading ? 'not-allowed' : 'pointer',
+              opacity: isUploading ? 0.4 : 1,
             }}
             title="Close"
           >
@@ -377,7 +471,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
           }}
         >
           <button
-            onClick={() => setActiveTab('upload')}
+            onClick={() => !isUploading && setActiveTab('upload')}
             style={{
               flex: 1,
               padding: '12px 16px',
@@ -391,7 +485,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: 8,
-              cursor: 'pointer',
+              cursor: isUploading ? 'not-allowed' : 'pointer',
               transition: 'all 0.15s ease',
             }}
           >
@@ -400,7 +494,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('retrieve')}
+            onClick={() => !isUploading && setActiveTab('retrieve')}
             style={{
               flex: 1,
               padding: '12px 16px',
@@ -414,7 +508,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: 8,
-              cursor: 'pointer',
+              cursor: isUploading ? 'not-allowed' : 'pointer',
               transition: 'all 0.15s ease',
             }}
           >
@@ -425,135 +519,221 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
 
         {/* Modal Body */}
         <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-          {/* TAB 1: UPLOAD */}
+          {/* TAB 1: UPLOAD (Multiple Files) */}
           {activeTab === 'upload' && (
             <div>
               {!uploadSuccess ? (
                 <div>
+                  {/* Hidden multiple file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        appendFiles(e.target.files);
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+
                   {/* Drag & Drop Zone */}
                   <div
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => !isUploading && fileInputRef.current?.click()}
                     style={{
                       border: `2px dashed ${isDragOver ? Colors.accent.primary : Colors.border}`,
                       borderRadius: 14,
-                      padding: '24px 16px',
+                      padding: selectedFiles.length > 0 ? '16px 14px' : '26px 16px',
                       textAlign: 'center',
                       backgroundColor: isDragOver ? Colors.accent.soft : Colors.bg.secondary,
-                      cursor: 'pointer',
+                      cursor: isUploading ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s ease',
-                      marginBottom: 16,
+                      marginBottom: 14,
+                      opacity: isUploading ? 0.6 : 1,
                     }}
                   >
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          setSelectedFile(e.target.files[0]);
-                          setUploadError(null);
-                        }
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: '50%',
+                        backgroundColor: Colors.bg.elevated,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 8px auto',
+                        color: Colors.accent.primary,
                       }}
-                    />
+                    >
+                      <UploadCloud size={22} />
+                    </div>
+                    <p
+                      style={{
+                        margin: '0 0 4px 0',
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: Colors.text.primary,
+                      }}
+                    >
+                      {selectedFiles.length > 0
+                        ? 'Click or drag more files to add'
+                        : 'Click to select or drag & drop multiple files'}
+                    </p>
+                    <p style={{ margin: 0, fontSize: 12, color: Colors.text.secondary }}>
+                      Select multiple Images, Videos, PDFs, or Documents (max 15 MB/file)
+                    </p>
+                  </div>
 
-                    {selectedFile ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left' }}>
-                        <div
-                          style={{
-                            width: 48,
-                            height: 48,
-                            borderRadius: 10,
-                            backgroundColor: Colors.bg.elevated,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {getFileIcon(selectedFile.type, selectedFile.name)}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p
+                  {/* Selected Files List */}
+                  {selectedFiles.length > 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 8,
+                          padding: '0 2px',
+                        }}
+                      >
+                        <span style={{ fontSize: 12, fontWeight: 700, color: Colors.text.primary }}>
+                          SELECTED FILES ({selectedFiles.length}) · {formatBytes(totalSelectedSize)}
+                        </span>
+                        {!isUploading && (
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
                             style={{
-                              margin: '0 0 2px 0',
-                              fontSize: 14,
+                              background: 'none',
+                              border: 'none',
+                              color: Colors.accent.primary,
+                              fontSize: 12,
                               fontWeight: 600,
-                              color: Colors.text.primary,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: 0,
                             }}
                           >
-                            {selectedFile.name}
-                          </p>
-                          <p style={{ margin: 0, fontSize: 12, color: Colors.text.secondary }}>
-                            {formatBytes(selectedFile.size)} · Click or drop another to replace
-                          </p>
-                        </div>
+                            <Plus size={13} />
+                            <span>Add More</span>
+                          </button>
+                        )}
                       </div>
-                    ) : (
-                      <div>
-                        <div
-                          style={{
-                            width: 52,
-                            height: 52,
-                            borderRadius: '50%',
-                            backgroundColor: Colors.bg.elevated,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            margin: '0 auto 12px auto',
-                            color: Colors.accent.primary,
-                          }}
-                        >
-                          <UploadCloud size={26} />
-                        </div>
-                        <p
-                          style={{
-                            margin: '0 0 6px 0',
-                            fontSize: 14,
-                            fontWeight: 600,
-                            color: Colors.text.primary,
-                          }}
-                        >
-                          Click to select or drag & drop files here
-                        </p>
-                        <p style={{ margin: 0, fontSize: 12, color: Colors.text.secondary }}>
-                          Supports Images, Videos, PDFs, and Documents (up to 150 MB)
-                        </p>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                          maxHeight: 160,
+                          overflowY: 'auto',
+                          paddingRight: 4,
+                        }}
+                      >
+                        {selectedFiles.map((f, idx) => (
+                          <div
+                            key={`${f.name}_${idx}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '8px 12px',
+                              borderRadius: 10,
+                              backgroundColor: Colors.bg.secondary,
+                              border: `1px solid ${Colors.border}`,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                              {getFileIcon(f.type, f.name)}
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <p
+                                  style={{
+                                    margin: 0,
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    color: Colors.text.primary,
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {f.name}
+                                </p>
+                                <span style={{ fontSize: 11, color: Colors.text.secondary }}>
+                                  {formatBytes(f.size)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {!isUploading && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeFile(idx);
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: Colors.text.secondary,
+                                  cursor: 'pointer',
+                                  padding: 4,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                                title="Remove file"
+                              >
+                                <X size={15} />
+                              </button>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {/* Custom Numeric Code Input */}
                   <div style={{ marginBottom: 18 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 6,
+                      }}
+                    >
                       <label style={{ fontSize: 13, fontWeight: 600, color: Colors.text.primary }}>
                         Choose Your Numeric Pickup Code
                       </label>
-                      <button
-                        type="button"
-                        onClick={generateRandomCode}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: Colors.accent.primary,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          padding: 0,
-                        }}
-                      >
-                        <RefreshCw size={12} />
-                        <span>Randomize</span>
-                      </button>
+                      {!isUploading && (
+                        <button
+                          type="button"
+                          onClick={generateRandomCode}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: Colors.accent.primary,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: 0,
+                          }}
+                        >
+                          <RefreshCw size={12} />
+                          <span>Randomize</span>
+                        </button>
+                      )}
                     </div>
 
                     <div style={{ position: 'relative' }}>
@@ -561,6 +741,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                         type="text"
                         inputMode="numeric"
                         pattern="[0-9]*"
+                        disabled={isUploading}
                         value={customCode}
                         onChange={(e) => setCustomCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
                         placeholder="e.g. 748201 or your PIN"
@@ -576,6 +757,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                           fontFamily: 'monospace',
                           letterSpacing: '2px',
                           boxSizing: 'border-box',
+                          opacity: isUploading ? 0.6 : 1,
                         }}
                       />
                     </div>
@@ -591,16 +773,17 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                       borderRadius: 10,
                       backgroundColor: Colors.bg.secondary,
                       border: `1px solid ${Colors.border}`,
-                      marginBottom: 20,
+                      marginBottom: 18,
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 8,
                     }}
                   >
                     {/* Burn Toggle */}
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: isUploading ? 'not-allowed' : 'pointer' }}>
                       <input
                         type="checkbox"
+                        disabled={isUploading}
                         checked={burnOnDownload}
                         onChange={(e) => setBurnOnDownload(e.target.checked)}
                         style={{ accentColor: Colors.accent.primary, width: 16, height: 16 }}
@@ -609,20 +792,28 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <Flame size={14} color="#EF4444" />
                           <span style={{ fontSize: 13, fontWeight: 600, color: Colors.text.primary }}>
-                            Burn after first download
+                            Burn after download
                           </span>
                         </div>
                         <p style={{ margin: 0, fontSize: 11, color: Colors.text.secondary }}>
-                          File permanently deletes from cloud the instant you download it at home.
+                          Files permanently wipe from the cloud the moment they are downloaded at home.
                         </p>
                       </div>
                     </label>
 
                     {/* Expiration Note */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 6, borderTop: `1px solid ${Colors.border}` }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        paddingTop: 6,
+                        borderTop: `1px solid ${Colors.border}`,
+                      }}
+                    >
                       <Clock size={13} color={Colors.text.secondary} />
                       <span style={{ fontSize: 11, color: Colors.text.secondary }}>
-                        Hard auto-delete: Any unretrieved file is wiped automatically in 7 days.
+                        Hard auto-delete: Any unretrieved files are wiped automatically in 7 days.
                       </span>
                     </div>
 
@@ -630,10 +821,93 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <ShieldCheck size={13} color="#5E9473" />
                       <span style={{ fontSize: 11, color: Colors.text.secondary }}>
-                        Client-side AES-256 encrypted before upload. The cloud cannot read your files.
+                        Client-side AES-256 encrypted before upload. Zero knowledge relay.
                       </span>
                     </div>
                   </div>
+
+                  {/* ACTIVE PROGRESS CARD DURING UPLOAD */}
+                  {isUploading && (
+                    <div
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: 12,
+                        backgroundColor: 'rgba(217, 119, 87, 0.08)',
+                        border: `1px solid ${Colors.accent.primary}`,
+                        marginBottom: 16,
+                        animation: 'fadeInScale 0.15s ease-out',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <RefreshCw size={14} color={Colors.accent.primary} className="animate-spin" />
+                          <span
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: Colors.accent.primary,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.04em',
+                            }}
+                          >
+                            {uploadProgress?.phase === 'encrypting'
+                              ? 'Encrypting (AES-256)'
+                              : uploadProgress?.phase === 'uploading'
+                              ? 'Uploading to Cloud'
+                              : uploadProgress?.phase === 'preparing'
+                              ? 'Optimizing Image'
+                              : 'Finalizing Bundle'}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: Colors.text.primary }}>
+                          {progressPercent}%
+                        </span>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div
+                        style={{
+                          width: '100%',
+                          height: 6,
+                          borderRadius: 999,
+                          backgroundColor: 'rgba(0,0,0,0.08)',
+                          overflow: 'hidden',
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${progressPercent}%`,
+                            height: '100%',
+                            backgroundColor: Colors.accent.primary,
+                            borderRadius: 999,
+                            transition: 'width 0.25s ease-out',
+                          }}
+                        />
+                      </div>
+
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: 12,
+                          color: Colors.text.primary,
+                          fontWeight: 500,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {uploadProgressMsg || 'Encrypting and transferring files...'}
+                      </p>
+                    </div>
+                  )}
 
                   {uploadError && (
                     <div
@@ -649,7 +923,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                         gap: 8,
                       }}
                     >
-                      <AlertCircle size={15} />
+                      <AlertCircle size={15} style={{ flexShrink: 0 }} />
                       <span>{uploadError}</span>
                     </div>
                   )}
@@ -657,17 +931,20 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                   {/* Upload Button */}
                   <button
                     onClick={handleUpload}
-                    disabled={isUploading || !selectedFile}
+                    disabled={isUploading || selectedFiles.length === 0}
                     style={{
                       width: '100%',
                       padding: '14px',
                       borderRadius: 12,
                       border: 'none',
-                      backgroundColor: isUploading || !selectedFile ? Colors.bg.secondary : Colors.accent.primary,
-                      color: isUploading || !selectedFile ? Colors.text.secondary : '#FFFFFF',
+                      backgroundColor:
+                        isUploading || selectedFiles.length === 0
+                          ? Colors.bg.secondary
+                          : Colors.accent.primary,
+                      color: isUploading || selectedFiles.length === 0 ? Colors.text.secondary : '#FFFFFF',
                       fontSize: 15,
                       fontWeight: 700,
-                      cursor: isUploading || !selectedFile ? 'not-allowed' : 'pointer',
+                      cursor: isUploading || selectedFiles.length === 0 ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -678,12 +955,16 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     {isUploading ? (
                       <>
                         <RefreshCw size={17} className="animate-spin" />
-                        <span>Encrypting & Uploading...</span>
+                        <span>Processing & Transferring...</span>
                       </>
                     ) : (
                       <>
                         <UploadCloud size={18} />
-                        <span>Encrypt & Drop File</span>
+                        <span>
+                          {selectedFiles.length > 1
+                            ? `Encrypt & Drop ${selectedFiles.length} Files`
+                            : 'Encrypt & Drop File'}
+                        </span>
                       </>
                     )}
                   </button>
@@ -715,10 +996,11 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                       color: Colors.text.primary,
                     }}
                   >
-                    File Ready for Pickup!
+                    {uploadSuccess.bundleMeta.fileCount} File
+                    {uploadSuccess.bundleMeta.fileCount > 1 ? 's' : ''} Ready for Pickup!
                   </h3>
                   <p style={{ margin: '0 0 18px 0', fontSize: 13, color: Colors.text.secondary }}>
-                    You can safely close this browser or sign out. Pick it up from any device.
+                    You can safely close this browser or walk away. Pick it up from any device.
                   </p>
 
                   {/* Big Code Card */}
@@ -731,7 +1013,14 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                       marginBottom: 16,
                     }}
                   >
-                    <span style={{ fontSize: 11, fontWeight: 700, color: Colors.text.secondary, textTransform: 'uppercase' }}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: Colors.text.secondary,
+                        textTransform: 'uppercase',
+                      }}
+                    >
                       Your Pickup Code
                     </span>
                     <div
@@ -849,7 +1138,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                   <button
                     onClick={() => {
                       setUploadSuccess(null);
-                      setSelectedFile(null);
+                      setSelectedFiles([]);
                       generateRandomCode();
                     }}
                     style={{
@@ -862,7 +1151,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                       padding: 8,
                     }}
                   >
-                    Drop another file
+                    Drop more files
                   </button>
                 </div>
               )}
@@ -873,7 +1162,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
           {activeTab === 'retrieve' && (
             <div>
               <p style={{ margin: '0 0 14px 0', fontSize: 13, color: Colors.text.secondary }}>
-                Enter the numeric code you created when uploading to find and decrypt your file.
+                Enter the numeric code you created when uploading to find and decrypt your files.
               </p>
 
               {/* Code Search Input */}
@@ -966,8 +1255,8 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                 </div>
               )}
 
-              {/* Found File Card */}
-              {foundRecord && (
+              {/* Found Files Bundle Card */}
+              {foundBundle && (
                 <div
                   style={{
                     padding: '16px',
@@ -977,44 +1266,117 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     marginBottom: 16,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                    <div
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <FolderArchive size={18} color={Colors.accent.primary} />
+                        <span style={{ fontSize: 14, fontWeight: 700, color: Colors.text.primary }}>
+                          {foundBundle.fileCount} File{foundBundle.fileCount > 1 ? 's' : ''} Ready (
+                          {formatBytes(foundBundle.totalSize)})
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 11, color: Colors.text.secondary }}>
+                        Uploaded {new Date(foundBundle.uploadedAt).toLocaleDateString()} · Expires in 7 days
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={handleManualBurn}
+                      disabled={isDownloading}
                       style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 10,
-                        backgroundColor: Colors.bg.elevated,
+                        background: 'none',
+                        border: 'none',
+                        color: '#EF4444',
+                        cursor: 'pointer',
+                        padding: 6,
+                        borderRadius: 8,
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
+                        gap: 4,
+                        fontSize: 12,
+                        fontWeight: 600,
                       }}
+                      title="Permanently Burn All Files"
                     >
-                      {getFileIcon(foundRecord.meta.type, foundRecord.meta.name)}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p
+                      <Trash2 size={14} />
+                      <span>Burn</span>
+                    </button>
+                  </div>
+
+                  {/* List of files with individual download buttons */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                    {foundBundle.files.map((fileItem) => (
+                      <div
+                        key={fileItem.id}
                         style={{
-                          margin: '0 0 2px 0',
-                          fontSize: 15,
-                          fontWeight: 700,
-                          color: Colors.text.primary,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '10px 12px',
+                          borderRadius: 10,
+                          backgroundColor: Colors.bg.elevated,
+                          border: `1px solid ${Colors.border}`,
                         }}
                       >
-                        {foundRecord.meta.name}
-                      </p>
-                      <p style={{ margin: 0, fontSize: 12, color: Colors.text.secondary }}>
-                        {formatBytes(foundRecord.meta.size)} · Uploaded {new Date(foundRecord.meta.uploadedAt).toLocaleDateString()}
-                      </p>
-                    </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                          {getFileIcon(fileItem.type, fileItem.name)}
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <p
+                              style={{
+                                margin: 0,
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: Colors.text.primary,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {fileItem.name}
+                            </p>
+                            <span style={{ fontSize: 11, color: Colors.text.secondary }}>
+                              {formatBytes(fileItem.size)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadSingle(fileItem)}
+                          disabled={isDownloading}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: 8,
+                            border: `1px solid ${Colors.border}`,
+                            backgroundColor: Colors.bg.primary,
+                            color: Colors.accent.primary,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            marginLeft: 8,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Download size={13} />
+                          <span>Save</span>
+                        </button>
+                      </div>
+                    ))}
                   </div>
 
                   {/* Status Badges */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-                    {foundRecord.meta.burnOnDownload && (
+                    {foundBundle.burnOnDownload && (
                       <span
                         style={{
                           display: 'inline-flex',
@@ -1029,7 +1391,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                         }}
                       >
                         <Flame size={12} />
-                        Burns after this download
+                        Burns after download
                       </span>
                     )}
 
@@ -1052,59 +1414,42 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     </span>
                   </div>
 
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={handleDownload}
-                      disabled={isDownloading}
-                      style={{
-                        flex: 1,
-                        padding: '12px 16px',
-                        borderRadius: 10,
-                        border: 'none',
-                        backgroundColor: Colors.accent.primary,
-                        color: '#FFFFFF',
-                        fontSize: 14,
-                        fontWeight: 700,
-                        cursor: isDownloading ? 'wait' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 8,
-                      }}
-                    >
-                      {isDownloading ? (
-                        <>
-                          <RefreshCw size={16} className="animate-spin" />
-                          <span>Decrypting & Saving...</span>
-                        </>
-                      ) : (
-                        <>
-                          <DownloadCloud size={16} />
-                          <span>Decrypt & Download</span>
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      onClick={handleManualBurn}
-                      disabled={isDownloading}
-                      style={{
-                        padding: '12px',
-                        borderRadius: 10,
-                        border: `1px solid ${Colors.border}`,
-                        backgroundColor: Colors.bg.elevated,
-                        color: '#EF4444',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                      title="Permanently Burn File Now"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  {/* Download All Button */}
+                  <button
+                    onClick={handleDownloadAll}
+                    disabled={isDownloading}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: 10,
+                      border: 'none',
+                      backgroundColor: Colors.accent.primary,
+                      color: '#FFFFFF',
+                      fontSize: 14,
+                      fontWeight: 700,
+                      cursor: isDownloading ? 'wait' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    {isDownloading ? (
+                      <>
+                        <RefreshCw size={16} className="animate-spin" />
+                        <span>{downloadProgressMsg || 'Decrypting & Downloading...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <DownloadCloud size={16} />
+                        <span>
+                          {foundBundle.fileCount > 1
+                            ? `Decrypt & Download All (${foundBundle.fileCount} Files)`
+                            : 'Decrypt & Download File'}
+                        </span>
+                      </>
+                    )}
+                  </button>
                 </div>
               )}
             </div>

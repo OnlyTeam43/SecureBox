@@ -149,7 +149,7 @@ export const App: React.FC = () => {
     }
   }, [screenMode, activeRoom?.roomId]);
 
-  // Restore active room & cryptoKey silently on load (auto-select most recent if activeId unset)
+  // Restore active room & cryptoKey silently on load
   useEffect(() => {
     const activeId = localStorage.getItem(ACTIVE_ROOM_KEY);
     const stored = localStorage.getItem(ROOMS_KEY);
@@ -158,12 +158,6 @@ export const App: React.FC = () => {
     let targetRoom: RoomMetadata | null = null;
     if (activeId && map[activeId]) {
       targetRoom = map[activeId] as RoomMetadata;
-    } else {
-      const all = Object.values(map) as RoomMetadata[];
-      if (all.length > 0) {
-        all.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        targetRoom = all[0];
-      }
     }
 
     if (targetRoom) {
@@ -172,10 +166,13 @@ export const App: React.FC = () => {
         (!targetRoom.expiresAt && Date.now() - (targetRoom.createdAt || 0) < 24 * 60 * 60 * 1000);
       if (isStillValid) {
         setActiveRoom(targetRoom);
-        localStorage.setItem(ACTIVE_ROOM_KEY, targetRoom.roomId);
         importSecretKey(targetRoom.secretKey)
           .then((key) => setCryptoKey(key))
           .catch(() => {});
+      } else {
+        deleteRoom(targetRoom.roomId);
+        setActiveRoom(null);
+        setCryptoKey(null);
       }
     }
     // Update badge count on initial load
@@ -370,6 +367,11 @@ export const App: React.FC = () => {
     if (localStorage.getItem(ACTIVE_ROOM_KEY) === roomId) {
       localStorage.removeItem(ACTIVE_ROOM_KEY);
     }
+    if (activeRoom?.roomId === roomId) {
+      setActiveRoom(null);
+      setCryptoKey(null);
+      setMessages([]);
+    }
     setSavedRooms(Object.values(map));
     setUnreadCount(getTotalUnreadCount());
   };
@@ -404,6 +406,14 @@ export const App: React.FC = () => {
           saveRoom(updated);
           return updated;
         });
+      },
+      onWipe: () => {
+        if (activeRoom) deleteRoom(activeRoom.roomId);
+        setMessages([]);
+        setActiveRoom(null);
+        setCryptoKey(null);
+        alert('This room was self-destructed and completely wiped.');
+        setScreenMode('hub');
       },
     });
 
@@ -650,51 +660,55 @@ export const App: React.FC = () => {
 
   const handleRoomOptions = async () => {
     if (!activeRoom) return;
-    const choice = prompt('Options:\n1. Extend room lifespan (+24 hours)\n2. Wipe and self-destruct room\n\nEnter 1 or 2:');
+    const choice = prompt(
+      'Room Options:\n1. Return to SecureBox Hub\n2. Extend room lifespan (+24 hours)\n3. Wipe and self-destruct room\n\nEnter 1, 2, or 3:'
+    );
 
     if (choice === '1') {
-      await handleExtendRoom();
+      setScreenMode('hub');
     } else if (choice === '2') {
-      if (confirm('Are you sure you want to completely wipe this room? All history will self-destruct permanently.')) {
-        await sendWipeSignal(activeRoom.roomId);
-        deleteRoom(activeRoom.roomId);
+      await handleExtendRoom();
+    } else if (choice === '3') {
+      if (confirm('Are you sure you want to completely wipe this room? All history will self-destruct permanently on both devices.')) {
+        const rId = activeRoom.roomId;
+        await sendWipeSignal(rId);
+        deleteRoom(rId);
         setMessages([]);
         setActiveRoom(null);
-        setScreenMode('game');
+        setCryptoKey(null);
+        alert('Room destroyed. Returning to SecureBox Hub.');
+        setScreenMode('hub');
       }
     }
   };
 
   if (isDedicatedPage) {
-
-
     return (
-
-
-      <SecureboxPage
-
-
-        onLaunchApp={() => {
-
-
-          window.history.pushState(null, '', '/');
-
-
-          setIsDedicatedPage(false);
-
-
-          setScreenMode('game');
-
-
-        }}
-
-
-      />
-
-
+      <>
+        <SecureboxPage
+          onLaunchApp={() => {
+            window.history.pushState(null, '', '/');
+            setIsDedicatedPage(false);
+            setScreenMode('game');
+          }}
+          onOpenQuickDrop={() => {
+            setQuickDropTab('upload');
+            setIsQuickDropOpen(true);
+          }}
+        />
+        <QuickDropModal
+          isOpen={isQuickDropOpen}
+          onClose={() => {
+            setIsQuickDropOpen(false);
+            if (window.location.pathname.toLowerCase().includes('drop')) {
+              window.history.replaceState(null, '', '/');
+            }
+          }}
+          initialCode={quickDropCode}
+          initialTab={quickDropTab}
+        />
+      </>
     );
-
-
   }
 
 
@@ -735,45 +749,8 @@ export const App: React.FC = () => {
               setIsQuickDropOpen(true);
             }}
             onUnlockClick={() => {
-              // Action when unlocked via Hub Password
+              // Action when unlocked via Hub Password -> ALWAYS GO TO THE SECUREBOX HUB!
               pendingUnlockAction.current = () => {
-                const activeId = localStorage.getItem(ACTIVE_ROOM_KEY);
-                const stored = localStorage.getItem(ROOMS_KEY);
-                const map = stored ? JSON.parse(stored) : {};
-
-                let targetRoom = activeRoom || (activeId && map[activeId] ? map[activeId] : null);
-
-                // If unread messages exist for another room, pick that room!
-                for (const rId of Object.keys(map)) {
-                  const unread = parseInt(localStorage.getItem(`securebox_unread_count_${rId}`) || '0', 10);
-                  if (unread > 0) {
-                    targetRoom = map[rId];
-                    break;
-                  }
-                }
-
-                if (!targetRoom) {
-                  const rooms = Object.values(map) as RoomMetadata[];
-                  if (rooms.length > 0) {
-                    rooms.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
-                    const recent = rooms[0];
-                    const valid =
-                      (recent.expiresAt && Date.now() < recent.expiresAt) ||
-                      (!recent.expiresAt && Date.now() - (recent.createdAt || 0) < 24 * 60 * 60 * 1000);
-                    if (valid) targetRoom = recent;
-                  }
-                }
-
-                if (targetRoom) {
-                  const valid =
-                    (targetRoom.expiresAt && Date.now() < targetRoom.expiresAt) ||
-                    (!targetRoom.expiresAt && Date.now() - (targetRoom.createdAt || 0) < 24 * 60 * 60 * 1000);
-                  if (valid) {
-                    enterRoom(targetRoom);
-                    return;
-                  }
-                }
-
                 setScreenMode('hub');
               };
               setIsPinModalOpen(true);
@@ -820,13 +797,16 @@ export const App: React.FC = () => {
               roomCreatedAt={activeRoom.createdAt}
               roomExpiresAt={activeRoom.expiresAt}
               onExtendRoom={handleExtendRoom}
+              onHubClick={() => {
+                setScreenMode('hub');
+              }}
               onGameClick={() => {
                 setScreenMode('game');
                 document.title = 'Brick Smash | Arcade Retro Game';
               }}
               onLockClick={() => {
                 setScreenMode('game');
-                pendingUnlockAction.current = () => setScreenMode('chat');
+                pendingUnlockAction.current = () => setScreenMode('hub');
                 setIsPinModalOpen(true);
               }}
               onOptionsClick={handleRoomOptions}
