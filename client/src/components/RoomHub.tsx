@@ -2,7 +2,18 @@
 import React, { useState } from 'react';
 import { Colors } from '../theme/tokens';
 import { RoomMetadata } from '../types';
-import { Plus, Gamepad2, Trash2, ArrowRight, Eye, EyeOff, Copy, Check } from 'lucide-react';
+import {
+  Plus,
+  Gamepad2,
+  Trash2,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
+  Calendar,
+  MessageSquare,
+} from 'lucide-react';
 
 interface RoomHubProps {
   savedRooms: RoomMetadata[];
@@ -28,6 +39,22 @@ export const RoomHub: React.FC<RoomHubProps> = ({
   const [createdPin, setCreatedPin] = useState<string | null>(null);
   const [pinCopied, setPinCopied] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const formatRoomDate = (timestamp?: number) => {
+    if (!timestamp) return 'Created recently';
+    const d = new Date(timestamp);
+    const dateStr = d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    const timeStr = d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    return `${dateStr} at ${timeStr}`;
+  };
 
   const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     // Only allow digits, max 4
@@ -57,7 +84,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
     if (!valid) return;
 
     setIsSubmitting(true);
-    setCreatedPin(pin); // Show PIN for user to copy before closing
+    setCreatedPin(pin);
     onCreateRoom(handle.trim(), pin);
     setIsSubmitting(false);
   };
@@ -76,7 +103,6 @@ export const RoomHub: React.FC<RoomHubProps> = ({
       setDeleteConfirmId(null);
     } else {
       setDeleteConfirmId(roomId);
-      // Auto-cancel after 3s
       setTimeout(() => setDeleteConfirmId(null), 3000);
     }
   };
@@ -92,7 +118,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
       alignItems: 'center',
       padding: '24px 16px 40px',
     }}>
-      <div style={{ width: '100%', maxWidth: 460, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* Header */}
         <div style={{
           display: 'flex',
@@ -316,11 +342,16 @@ export const RoomHub: React.FC<RoomHubProps> = ({
           padding: 20,
           boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
         }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: Colors.text.primary, marginBottom: 4 }}>
-            Saved Rooms
-          </h2>
-          <p style={{ fontSize: 13, color: Colors.text.secondary, marginBottom: 14 }}>
-            Stored locally in your browser only. Zero server history.
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: Colors.text.primary, margin: 0 }}>
+              Saved Rooms
+            </h2>
+            <span style={{ fontSize: 12, fontWeight: 600, color: Colors.accent.primary }}>
+              {savedRooms.length} {savedRooms.length === 1 ? 'Room' : 'Rooms'}
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: Colors.text.secondary, marginBottom: 16 }}>
+            Encrypted locally in your browser. Complete timestamp &amp; isolated history.
           </p>
 
           {savedRooms.length === 0 ? (
@@ -341,26 +372,67 @@ export const RoomHub: React.FC<RoomHubProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '12px 14px',
-                    borderRadius: 12,
+                    padding: '14px 16px',
+                    borderRadius: 14,
                     backgroundColor: Colors.bg.secondary,
                     border: `1px solid ${Colors.border}`,
+                    gap: 12,
                   }}
                 >
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: Colors.text.primary }}>
-                      💬 {room.partnerHandle || 'Partner (Invite sent)'}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
+                      <MessageSquare size={15} color={Colors.accent.primary} style={{ flexShrink: 0 }} />
+                      <span style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: Colors.text.primary,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {room.partnerHandle ? `@${room.partnerHandle}` : 'Partner (Invite sent)'}
+                      </span>
+                      {!room.partnerHandle && (
+                        <span style={{
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          backgroundColor: 'rgba(217, 119, 87, 0.12)',
+                          color: Colors.accent.primary,
+                          letterSpacing: '0.04em',
+                          flexShrink: 0,
+                        }}>
+                          WAITING
+                        </span>
+                      )}
                     </div>
-                    <div style={{ fontSize: 11, color: Colors.text.placeholder, marginTop: 2 }}>
-                      Room: {room.roomId.slice(0, 10)}... • As @{room.myHandle}
+
+                    {/* Date and Time stamp of room creation */}
+                    <div style={{
+                      fontSize: 11,
+                      color: Colors.text.secondary,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      flexWrap: 'wrap',
+                    }}>
+                      <Calendar size={11} color={Colors.text.placeholder} />
+                      <span style={{ fontWeight: 500, color: Colors.text.primary }}>
+                        {formatRoomDate(room.createdAt)}
+                      </span>
+                      <span style={{ color: Colors.text.placeholder }}>•</span>
+                      <span style={{ color: Colors.text.placeholder }}>
+                        As @{room.myHandle}
+                      </span>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     <button
                       onClick={() => onEnterRoom(room)}
                       style={{
-                        padding: '6px 12px',
+                        padding: '7px 13px',
                         borderRadius: 8,
                         backgroundColor: Colors.accent.primary,
                         border: 'none',

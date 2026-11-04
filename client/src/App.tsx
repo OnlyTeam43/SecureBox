@@ -30,18 +30,41 @@ import { ChatHeader } from './components/ChatHeader';
 import { ChatMessages } from './components/ChatMessages';
 import { Composer } from './components/Composer';
 
-// ─── Storage Key Constants (single source of truth) ─────────────────────────
-// HUB_KEY  : personal device entrance password hash
-// ROOMS_KEY: map of all saved rooms on this device
-// Never allow room PIN creation to overwrite HUB_KEY
+// ─── Storage Key Constants ──────────────────────────────────────────────────
 const HUB_KEY = 'securebox_hub_hash';
 const ROOMS_KEY = 'securebox_rooms';
 const ACTIVE_ROOM_KEY = 'securebox_active_room_id';
 
+// Helper to sum unread messages across all saved rooms
+const getTotalUnreadCount = (): number => {
+  const raw = localStorage.getItem(ROOMS_KEY);
+  if (!raw) return 0;
+  try {
+    const map = JSON.parse(raw);
+    let total = 0;
+    for (const rId of Object.keys(map)) {
+      const c = parseInt(localStorage.getItem(`securebox_unread_count_${rId}`) || '0', 10);
+      if (c > 0) total += c;
+    }
+    return total;
+  } catch (_) {
+    return 0;
+  }
+};
+
 export const App: React.FC = () => {
   const [screenMode, setScreenMode] = useState<ScreenMode>('game');
+  const screenModeRef = useRef<ScreenMode>(screenMode);
+  screenModeRef.current = screenMode;
+
   const [activeRoom, setActiveRoom] = useState<RoomMetadata | null>(null);
+  const activeRoomRef = useRef<RoomMetadata | null>(activeRoom);
+  activeRoomRef.current = activeRoom;
+
   const [cryptoKey, setCryptoKey] = useState<CryptoKey | null>(null);
+  const cryptoKeyRef = useRef<CryptoKey | null>(cryptoKey);
+  cryptoKeyRef.current = cryptoKey;
+
   const [savedRooms, setSavedRooms] = useState<RoomMetadata[]>(() => {
     const raw = localStorage.getItem(ROOMS_KEY);
     return raw ? Object.values(JSON.parse(raw)) : [];
@@ -51,11 +74,9 @@ export const App: React.FC = () => {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareLink, setShareLink] = useState('');
   const [pendingJoin, setPendingJoin] = useState<{ roomId: string; secretKey: string } | null>(null);
-  const [unreadCount, setUnreadCount] = useState<number>(() => {
-    const activeId = localStorage.getItem(ACTIVE_ROOM_KEY);
-    if (!activeId) return 0;
-    return parseInt(localStorage.getItem(`securebox_unread_count_${activeId}`) || '0', 10);
-  });
+
+  // Unread badge count connected directly across all rooms
+  const [unreadCount, setUnreadCount] = useState<number>(() => getTotalUnreadCount());
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
@@ -63,32 +84,45 @@ export const App: React.FC = () => {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingUnlockAction = useRef<(() => void) | null>(null);
 
-  // Reset unread count when entering chat
+  // Reset unread count for current room when entering chat
   useEffect(() => {
     if (screenMode === 'chat' && activeRoom) {
-      setUnreadCount(0);
       localStorage.setItem(`securebox_unread_count_${activeRoom.roomId}`, '0');
+      setUnreadCount(getTotalUnreadCount());
     }
-  }, [screenMode, activeRoom]);
+  }, [screenMode, activeRoom?.roomId]);
 
-  // Restore active room & cryptoKey silently on load (no URL involved)
+  // Restore active room & cryptoKey silently on load (auto-select most recent if activeId unset)
   useEffect(() => {
     const activeId = localStorage.getItem(ACTIVE_ROOM_KEY);
     const stored = localStorage.getItem(ROOMS_KEY);
     const map = stored ? JSON.parse(stored) : {};
 
+    let targetRoom: RoomMetadata | null = null;
     if (activeId && map[activeId]) {
-      const room = map[activeId] as RoomMetadata;
+      targetRoom = map[activeId] as RoomMetadata;
+    } else {
+      const all = Object.values(map) as RoomMetadata[];
+      if (all.length > 0) {
+        all.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        targetRoom = all[0];
+      }
+    }
+
+    if (targetRoom) {
       const isStillValid =
-        (room.expiresAt && Date.now() < room.expiresAt) ||
-        (!room.expiresAt && Date.now() - (room.createdAt || 0) < 24 * 60 * 60 * 1000);
+        (targetRoom.expiresAt && Date.now() < targetRoom.expiresAt) ||
+        (!targetRoom.expiresAt && Date.now() - (targetRoom.createdAt || 0) < 24 * 60 * 60 * 1000);
       if (isStillValid) {
-        setActiveRoom(room);
-        importSecretKey(room.secretKey)
+        setActiveRoom(targetRoom);
+        localStorage.setItem(ACTIVE_ROOM_KEY, targetRoom.roomId);
+        importSecretKey(targetRoom.secretKey)
           .then((key) => setCryptoKey(key))
           .catch(() => {});
       }
     }
+    // Update badge count on initial load
+    setUnreadCount(getTotalUnreadCount());
   }, []);
 
   // Parse URL on load — handle invite link (#roomId) or plain game view
@@ -105,7 +139,7 @@ export const App: React.FC = () => {
       let roomId = params.get('id') || params.get('room');
       let secretKey = params.get('key') || params.get('k') || '';
 
-      // Short link: #k9x2m4 — 6 clean chars, no = or &
+      // Short link: #k9x2m4
       if (!roomId && rawHash && !rawHash.includes('&') && !rawHash.includes('=')) {
         roomId = rawHash.toLowerCase();
       }
@@ -173,11 +207,9 @@ export const App: React.FC = () => {
     };
   }, [screenMode]);
 
-  // ── STRICT CHAT ISOLATION: always flush messages when room changes ──
+  // Strict Chat Isolation: flush on room change
   useEffect(() => {
-    // Always reset first so previous room messages never bleed into new room
     setMessages([]);
-
     if (!activeRoom) return;
 
     const key = `room_chat_${activeRoom.roomId}`;
@@ -189,23 +221,25 @@ export const App: React.FC = () => {
         setMessages([]);
       }
     }
-  }, [activeRoom?.roomId]); // keyed on roomId, not the whole room object
+  }, [activeRoom?.roomId]);
 
-  // handleIncomingPacket defined before useEffects that reference it
+  // ─── Incoming packet handler with live screenModeRef ───────────────────────
   const handleIncomingPacket = useCallback(
     async (packet: { id: string; sender: string; iv: string; data: string; timestamp?: number }) => {
-      if (!cryptoKey || !activeRoom) return;
-      if (packet.sender.toLowerCase() === activeRoom.myHandle.toLowerCase()) return;
+      const room = activeRoomRef.current;
+      const key = cryptoKeyRef.current;
+      if (!key || !room) return;
+      if (packet.sender.toLowerCase() === room.myHandle.toLowerCase()) return;
 
       // Register partner handle from first message if not saved yet
-      if (!activeRoom.partnerHandle && packet.sender) {
-        const updated = { ...activeRoom, partnerHandle: packet.sender };
+      if (!room.partnerHandle && packet.sender) {
+        const updated = { ...room, partnerHandle: packet.sender };
         saveRoom(updated);
         setActiveRoom(updated);
       }
 
       try {
-        const decrypted = await decryptData(cryptoKey, { iv: packet.iv, data: packet.data });
+        const decrypted = await decryptData(key, { iv: packet.iv, data: packet.data });
         const parsed = JSON.parse(decrypted);
 
         const newMsg: ChatMessage = {
@@ -221,30 +255,28 @@ export const App: React.FC = () => {
           if (prev.some((m) => m.id === newMsg.id)) return prev;
           const next = [...prev, newMsg];
           try {
-            localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
+            localStorage.setItem(`room_chat_${room.roomId}`, JSON.stringify(next));
           } catch (storageErr) {
             console.warn('LocalStorage save warning:', storageErr);
             try {
-              localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next.slice(-25)));
+              localStorage.setItem(`room_chat_${room.roomId}`, JSON.stringify(next.slice(-25)));
             } catch (_) {}
           }
           return next;
         });
 
-        if (screenMode !== 'chat') {
-          setUnreadCount((prev) => {
-            const next = prev + 1;
-            if (activeRoom) {
-              localStorage.setItem(`securebox_unread_count_${activeRoom.roomId}`, String(next));
-            }
-            return next;
-          });
+        // If not actively looking at this chat, increment unread badge count!
+        if (screenModeRef.current !== 'chat') {
+          const currentCount = parseInt(localStorage.getItem(`securebox_unread_count_${room.roomId}`) || '0', 10);
+          const nextCount = currentCount + 1;
+          localStorage.setItem(`securebox_unread_count_${room.roomId}`, String(nextCount));
+          setUnreadCount(getTotalUnreadCount());
         }
       } catch (err) {
         console.warn('Failed to decrypt packet:', err);
       }
     },
-    [cryptoKey, activeRoom]
+    []
   );
 
   // ─── Persistence helpers ─────────────────────────────────────────────────
@@ -267,6 +299,7 @@ export const App: React.FC = () => {
       localStorage.removeItem(ACTIVE_ROOM_KEY);
     }
     setSavedRooms(Object.values(map));
+    setUnreadCount(getTotalUnreadCount());
   };
 
   // ─── Real-time subscription ───────────────────────────────────────────────
@@ -317,7 +350,7 @@ export const App: React.FC = () => {
       });
     };
 
-    pullOffline(); // immediate on mount
+    pullOffline();
 
     const ms = screenMode === 'chat' ? 3000 : 7000;
     const interval = setInterval(pullOffline, ms);
@@ -336,7 +369,6 @@ export const App: React.FC = () => {
   // ─── Enter a room (flush state first, then load) ──────────────────────────
   const enterRoom = async (room: RoomMetadata) => {
     try {
-      // Immediately flush any previous room's chat
       setMessages([]);
       setIsPartnerOnline(false);
       setTypingUser(null);
@@ -345,10 +377,15 @@ export const App: React.FC = () => {
       setCryptoKey(key);
       setActiveRoom(room);
       localStorage.setItem(ACTIVE_ROOM_KEY, room.roomId);
+
+      // Clear unread for this entered room
+      localStorage.setItem(`securebox_unread_count_${room.roomId}`, '0');
+      setUnreadCount(getTotalUnreadCount());
+
       setScreenMode('chat');
       document.title = `Chat - ${room.partnerHandle || 'Private'}`;
-    } catch (_) {
-      alert('Failed to load room key.');
+    } catch (err) {
+      alert('Failed to enter room. Cryptographic key invalid.');
     }
   };
 
@@ -375,15 +412,11 @@ export const App: React.FC = () => {
       pinHash: pHash,
     };
 
-    // Flush messages before switching rooms
     setMessages([]);
     saveRoom(room);
     setActiveRoom(room);
     setCryptoKey(derivedKey);
     localStorage.setItem(ACTIVE_ROOM_KEY, roomId);
-
-    // ★ NEVER write room PIN hash into hub password slot ★
-    // Hub password (HUB_KEY) is only set by PinModal setup mode.
 
     const base = window.location.origin + window.location.pathname;
     setShareLink(`${base}#${roomId}`);
@@ -421,25 +454,19 @@ export const App: React.FC = () => {
       pinHash: pHash,
     };
 
-    // ★ NEVER write room PIN hash into hub password slot ★
     setMessages([]);
     saveRoom(room);
     setCryptoKey(derivedKey);
     localStorage.setItem(ACTIVE_ROOM_KEY, room.roomId);
     setPendingJoin(null);
 
-    // After joining, check if this device has a hub password already set.
-    // If not, ask them to set one AFTER they're in chat (non-blocking flow).
-    // We enter the room immediately so they don't miss messages.
     setActiveRoom(room);
     setScreenMode('chat');
     document.title = `Chat - ${room.partnerHandle || 'Private'}`;
 
-    // If guest has no hub password, prompt once after a short delay (non-blocking)
     if (!localStorage.getItem(HUB_KEY)) {
       setTimeout(() => {
-        // Open PIN modal in "setup" mode so they can set their Hub Password
-        pendingUnlockAction.current = null; // no action — just setup
+        pendingUnlockAction.current = null;
         setIsPinModalOpen(true);
       }, 1500);
     }
@@ -448,71 +475,28 @@ export const App: React.FC = () => {
   // ─── Send Message ────────────────────────────────────────────────────────
   const handleSendMessage = async (text: string) => {
     if (!activeRoom || !cryptoKey) return;
-    const newMsg: ChatMessage = {
-      id: `msg_${Date.now()}`,
-      sender: activeRoom.myHandle,
-      text,
-      timestamp: Date.now(),
-      isOutgoing: true,
-    };
-
-    setMessages((prev) => {
-      const next = [...prev, newMsg];
-      try {
-        localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
-      } catch (_) {
-        try {
-          localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next.slice(-25)));
-        } catch (__) {}
-      }
-      return next;
-    });
-
-    const encrypted = await encryptData(cryptoKey, {
-      text,
-      media: null,
-      timestamp: Date.now(),
-      sender: activeRoom.myHandle,
-    });
-
-    await sendEncryptedMessage({
-      roomId: activeRoom.roomId,
-      sender: activeRoom.myHandle,
-      recipient: activeRoom.partnerHandle,
-      encryptedPayload: encrypted,
-    });
-  };
-
-  // ─── Send Media ──────────────────────────────────────────────────────────
-  const handleSendMedia = async (base64: string) => {
-    if (!activeRoom || !cryptoKey) return;
-    const newMsg: ChatMessage = {
-      id: `msg_${Date.now()}`,
-      sender: activeRoom.myHandle,
-      text: '',
-      media: base64,
-      timestamp: Date.now(),
-      isOutgoing: true,
-    };
-
-    setMessages((prev) => {
-      const next = [...prev, newMsg];
-      try {
-        localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
-      } catch (_) {
-        try {
-          localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next.slice(-25)));
-        } catch (__) {}
-      }
-      return next;
-    });
+    const isOnline = isPartnerOnline;
+    const payload = JSON.stringify({ text });
 
     try {
-      const encrypted = await encryptData(cryptoKey, {
-        text: '',
-        media: base64,
-        timestamp: Date.now(),
+      const encrypted = await encryptData(cryptoKey, payload);
+      const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+      const newMsg: ChatMessage = {
+        id: msgId,
         sender: activeRoom.myHandle,
+        text,
+        media: null,
+        timestamp: Date.now(),
+        isOutgoing: true,
+      };
+
+      setMessages((prev) => {
+        const next = [...prev, newMsg];
+        try {
+          localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
+        } catch (_) {}
+        return next;
       });
 
       await sendEncryptedMessage({
@@ -522,92 +506,131 @@ export const App: React.FC = () => {
         encryptedPayload: encrypted,
       });
     } catch (err) {
-      console.error('Send encrypted photo error:', err);
-      alert('Failed to transmit photo. Please try again.');
+      alert('Failed to encrypt or deliver message.');
     }
   };
 
+  // ─── Send Media ──────────────────────────────────────────────────────────
+  const handleSendMedia = async (mediaDataUrl: string) => {
+    if (!activeRoom || !cryptoKey) return;
+    const isOnline = isPartnerOnline;
+    const payload = JSON.stringify({ media: mediaDataUrl });
+
+    try {
+      const encrypted = await encryptData(cryptoKey, payload);
+      const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+      const newMsg: ChatMessage = {
+        id: msgId,
+        sender: activeRoom.myHandle,
+        text: '',
+        media: mediaDataUrl,
+        timestamp: Date.now(),
+        isOutgoing: true,
+      };
+
+      setMessages((prev) => {
+        const next = [...prev, newMsg];
+        try {
+          localStorage.setItem(`room_chat_${activeRoom.roomId}`, JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+
+      await sendEncryptedMessage({
+        roomId: activeRoom.roomId,
+        sender: activeRoom.myHandle,
+        recipient: activeRoom.partnerHandle,
+        encryptedPayload: encrypted,
+      });
+    } catch (err) {
+      alert('Failed to encrypt or deliver photo.');
+    }
+  };
+
+  // ─── Typing indicator ────────────────────────────────────────────────────
   const handleTyping = () => {
     if (!activeRoom) return;
     sendTypingStatus(activeRoom.roomId, activeRoom.myHandle, true);
+
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
-      sendTypingStatus(activeRoom.roomId, activeRoom.myHandle, false);
+      if (activeRoom) {
+        sendTypingStatus(activeRoom.roomId, activeRoom.myHandle, false);
+      }
     }, 2000);
   };
 
+  // ─── Room Options (Extend Lifespan / Wipe Room) ───────────────────────────
   const handleExtendRoom = async () => {
     if (!activeRoom) return;
-    const confirmExtend = confirm('Extend this room lifespan by another 24 hours?');
-    if (!confirmExtend) return;
-
-    const res = await extendRoomLifespan(activeRoom.roomId, 86400000);
-    const updated: RoomMetadata = { ...activeRoom, expiresAt: res.newExpiresAt };
-    saveRoom(updated);
-    setActiveRoom(updated);
-    alert('Room successfully extended by +24 hours!');
+    const success = await extendRoomLifespan(activeRoom.roomId);
+    if (success) {
+      const newExpiry = (activeRoom.expiresAt || Date.now()) + 24 * 60 * 60 * 1000;
+      const updated = { ...activeRoom, expiresAt: newExpiry };
+      saveRoom(updated);
+      setActiveRoom(updated);
+      alert('Room lifespan extended by +24 hours.');
+    } else {
+      alert('Failed to extend room lifespan.');
+    }
   };
 
-  const handleRoomOptions = () => {
+  const handleRoomOptions = async () => {
     if (!activeRoom) return;
-    const choice = prompt(
-      'ROOM OPTIONS:\n\n1: Copy Invite Link\n2: Return to Game\n3: Go to Room Hub\n4: Erase Chat History\n\nEnter number (1-4):'
-    );
+    const choice = prompt('Options:\n1. Extend room lifespan (+24 hours)\n2. Wipe and self-destruct room\n\nEnter 1 or 2:');
+
     if (choice === '1') {
-      const link = `${window.location.origin + window.location.pathname}#${activeRoom.roomId}`;
-      navigator.clipboard.writeText(link).then(() => alert('Short room link copied!'));
+      await handleExtendRoom();
     } else if (choice === '2') {
-      setScreenMode('game');
-      document.title = 'Brick Smash | Arcade Retro Game';
-    } else if (choice === '3') {
-      setScreenMode('hub');
-    } else if (choice === '4') {
-      const wipe = confirm('Permanently wipe chat for both participants?');
-      if (wipe) {
-        sendWipeSignal(activeRoom.roomId);
-        localStorage.removeItem(`room_chat_${activeRoom.roomId}`);
+      if (confirm('Are you sure you want to completely wipe this room? All history will self-destruct permanently.')) {
+        await sendWipeSignal(activeRoom.roomId);
+        deleteRoom(activeRoom.roomId);
         setMessages([]);
+        setActiveRoom(null);
+        setScreenMode('game');
       }
     }
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{
-      position: 'fixed',
-      top: 0, left: 0, right: 0, bottom: 0,
-      width: '100vw',
-      height: '100dvh',
+      width: '100%',
+      height: '100%',
       backgroundColor: Colors.bg.primary,
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       display: 'flex',
-      justifyContent: 'center',
+      flexDirection: 'column',
       overflow: 'hidden',
     }}>
       <div style={{
+        flex: 1,
         width: '100%',
-        maxWidth: 640,
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        position: 'relative',
-        backgroundColor: Colors.bg.primary,
-        borderLeft: `1px solid ${Colors.border}`,
-        borderRight: `1px solid ${Colors.border}`,
         overflow: 'hidden',
       }}>
-
-        {/* Screen 1: Brick Smash Game Camouflage */}
+        {/* Screen 1: Brick Smash Retro Arcade Game Disguise */}
         {screenMode === 'game' && (
           <BrickSmashGame
             unreadCount={unreadCount}
             onUnlockClick={() => {
+              // Action when unlocked via Hub Password
               pendingUnlockAction.current = () => {
                 const activeId = localStorage.getItem(ACTIVE_ROOM_KEY);
                 const stored = localStorage.getItem(ROOMS_KEY);
                 const map = stored ? JSON.parse(stored) : {};
 
                 let targetRoom = activeRoom || (activeId && map[activeId] ? map[activeId] : null);
+
+                // If unread messages exist for another room, pick that room!
+                for (const rId of Object.keys(map)) {
+                  const unread = parseInt(localStorage.getItem(`securebox_unread_count_${rId}`) || '0', 10);
+                  if (unread > 0) {
+                    targetRoom = map[rId];
+                    break;
+                  }
+                }
 
                 if (!targetRoom) {
                   const rooms = Object.values(map) as RoomMetadata[];
@@ -644,7 +667,6 @@ export const App: React.FC = () => {
             savedRooms={savedRooms}
             onCreateRoom={handleCreateRoom}
             onEnterRoom={(room) => {
-              // Flush messages before entering a different room
               setMessages([]);
               enterRoom(room);
             }}
@@ -694,7 +716,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Hub Password Modal (entrance lock) */}
+        {/* Hub Password Modal */}
         <PinModal
           isOpen={isPinModalOpen}
           hubKey={HUB_KEY}
@@ -706,7 +728,6 @@ export const App: React.FC = () => {
               pendingUnlockAction.current = null;
               act();
             } else {
-              // Guest just set up their hub password — stay in chat
               if (screenMode !== 'chat') {
                 setScreenMode(activeRoom ? 'chat' : 'hub');
               }

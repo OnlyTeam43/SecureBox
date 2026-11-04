@@ -1,7 +1,7 @@
 // client/src/components/BrickSmashGame.tsx
 // High-Performance 60-120 FPS Physics Engine with 0ms React State Overhead
 // Pre-rendered offscreen sprite caches for Animal Character Balls (Panda, Cat, Puppy) using real assets
-// Clean vector arcade gift pills, BOMB bricks with 25% blast mechanic, Speed Controller, Sound toggle & Kanelijo style modal
+// Clean vector arcade gift capsules (NO EMOJIS), BOMB bricks with 25% blast mechanic, Speed Controller, Sound toggle & Kanelijo style modal
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
@@ -175,10 +175,10 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     // 1. PRE-RENDER OFFSCREEN SPRITES USING OUR ASSETS (/characters)
     // ─────────────────────────────────────────────────────────────
     const SPRITE_SIZE = 64; // High DPI 2x sprite
-    const makeOffscreen = () => {
+    const makeOffscreen = (w = SPRITE_SIZE, h = SPRITE_SIZE) => {
       const off = document.createElement('canvas');
-      off.width = SPRITE_SIZE;
-      off.height = SPRITE_SIZE;
+      off.width = w;
+      off.height = h;
       return off;
     };
 
@@ -255,70 +255,91 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     renderBallFromImage(puppyCanvas, puppyImg, '#F5C4B3');
 
     // ─────────────────────────────────────────────────────────────
-    // 2. PRE-RENDER CLEAN VECTOR GIFT SPRITES (NO EMOJIS)
+    // 2. PRE-RENDER CLEAN VECTOR ARCADE GIFT CAPSULES (NO EMOJIS)
     // ─────────────────────────────────────────────────────────────
     const giftSprites: Record<GiftType, { canvas: HTMLCanvasElement; label: string; color: string }> = {
-      multiball: { canvas: makeOffscreen(), label: 'Multi-Ball!', color: '#D97757' },
-      points: { canvas: makeOffscreen(), label: '+100!', color: '#E28743' },
-      heart: { canvas: makeOffscreen(), label: '+1 Life!', color: '#FF3366' },
-      wide: { canvas: makeOffscreen(), label: 'Wide Paddle!', color: '#5E9473' },
+      multiball: { canvas: makeOffscreen(44, 24), label: 'MULTI-BALL ACTIVE!', color: '#D97757' },
+      points: { canvas: makeOffscreen(44, 24), label: '+100 BONUS POINTS!', color: '#F59E0B' },
+      heart: { canvas: makeOffscreen(44, 24), label: '+1 EXTRA LIFE!', color: '#EF4444' },
+      wide: { canvas: makeOffscreen(44, 24), label: 'WIDE PADDLE EXTENSION!', color: '#10B981' },
     };
 
     (Object.keys(giftSprites) as GiftType[]).forEach((type) => {
       const gC = giftSprites[type].canvas;
-      gC.width = 36;
-      gC.height = 24;
       const gCtx = gC.getContext('2d');
       if (gCtx) {
-        gCtx.fillStyle = '#FFFFFF';
-        gCtx.strokeStyle = giftSprites[type].color;
-        gCtx.lineWidth = 1.5;
+        const themeColor = giftSprites[type].color;
+
+        // Dark arcade pill body with glowing themed border
+        gCtx.fillStyle = '#1C1917';
+        gCtx.strokeStyle = themeColor;
+        gCtx.lineWidth = 1.8;
         gCtx.beginPath();
         (gCtx as any).roundRect
-          ? (gCtx as any).roundRect(1, 1, 34, 22, 11)
-          : gCtx.rect(1, 1, 34, 22);
+          ? (gCtx as any).roundRect(1, 1, 42, 22, 11)
+          : gCtx.rect(1, 1, 42, 22);
         gCtx.fill();
         gCtx.stroke();
 
-        // Vector icon drawing per powerup (clean, crisp, no emojis)
+        // Gloss sheen on top half of capsule
+        const gloss = gCtx.createLinearGradient(0, 2, 0, 11);
+        gloss.addColorStop(0, 'rgba(255, 255, 255, 0.28)');
+        gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        gCtx.fillStyle = gloss;
+        gCtx.beginPath();
+        (gCtx as any).roundRect
+          ? (gCtx as any).roundRect(4, 2, 36, 9, 4)
+          : gCtx.rect(4, 2, 36, 9);
+        gCtx.fill();
+
+        // Vector graphics per powerup — sleek, sharp, high-tech (NO EMOJIS)
         if (type === 'multiball') {
-          // Double ball dots
-          gCtx.fillStyle = '#D97757';
+          // Three connected energy companion spheres
+          gCtx.fillStyle = '#FFFFFF';
           gCtx.beginPath();
-          gCtx.arc(14, 12, 4, 0, Math.PI * 2);
-          gCtx.arc(22, 12, 4, 0, Math.PI * 2);
+          gCtx.arc(14, 12, 3.2, 0, Math.PI * 2);
+          gCtx.arc(22, 12, 3.2, 0, Math.PI * 2);
+          gCtx.arc(30, 12, 3.2, 0, Math.PI * 2);
           gCtx.fill();
-        } else if (type === 'points') {
-          gCtx.fillStyle = '#E28743';
-          gCtx.font = 'bold 9px monospace';
-          gCtx.textAlign = 'center';
-          gCtx.textBaseline = 'middle';
-          gCtx.fillText('+100', 18, 12);
-        } else if (type === 'heart') {
-          // Clean vector heart
-          gCtx.fillStyle = '#FF3366';
-          gCtx.beginPath();
-          gCtx.moveTo(18, 15);
-          gCtx.bezierCurveTo(18, 15, 12, 11, 12, 8);
-          gCtx.bezierCurveTo(12, 5, 15, 5, 18, 9);
-          gCtx.bezierCurveTo(21, 5, 24, 5, 24, 8);
-          gCtx.bezierCurveTo(24, 11, 18, 15, 18, 15);
-          gCtx.fill();
-        } else if (type === 'wide') {
-          // Clean wide paddle symbol
-          gCtx.fillStyle = '#5E9473';
-          gCtx.beginPath();
-          (gCtx as any).roundRect ? (gCtx as any).roundRect(10, 10, 16, 4, 2) : gCtx.rect(10, 10, 16, 4);
-          gCtx.fill();
-          // Small arrows
-          gCtx.strokeStyle = '#5E9473';
+
+          gCtx.strokeStyle = '#D97757';
           gCtx.lineWidth = 1.2;
           gCtx.beginPath();
-          gCtx.moveTo(8, 12);
-          gCtx.lineTo(6, 12);
-          gCtx.moveTo(28, 12);
+          gCtx.moveTo(14, 12);
           gCtx.lineTo(30, 12);
           gCtx.stroke();
+        } else if (type === 'points') {
+          gCtx.fillStyle = '#F59E0B';
+          gCtx.font = 'bold 10px monospace';
+          gCtx.textAlign = 'center';
+          gCtx.textBaseline = 'middle';
+          gCtx.fillText('+100', 22, 12.5);
+        } else if (type === 'heart') {
+          // Sharp medical / life cross in bright red & white
+          gCtx.fillStyle = '#EF4444';
+          gCtx.fillRect(19, 6.5, 6, 11);
+          gCtx.fillRect(16.5, 9, 11, 6);
+          // Highlight center
+          gCtx.fillStyle = '#FFFFFF';
+          gCtx.fillRect(20, 10, 4, 4);
+        } else if (type === 'wide') {
+          // Clean wide paddle symbol with expansion arrows
+          gCtx.fillStyle = '#10B981';
+          gCtx.fillRect(14, 10, 16, 4);
+          // Left arrow
+          gCtx.beginPath();
+          gCtx.moveTo(11, 12);
+          gCtx.lineTo(13, 9);
+          gCtx.lineTo(13, 15);
+          gCtx.closePath();
+          gCtx.fill();
+          // Right arrow
+          gCtx.beginPath();
+          gCtx.moveTo(33, 12);
+          gCtx.lineTo(31, 9);
+          gCtx.lineTo(31, 15);
+          gCtx.closePath();
+          gCtx.fill();
         }
       }
     });
@@ -389,7 +410,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       floatingTexts.push({
         x: paddle.x + paddleWidth / 2,
         y: paddle.y - 12,
-        text: `⚡ SPEED: ${newMult}x`,
+        text: `SPEED: ${newMult}x`,
         color: '#E05A38',
         alpha: 1.0,
       });
@@ -415,7 +436,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       const brickWidth = Math.floor((w - 20 - (cols - 1) * 4) / cols);
       const brickHeight = 12; // decreased height
       const startY = 60;
-      const numRows = Math.min(8, 5 + Math.min(level - 1, 3)); // progressive rows
+      const numRows = Math.min(8, 5 + Math.min(level - 1, 3));
       bricks = [];
 
       // Determine bomb bricks (approx 5-6% of bricks, placed in rows 1 to 5)
@@ -495,9 +516,9 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       const chosen = types[Math.floor(Math.random() * types.length)];
 
       gifts.push({
-        x: bx - 18,
+        x: bx - 22,
         y: by,
-        width: 36,
+        width: 44,
         height: 24,
         vy: 3.5,
         type: chosen,
@@ -609,7 +630,6 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     let lastTime = performance.now();
 
     const loop = (currentTime: number) => {
-      // Always schedule next frame first so game never halts
       animId = requestAnimationFrame(loop);
 
       try {
@@ -683,7 +703,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
                     floatingTexts.push({
                       x: brick.x + brick.width / 2,
                       y: brick.y - 8,
-                      text: '⚠️ 1 HIT TO BLAST!',
+                      text: '1 HIT TO BLAST!',
                       color: '#FF3B30',
                       alpha: 1.0,
                     });
@@ -741,7 +761,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
                     floatingTexts.push({
                       x: w / 2,
                       y: brick.y - 14,
-                      text: `💥 25% BLAST! +${blastPoints}`,
+                      text: `25% BLAST! +${blastPoints}`,
                       color: '#EF4444',
                       alpha: 1.0,
                     });
@@ -781,7 +801,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             }
           }
 
-          // ── LEVEL CLEAR CHECK (Handled outside ball iteration to prevent crashes) ──
+          // ── LEVEL CLEAR CHECK (Handled safely outside ball iteration) ──
           const remainingAlive = bricks.filter((bk) => bk.alive).length;
           if (remainingAlive === 0 && !levelTransitioning) {
             levelTransitioning = true;
@@ -805,7 +825,6 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
 
             gifts.length = 0;
 
-            // Brief, clean 1-second transition then launch next level cleanly
             setTimeout(() => {
               initBricks();
               resetPrimaryBall();
@@ -882,7 +901,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
           ctx.stroke();
         }
 
-        // HUD Header (kanelijo style: LVL, SCORE, HIGH, LIVES)
+        // HUD Header (kanelijo style: LVL, SCORE, BEST, LIVES)
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, w, 44);
         ctx.strokeStyle = 'rgba(20, 20, 19, 0.08)';
@@ -930,7 +949,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             ctx.font = 'bold 9px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(`💣${b.bombHitCount}`, b.x + b.width / 2, b.y + b.height / 2);
+            ctx.fillText(`BOMB ${b.bombHitCount}`, b.x + b.width / 2, b.y + b.height / 2);
             ctx.restore();
           }
         }
@@ -945,7 +964,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         }
         ctx.globalAlpha = 1.0;
 
-        // Draw Falling Gifts
+        // Draw Falling Gifts (Clean Vector Capsules - NO EMOJIS)
         for (const g of gifts) {
           if (!g || !g.active) continue;
           const sprite = giftSprites[g.type]?.canvas;
@@ -959,7 +978,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
           ctx.save();
           ctx.globalAlpha = Math.max(0, ft.alpha);
           ctx.fillStyle = ft.color;
-          ctx.font = 'bold 13px -apple-system, sans-serif';
+          ctx.font = 'bold 12px -apple-system, sans-serif';
           ctx.textAlign = 'center';
           ctx.fillText(ft.text, ft.x, ft.y);
           ctx.restore();
@@ -993,12 +1012,12 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
           ctx.fillStyle = '#5E5D59';
           ctx.fillText('Tap screen or press Space to play again', w / 2, 230);
         } else if (levelTransitioning) {
-          ctx.fillStyle = 'rgba(250, 249, 245, 0.85)';
+          ctx.fillStyle = 'rgba(250, 249, 245, 0.88)';
           ctx.fillRect(0, 150, w, 110);
           ctx.textAlign = 'center';
           ctx.fillStyle = '#16a34a';
           ctx.font = '700 20px -apple-system, sans-serif';
-          ctx.fillText(`LEVEL ${level - 1} COMPLETED!`, w / 2, 195);
+          ctx.fillText(`LEVEL ${level - 1} CLEARED!`, w / 2, 195);
           ctx.font = '500 13px -apple-system, sans-serif';
           ctx.fillStyle = '#E05A38';
           ctx.fillText(`Starting Level ${level}...`, w / 2, 225);
@@ -1143,8 +1162,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: 33,
-              height: 33,
+              width: 34,
+              height: 34,
               borderRadius: '50%',
               backgroundColor: '#FFFFFF',
               border: `1.5px solid ${Colors.border}`,
@@ -1152,43 +1171,46 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
               boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
               cursor: 'pointer',
             }}
-            title="Secret Vault / Open Chat"
+            title={unreadCount > 0 ? `${unreadCount} unread message(s) - Click to unlock` : 'Secret Vault / Open Chat'}
           >
             <img
               src="/characters/panda-idle.png"
               alt="Companion"
               style={{
-                width: 24,
-                height: 24,
+                width: 25,
+                height: 25,
                 borderRadius: '50%',
                 objectFit: 'contain',
               }}
             />
 
-            {/* Notification Badge Dot */}
-            <span
-              className={unreadCount > 0 ? 'char-badge-pulse' : undefined}
-              style={{
-                position: 'absolute',
-                top: -3,
-                right: -5,
-                minWidth: 16,
-                height: 16,
-                borderRadius: 8,
-                backgroundColor: unreadCount > 0 ? '#E53E3E' : Colors.bg.secondary,
-                color: unreadCount > 0 ? '#FFFFFF' : Colors.text.placeholder,
-                fontSize: 9,
-                fontWeight: 800,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '0 2px',
-                border: unreadCount > 0 ? '2px solid #FFFFFF' : `1.5px solid ${Colors.border}`,
-                boxShadow: unreadCount > 0 ? '0 0 0 1.5px rgba(229, 62, 62, 0.4)' : 'none',
-              }}
-            >
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
+            {/* Notification Badge Dot (Vibrant red, only visible when unreadCount > 0) */}
+            {unreadCount > 0 && (
+              <span
+                className="char-badge-pulse"
+                style={{
+                  position: 'absolute',
+                  top: -4,
+                  right: -6,
+                  minWidth: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  backgroundColor: '#E53E3E',
+                  color: '#FFFFFF',
+                  fontSize: 10,
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 3px',
+                  border: '2px solid #FFFFFF',
+                  boxShadow: '0 0 0 1.5px rgba(229, 62, 62, 0.5), 0 2px 6px rgba(0,0,0,0.25)',
+                  zIndex: 10,
+                }}
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
           </div>
 
           {/* Discreet PIN trigger */}
@@ -1251,7 +1273,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         backgroundColor: Colors.bg.elevated,
       }}>
         <span>Drag to move paddle</span>
-        <span style={{ fontSize: 11, opacity: 0.85 }}>💣 Bombs Blast 25% • ⚡ Speed Controlled</span>
+        <span style={{ fontSize: 11, opacity: 0.85 }}>Bombs Detonate 25% • Vector Powerups Active</span>
       </div>
 
       {/* Complete SecureBox Features Information Modal (kanelijo.com/securebox style) */}
