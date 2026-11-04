@@ -1,9 +1,9 @@
 // client/src/components/SecureboxPage.tsx
 // Dedicated showcase page for https://thesecurebox.vercel.app/Securebox
 // Features mobile mockup showcase, zero-knowledge security deep-dive,
-// direct local APK download (/securebox.apk), and zero external branding.
+// direct local 54MB APK download (/securebox.apk), and zero external branding.
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   Gamepad2,
@@ -37,6 +37,39 @@ interface SecureboxPageProps {
 
 export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => {
   const [activeMockupIndex, setActiveMockupIndex] = useState(0);
+
+  // Enable body and document scrolling while on this page
+  useEffect(() => {
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+    const root = document.getElementById('root');
+    if (root) {
+      root.style.overflow = 'visible';
+      root.style.height = 'auto';
+    }
+
+    // Preload all 5 mockup screenshot images
+    const images = [
+      '/mockups/mockup-game.jpg',
+      '/mockups/mockup-password.jpg',
+      '/mockups/mockup-hub.jpg',
+      '/mockups/mockup-room-link.jpg',
+      '/mockups/mockup-chat.jpg',
+    ];
+    images.forEach((src) => {
+      const img = new Image();
+      img.src = src;
+    });
+
+    return () => {
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.overflow = 'hidden';
+      if (root) {
+        root.style.overflow = 'hidden';
+        root.style.height = '100%';
+      }
+    };
+  }, []);
 
   const mockups = [
     {
@@ -130,9 +163,17 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
     }
   };
 
+  const scrollToMockups = () => {
+    const el = document.getElementById('mockups-section');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   return (
     <div
       style={{
+        width: '100%',
         minHeight: '100vh',
         backgroundColor: '#FAF9F6',
         color: '#141518',
@@ -140,6 +181,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
           '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
         lineHeight: 1.6,
         overflowX: 'hidden',
+        overflowY: 'visible',
       }}
     >
       {/* ─── Top Navigation Bar ────────────────────────────────────────────── */}
@@ -148,11 +190,11 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
           position: 'sticky',
           top: 0,
           zIndex: 100,
-          backgroundColor: 'rgba(250, 249, 246, 0.92)',
+          backgroundColor: 'rgba(250, 249, 246, 0.94)',
           backdropFilter: 'blur(12px)',
           WebkitBackdropFilter: 'blur(12px)',
           borderBottom: '1px solid #E7E5E4',
-          padding: '12px 24px',
+          padding: '8px 16px',
         }}
       >
         <div
@@ -162,7 +204,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: '16px',
+            gap: '12px',
           }}
         >
           {/* Logo & Brand */}
@@ -171,18 +213,18 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: '8px',
               cursor: 'pointer',
               textDecoration: 'none',
             }}
           >
-            <BrickWallPeeker width={40} height={32} />
+            <BrickWallPeeker width={32} height={26} />
             <div>
               <div
                 style={{
                   fontFamily: '"Press Start 2P", monospace',
-                  fontSize: '15px',
-                  letterSpacing: '1px',
+                  fontSize: '13px',
+                  letterSpacing: '0.5px',
                   color: '#141518',
                   lineHeight: 1.2,
                 }}
@@ -191,38 +233,36 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
               </div>
               <div
                 style={{
-                  fontSize: '11px',
+                  fontSize: '10px',
                   color: '#78716C',
                   fontWeight: 500,
-                  letterSpacing: '0.5px',
                 }}
               >
-                Stealth Disguise &amp; Encrypted Vault
+                Stealth Disguise &amp; Vault
               </div>
             </div>
           </div>
 
-          {/* Action CTAs */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Compact Small Action CTAs */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <a
               href="/securebox.apk"
               download="SecureBox.apk"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '8px',
-                padding: '8px 16px',
-                borderRadius: '10px',
+                gap: '5px',
+                padding: '6px 11px',
+                borderRadius: '8px',
                 backgroundColor: '#141518',
                 color: '#FFFFFF',
-                fontSize: '13px',
+                fontSize: '11px',
                 fontWeight: 600,
                 textDecoration: 'none',
-                transition: 'all 0.2s ease',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.08)',
               }}
             >
-              <Download size={15} />
+              <Download size={12} />
               <span>Download APK</span>
             </a>
 
@@ -231,20 +271,19 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '8px',
-                padding: '8px 16px',
-                borderRadius: '10px',
+                gap: '5px',
+                padding: '6px 11px',
+                borderRadius: '8px',
                 backgroundColor: '#D96B43',
                 color: '#FFFFFF',
                 border: 'none',
-                fontSize: '13px',
+                fontSize: '11px',
                 fontWeight: 600,
                 cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                boxShadow: '0 2px 8px rgba(217, 107, 67, 0.25)',
+                boxShadow: '0 2px 6px rgba(217, 107, 67, 0.22)',
               }}
             >
-              <Gamepad2 size={16} />
+              <Gamepad2 size={13} />
               <span>Play Game</span>
             </button>
           </div>
@@ -254,7 +293,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
       {/* ─── Hero Section ─────────────────────────────────────────────────── */}
       <section
         style={{
-          padding: '64px 24px 48px',
+          padding: '48px 20px 36px',
           maxWidth: '1200px',
           margin: '0 auto',
           textAlign: 'center',
@@ -265,30 +304,30 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
             display: 'inline-flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '6px 14px',
+            padding: '5px 12px',
             borderRadius: '999px',
             backgroundColor: '#F5EBE6',
             color: '#D96B43',
-            fontSize: '12px',
+            fontSize: '11px',
             fontWeight: 700,
             letterSpacing: '0.5px',
-            marginBottom: '20px',
+            marginBottom: '16px',
             textTransform: 'uppercase',
           }}
         >
-          <ShieldCheck size={16} />
+          <ShieldCheck size={14} />
           <span>Zero-Knowledge End-to-End Encrypted Messenger</span>
         </div>
 
         <h1
           style={{
-            fontSize: 'clamp(32px, 5.5vw, 56px)',
+            fontSize: 'clamp(28px, 5vw, 50px)',
             fontWeight: 800,
-            letterSpacing: '-1.5px',
+            letterSpacing: '-1.2px',
             lineHeight: 1.15,
             color: '#141518',
-            maxWidth: '900px',
-            margin: '0 auto 20px',
+            maxWidth: '860px',
+            margin: '0 auto 16px',
           }}
         >
           Looks like an arcade game.{' '}
@@ -297,16 +336,15 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
 
         <p
           style={{
-            fontSize: 'clamp(16px, 2vw, 19px)',
+            fontSize: 'clamp(15px, 2vw, 18px)',
             color: '#57534E',
-            maxWidth: '720px',
-            margin: '0 auto 36px',
+            maxWidth: '680px',
+            margin: '0 auto 28px',
             fontWeight: 400,
           }}
         >
-          Disguised behind a fully playable Brick Smash arcade game. Features isolated
-          ephemeral rooms, 24-hour self-destruct timers, client-side WebCrypto
-          AES-GCM-256 encryption, and zero server storage.
+          Disguised behind an authentic Brick Smash game. Ephemeral 24-hour private chat
+          rooms, zero server logs, client-side WebCrypto AES-GCM-256 encryption, and instant self-destruct.
         </p>
 
         {/* Hero Action Buttons */}
@@ -315,8 +353,8 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
             display: 'flex',
             flexWrap: 'wrap',
             justifyContent: 'center',
-            gap: '14px',
-            marginBottom: '40px',
+            gap: '12px',
+            marginBottom: '32px',
           }}
         >
           <a
@@ -325,30 +363,29 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '10px',
-              padding: '14px 28px',
-              borderRadius: '14px',
+              gap: '8px',
+              padding: '12px 24px',
+              borderRadius: '12px',
               backgroundColor: '#141518',
               color: '#FFFFFF',
-              fontSize: '15px',
+              fontSize: '14px',
               fontWeight: 700,
               textDecoration: 'none',
-              boxShadow: '0 8px 20px rgba(20, 21, 24, 0.25)',
-              transition: 'transform 0.15s ease',
+              boxShadow: '0 6px 18px rgba(20, 21, 24, 0.22)',
             }}
           >
-            <Download size={20} />
+            <Download size={18} />
             <span>Download Android APK</span>
             <span
               style={{
                 fontSize: '11px',
-                padding: '2px 8px',
+                padding: '2px 7px',
                 borderRadius: '999px',
                 backgroundColor: 'rgba(255,255,255,0.18)',
                 marginLeft: '4px',
               }}
             >
-              105 MB
+              54 MB
             </span>
           </a>
 
@@ -357,33 +394,432 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '10px',
-              padding: '14px 28px',
-              borderRadius: '14px',
+              gap: '8px',
+              padding: '12px 24px',
+              borderRadius: '12px',
               backgroundColor: '#D96B43',
               color: '#FFFFFF',
               border: 'none',
-              fontSize: '15px',
+              fontSize: '14px',
               fontWeight: 700,
               cursor: 'pointer',
-              boxShadow: '0 8px 24px rgba(217, 107, 67, 0.35)',
-              transition: 'transform 0.15s ease',
+              boxShadow: '0 6px 20px rgba(217, 107, 67, 0.3)',
             }}
           >
-            <Gamepad2 size={20} />
+            <Gamepad2 size={18} />
             <span>Launch Web Game Disguise</span>
-            <ArrowRight size={18} />
+            <ArrowRight size={16} />
+          </button>
+
+          <button
+            onClick={scrollToMockups}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '12px 18px',
+              borderRadius: '12px',
+              backgroundColor: '#FFFFFF',
+              color: '#44403C',
+              border: '1px solid #D6D3D1',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <Smartphone size={16} color="#D96B43" />
+            <span>View 5 App Mockups</span>
           </button>
         </div>
+      </section>
 
-        {/* Quick Highlights Row */}
+      {/* ─── Interactive Phone Mockup Showcase ────────────────────────────── */}
+      <section
+        id="mockups-section"
+        style={{
+          padding: '48px 20px 64px',
+          backgroundColor: '#FFFFFF',
+          borderTop: '1px solid #E7E5E4',
+          borderBottom: '1px solid #E7E5E4',
+        }}
+      >
+        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+            <div
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                letterSpacing: '1px',
+                color: '#D96B43',
+                textTransform: 'uppercase',
+                marginBottom: '6px',
+              }}
+            >
+              Live App Screenshots &amp; Mockups
+            </div>
+            <h2
+              style={{
+                fontSize: 'clamp(24px, 3.5vw, 36px)',
+                fontWeight: 800,
+                letterSpacing: '-0.8px',
+                color: '#141518',
+                marginBottom: '8px',
+              }}
+            >
+              Explore the 5 Application Layers
+            </h2>
+            <p style={{ fontSize: '15px', color: '#78716C', maxWidth: '600px', margin: '0 auto' }}>
+              Tap any layer below to inspect the actual interface and capabilities.
+            </p>
+          </div>
+
+          {/* Interactive Tier Selector Tabs */}
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              gap: '8px',
+              marginBottom: '36px',
+            }}
+          >
+            {mockups.map((mockup, index) => {
+              const isSelected = activeMockupIndex === index;
+              return (
+                <button
+                  key={mockup.id}
+                  onClick={() => setActiveMockupIndex(index)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    borderRadius: '999px',
+                    backgroundColor: isSelected ? '#141518' : '#F5F5F4',
+                    color: isSelected ? '#FFFFFF' : '#44403C',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxShadow: isSelected ? '0 3px 10px rgba(20, 21, 24, 0.2)' : 'none',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: '7px',
+                      height: '7px',
+                      borderRadius: '50%',
+                      backgroundColor: isSelected ? '#D96B43' : '#A8A29E',
+                    }}
+                  />
+                  <span>{mockup.title}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Mockup Showcase Dual View (Realistic Smartphone Frame + Deep Dive Card) */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+              gap: '36px',
+              alignItems: 'center',
+              backgroundColor: '#FAF9F6',
+              borderRadius: '24px',
+              padding: 'clamp(20px, 3vw, 40px)',
+              border: '1px solid #E7E5E4',
+            }}
+          >
+            {/* Phone Mockup Frame */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: '300px',
+                  maxWidth: '100%',
+                  borderRadius: '40px',
+                  backgroundColor: '#1E2024',
+                  padding: '10px',
+                  boxShadow:
+                    '0 20px 50px -10px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12)',
+                  position: 'relative',
+                }}
+              >
+                {/* Phone Speaker Cutout */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '18px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '50px',
+                    height: '4px',
+                    backgroundColor: '#374151',
+                    borderRadius: '999px',
+                    zIndex: 20,
+                  }}
+                />
+
+                {/* Inner Bezel & Screen */}
+                <div
+                  style={{
+                    borderRadius: '32px',
+                    overflow: 'hidden',
+                    backgroundColor: '#FAF9F5',
+                    aspectRatio: '503 / 1024',
+                    position: 'relative',
+                    border: '2px solid #000000',
+                  }}
+                >
+                  <img
+                    src={mockups[activeMockupIndex].image}
+                    alt={mockups[activeMockupIndex].title}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      objectPosition: 'top center',
+                      display: 'block',
+                      backgroundColor: '#FAF9F5',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Deep Dive Feature Details */}
+            <div>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 10px',
+                  borderRadius: '999px',
+                  backgroundColor: '#F5EBE6',
+                  color: '#D96B43',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  letterSpacing: '0.5px',
+                  marginBottom: '12px',
+                }}
+              >
+                {mockups[activeMockupIndex].tag}
+              </div>
+
+              <h3
+                style={{
+                  fontSize: 'clamp(22px, 2.5vw, 28px)',
+                  fontWeight: 800,
+                  color: '#141518',
+                  lineHeight: 1.25,
+                  marginBottom: '10px',
+                }}
+              >
+                {mockups[activeMockupIndex].title}
+              </h3>
+
+              <p
+                style={{
+                  fontSize: '15px',
+                  color: '#57534E',
+                  marginBottom: '20px',
+                  lineHeight: 1.5,
+                }}
+              >
+                {mockups[activeMockupIndex].subtitle}
+              </p>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  marginBottom: '28px',
+                }}
+              >
+                {mockups[activeMockupIndex].features.map((feat, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: '#22C55E',
+                        marginTop: '2px',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <CheckCircle2 size={16} />
+                    </div>
+                    <span style={{ fontSize: '13.5px', color: '#292524', fontWeight: 500 }}>
+                      {feat}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Navigation within Mockups */}
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  onClick={() =>
+                    setActiveMockupIndex((prev) =>
+                      prev > 0 ? prev - 1 : mockups.length - 1
+                    )
+                  }
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: '8px',
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid #D6D3D1',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    color: '#44403C',
+                  }}
+                >
+                  Previous Screen
+                </button>
+
+                <button
+                  onClick={() =>
+                    setActiveMockupIndex((prev) =>
+                      prev < mockups.length - 1 ? prev + 1 : 0
+                    )
+                  }
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: '8px',
+                    backgroundColor: '#141518',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Next Screen
+                </button>
+
+                <span style={{ fontSize: '12px', color: '#A8A29E', marginLeft: '6px' }}>
+                  {activeMockupIndex + 1} of {mockups.length}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 5-Screen Horizontal Gallery */}
+          <div style={{ marginTop: '48px' }}>
+            <h4
+              style={{
+                fontSize: '16px',
+                fontWeight: 700,
+                color: '#141518',
+                marginBottom: '16px',
+                textAlign: 'center',
+              }}
+            >
+              All 5 Application Screens at a Glance (Tap to View)
+            </h4>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: '14px',
+              }}
+            >
+              {mockups.map((m, idx) => (
+                <div
+                  key={m.id}
+                  onClick={() => setActiveMockupIndex(idx)}
+                  style={{
+                    backgroundColor: '#FAF9F6',
+                    borderRadius: '14px',
+                    border:
+                      activeMockupIndex === idx
+                        ? '2px solid #D96B43'
+                        : '1px solid #E7E5E4',
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxShadow:
+                      activeMockupIndex === idx
+                        ? '0 4px 14px rgba(217, 107, 67, 0.2)'
+                        : 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      height: '220px',
+                      overflow: 'hidden',
+                      backgroundColor: '#FAF9F5',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <img
+                      src={m.image}
+                      alt={m.title}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        objectPosition: 'top center',
+                        display: 'block',
+                      }}
+                    />
+                  </div>
+                  <div style={{ padding: '10px' }}>
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        color: '#D96B43',
+                        marginBottom: '2px',
+                      }}
+                    >
+                      {m.badge}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        color: '#141518',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {m.title}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── Architecture Highlights Row ─────────────────────────────────── */}
+      <section style={{ padding: '36px 20px 20px', maxWidth: '1100px', margin: '0 auto' }}>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '16px',
-            maxWidth: '1000px',
-            margin: '0 auto',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '14px',
             textAlign: 'left',
           }}
         >
@@ -413,31 +849,31 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
               key={idx}
               style={{
                 backgroundColor: '#FFFFFF',
-                borderRadius: '16px',
-                padding: '20px',
+                borderRadius: '14px',
+                padding: '18px',
                 border: '1px solid #E7E5E4',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
+                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.03)',
               }}
             >
               <div
                 style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '10px',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
                   backgroundColor: '#F5EBE6',
                   color: '#D96B43',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  marginBottom: '12px',
+                  marginBottom: '10px',
                 }}
               >
-                <item.icon size={20} />
+                <item.icon size={18} />
               </div>
-              <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '4px' }}>
+              <div style={{ fontWeight: 700, fontSize: '14px', marginBottom: '3px' }}>
                 {item.title}
               </div>
-              <div style={{ fontSize: '13px', color: '#78716C', lineHeight: 1.4 }}>
+              <div style={{ fontSize: '12px', color: '#78716C', lineHeight: 1.4 }}>
                 {item.desc}
               </div>
             </div>
@@ -445,407 +881,33 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
         </div>
       </section>
 
-      {/* ─── Interactive Phone Mockup Showcase ────────────────────────────── */}
-      <section
-        style={{
-          padding: '60px 24px 80px',
-          backgroundColor: '#FFFFFF',
-          borderTop: '1px solid #E7E5E4',
-          borderBottom: '1px solid #E7E5E4',
-        }}
-      >
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-            <div
-              style={{
-                fontSize: '12px',
-                fontWeight: 700,
-                letterSpacing: '1px',
-                color: '#D96B43',
-                textTransform: 'uppercase',
-                marginBottom: '8px',
-              }}
-            >
-              Live Application Showcase
-            </div>
-            <h2
-              style={{
-                fontSize: 'clamp(26px, 4vw, 38px)',
-                fontWeight: 800,
-                letterSpacing: '-1px',
-                color: '#141518',
-                marginBottom: '12px',
-              }}
-            >
-              Tour the Multi-Tier Security Experience
-            </h2>
-            <p style={{ fontSize: '16px', color: '#78716C', maxWidth: '640px', margin: '0 auto' }}>
-              From public arcade disguise to military-grade encrypted communication. Tap
-              any tier below to inspect the interface.
-            </p>
-          </div>
-
-          {/* Interactive Tier Selector Tabs */}
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'center',
-              gap: '10px',
-              marginBottom: '48px',
-            }}
-          >
-            {mockups.map((mockup, index) => {
-              const isSelected = activeMockupIndex === index;
-              return (
-                <button
-                  key={mockup.id}
-                  onClick={() => setActiveMockupIndex(index)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '10px 18px',
-                    borderRadius: '999px',
-                    backgroundColor: isSelected ? '#141518' : '#F5F5F4',
-                    color: isSelected ? '#FFFFFF' : '#44403C',
-                    border: 'none',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    boxShadow: isSelected ? '0 4px 12px rgba(20, 21, 24, 0.2)' : 'none',
-                  }}
-                >
-                  <span
-                    style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      backgroundColor: isSelected ? '#D96B43' : '#A8A29E',
-                    }}
-                  />
-                  <span>{mockup.title}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Mockup Showcase Dual View (Realistic Smartphone Frame + Deep Dive Card) */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-              gap: '48px',
-              alignItems: 'center',
-              backgroundColor: '#FAF9F6',
-              borderRadius: '28px',
-              padding: 'clamp(24px, 4vw, 48px)',
-              border: '1px solid #E7E5E4',
-            }}
-          >
-            {/* Phone Mockup Frame */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <div
-                style={{
-                  width: '320px',
-                  maxWidth: '100%',
-                  borderRadius: '44px',
-                  backgroundColor: '#1E2024',
-                  padding: '12px',
-                  boxShadow:
-                    '0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1)',
-                  position: 'relative',
-                }}
-              >
-                {/* Phone Speaker Cutout */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '22px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    width: '60px',
-                    height: '4px',
-                    backgroundColor: '#374151',
-                    borderRadius: '999px',
-                    zIndex: 20,
-                  }}
-                />
-
-                {/* Inner Bezel & Screen */}
-                <div
-                  style={{
-                    borderRadius: '34px',
-                    overflow: 'hidden',
-                    backgroundColor: '#FFFFFF',
-                    aspectRatio: '9 / 18.5',
-                    position: 'relative',
-                    border: '2px solid #000000',
-                  }}
-                >
-                  <img
-                    src={mockups[activeMockupIndex].image}
-                    alt={mockups[activeMockupIndex].title}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      display: 'block',
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Deep Dive Feature Details */}
-            <div>
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '4px 12px',
-                  borderRadius: '999px',
-                  backgroundColor: '#F5EBE6',
-                  color: '#D96B43',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  letterSpacing: '0.5px',
-                  marginBottom: '16px',
-                }}
-              >
-                {mockups[activeMockupIndex].tag}
-              </div>
-
-              <h3
-                style={{
-                  fontSize: 'clamp(24px, 3vw, 32px)',
-                  fontWeight: 800,
-                  color: '#141518',
-                  lineHeight: 1.2,
-                  marginBottom: '12px',
-                }}
-              >
-                {mockups[activeMockupIndex].title}
-              </h3>
-
-              <p
-                style={{
-                  fontSize: '16px',
-                  color: '#57534E',
-                  marginBottom: '24px',
-                  lineHeight: 1.5,
-                }}
-              >
-                {mockups[activeMockupIndex].subtitle}
-              </p>
-
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
-                  marginBottom: '32px',
-                }}
-              >
-                {mockups[activeMockupIndex].features.map((feat, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '12px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        color: '#22C55E',
-                        marginTop: '2px',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <CheckCircle2 size={18} />
-                    </div>
-                    <span style={{ fontSize: '14px', color: '#292524', fontWeight: 500 }}>
-                      {feat}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Navigation within Mockups */}
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                <button
-                  onClick={() =>
-                    setActiveMockupIndex((prev) =>
-                      prev > 0 ? prev - 1 : mockups.length - 1
-                    )
-                  }
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    backgroundColor: '#FFFFFF',
-                    border: '1px solid #D6D3D1',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    color: '#44403C',
-                  }}
-                >
-                  Previous Screen
-                </button>
-
-                <button
-                  onClick={() =>
-                    setActiveMockupIndex((prev) =>
-                      prev < mockups.length - 1 ? prev + 1 : 0
-                    )
-                  }
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    backgroundColor: '#141518',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Next Screen
-                </button>
-
-                <span style={{ fontSize: '13px', color: '#A8A29E', marginLeft: '8px' }}>
-                  {activeMockupIndex + 1} of {mockups.length}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* 5-Screen Horizontal Gallery */}
-          <div style={{ marginTop: '64px' }}>
-            <h4
-              style={{
-                fontSize: '18px',
-                fontWeight: 700,
-                color: '#141518',
-                marginBottom: '20px',
-                textAlign: 'center',
-              }}
-            >
-              All 5 Application Screens at a Glance
-            </h4>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: '18px',
-              }}
-            >
-              {mockups.map((m, idx) => (
-                <div
-                  key={m.id}
-                  onClick={() => setActiveMockupIndex(idx)}
-                  style={{
-                    backgroundColor: '#FAF9F6',
-                    borderRadius: '16px',
-                    border:
-                      activeMockupIndex === idx
-                        ? '2px solid #D96B43'
-                        : '1px solid #E7E5E4',
-                    overflow: 'hidden',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    boxShadow:
-                      activeMockupIndex === idx
-                        ? '0 6px 18px rgba(217, 107, 67, 0.2)'
-                        : 'none',
-                  }}
-                >
-                  <div
-                    style={{
-                      height: '240px',
-                      overflow: 'hidden',
-                      backgroundColor: '#1E2024',
-                    }}
-                  >
-                    <img
-                      src={m.image}
-                      alt={m.title}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        objectPosition: 'top center',
-                      }}
-                    />
-                  </div>
-                  <div style={{ padding: '12px' }}>
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        color: '#D96B43',
-                        marginBottom: '2px',
-                      }}
-                    >
-                      {m.badge}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: 700,
-                        color: '#141518',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {m.title}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* ─── Security Architecture Deep-Dive ───────────────────────────────── */}
-      <section style={{ padding: '80px 24px', maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: '56px' }}>
+      <section style={{ padding: '64px 20px', maxWidth: '1100px', margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: '44px' }}>
           <div
             style={{
-              fontSize: '12px',
+              fontSize: '11px',
               fontWeight: 700,
               letterSpacing: '1px',
               color: '#D96B43',
               textTransform: 'uppercase',
-              marginBottom: '8px',
+              marginBottom: '6px',
             }}
           >
             Zero-Knowledge Specification
           </div>
           <h2
             style={{
-              fontSize: 'clamp(28px, 4vw, 42px)',
+              fontSize: 'clamp(24px, 3.5vw, 36px)',
               fontWeight: 800,
-              letterSpacing: '-1px',
+              letterSpacing: '-0.8px',
               color: '#141518',
-              marginBottom: '16px',
+              marginBottom: '12px',
             }}
           >
             Engineered for Total Secrecy
           </h2>
-          <p style={{ fontSize: '16px', color: '#78716C', maxWidth: '640px', margin: '0 auto' }}>
+          <p style={{ fontSize: '15px', color: '#78716C', maxWidth: '600px', margin: '0 auto' }}>
             SecureBox was designed from the ground up to guarantee that even the servers
             routing your messages cannot decrypt your communications.
           </p>
@@ -854,49 +916,48 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-            gap: '24px',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: '20px',
           }}
         >
           {/* Card 1: Two-Tier Decoupled Keys */}
           <div
             style={{
               backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              padding: '32px',
+              borderRadius: '16px',
+              padding: '24px',
               border: '1px solid #E7E5E4',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
             }}
           >
             <div
               style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '12px',
+                width: '38px',
+                height: '38px',
+                borderRadius: '10px',
                 backgroundColor: '#F5EBE6',
                 color: '#D96B43',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginBottom: '20px',
+                marginBottom: '16px',
               }}
             >
-              <KeyRound size={24} />
+              <KeyRound size={20} />
             </div>
-            <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '12px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>
               Two-Tier Decoupled Authentication
             </h3>
-            <p style={{ fontSize: '14px', color: '#57534E', lineHeight: 1.6, marginBottom: '16px' }}>
+            <p style={{ fontSize: '13.5px', color: '#57534E', lineHeight: 1.55, marginBottom: '14px' }}>
               Your personal <strong>Hub Entrance Password</strong> protects local device access
               from the game disguise. The shared <strong>4-Digit Room Secret PIN</strong> is
-              strictly used for AES key derivation with your partner. The two never overlap or
-              clash.
+              strictly used for AES key derivation with your partner. The two never overlap or clash.
             </p>
             <div
               style={{
-                fontSize: '12px',
-                padding: '10px 14px',
-                borderRadius: '8px',
+                fontSize: '11px',
+                padding: '8px 12px',
+                borderRadius: '6px',
                 backgroundColor: '#FAF9F6',
                 border: '1px solid #E7E5E4',
                 color: '#44403C',
@@ -913,40 +974,40 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
           <div
             style={{
               backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              padding: '32px',
+              borderRadius: '16px',
+              padding: '24px',
               border: '1px solid #E7E5E4',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
             }}
           >
             <div
               style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '12px',
+                width: '38px',
+                height: '38px',
+                borderRadius: '10px',
                 backgroundColor: '#ECFDF5',
                 color: '#059669',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginBottom: '20px',
+                marginBottom: '16px',
               }}
             >
-              <ShieldCheck size={24} />
+              <ShieldCheck size={20} />
             </div>
-            <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '12px' }}>
-              Zero-Knowledge Server Infrastructure
+            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>
+              Zero-Knowledge Server Architecture
             </h3>
-            <p style={{ fontSize: '14px', color: '#57534E', lineHeight: 1.6, marginBottom: '16px' }}>
+            <p style={{ fontSize: '13.5px', color: '#57534E', lineHeight: 1.55, marginBottom: '14px' }}>
               Relay servers only route encrypted ciphertext blobs. No chat logs, no contact
               lists, and no user profiles are ever recorded. Encryption and decryption occur
               solely inside your device browser using native WebCrypto.
             </p>
             <div
               style={{
-                fontSize: '12px',
-                padding: '10px 14px',
-                borderRadius: '8px',
+                fontSize: '11px',
+                padding: '8px 12px',
+                borderRadius: '6px',
                 backgroundColor: '#FAF9F6',
                 border: '1px solid #E7E5E4',
                 color: '#44403C',
@@ -963,40 +1024,40 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
           <div
             style={{
               backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              padding: '32px',
+              borderRadius: '16px',
+              padding: '24px',
               border: '1px solid #E7E5E4',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
             }}
           >
             <div
               style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '12px',
+                width: '38px',
+                height: '38px',
+                borderRadius: '10px',
                 backgroundColor: '#EFF6FF',
                 color: '#2563EB',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginBottom: '20px',
+                marginBottom: '16px',
               }}
             >
-              <Layers size={24} />
+              <Layers size={20} />
             </div>
-            <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '12px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>
               Strict Sandboxed Room Isolation
             </h3>
-            <p style={{ fontSize: '14px', color: '#57534E', lineHeight: 1.6, marginBottom: '16px' }}>
+            <p style={{ fontSize: '13.5px', color: '#57534E', lineHeight: 1.55, marginBottom: '14px' }}>
               Each conversation room operates within an isolated cryptographic boundary.
               Active message buffers are instantly flushed upon room transitions, and local
               storage keys are segregated by room ID.
             </p>
             <div
               style={{
-                fontSize: '12px',
-                padding: '10px 14px',
-                borderRadius: '8px',
+                fontSize: '11px',
+                padding: '8px 12px',
+                borderRadius: '6px',
                 backgroundColor: '#FAF9F6',
                 border: '1px solid #E7E5E4',
                 color: '#44403C',
@@ -1008,171 +1069,21 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
               State: Flushed on room switch (setMessages([]))
             </div>
           </div>
-
-          {/* Card 4: Ephemeral 24h Countdown & Instant Purge */}
-          <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              padding: '32px',
-              border: '1px solid #E7E5E4',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
-            }}
-          >
-            <div
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '12px',
-                backgroundColor: '#FEF3C7',
-                color: '#D97706',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '20px',
-              }}
-            >
-              <Timer size={24} />
-            </div>
-            <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '12px' }}>
-              Auto-Destruct &amp; Simultaneous Purge
-            </h3>
-            <p style={{ fontSize: '14px', color: '#57534E', lineHeight: 1.6, marginBottom: '16px' }}>
-              Rooms permanently expire after 24 hours unless granted a +24h extension.
-              Either participant can trigger a nuclear wipe signal that simultaneously deletes
-              chat history on both devices in real time.
-            </p>
-            <div
-              style={{
-                fontSize: '12px',
-                padding: '10px 14px',
-                borderRadius: '8px',
-                backgroundColor: '#FAF9F6',
-                border: '1px solid #E7E5E4',
-                color: '#44403C',
-                fontFamily: 'monospace',
-              }}
-            >
-              Broadcast: wipe_room ➔ Dual device local wipe
-              <br />
-              Default lifespan: 86,400,000 ms (24 hours)
-            </div>
-          </div>
-
-          {/* Card 5: In-Browser Photo Compression */}
-          <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              padding: '32px',
-              border: '1px solid #E7E5E4',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
-            }}
-          >
-            <div
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '12px',
-                backgroundColor: '#F3E8FF',
-                color: '#9333EA',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '20px',
-              }}
-            >
-              <Camera size={24} />
-            </div>
-            <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '12px' }}>
-              Privacy Canvas Photo Compression
-            </h3>
-            <p style={{ fontSize: '14px', color: '#57534E', lineHeight: 1.6, marginBottom: '16px' }}>
-              Photos are automatically downscaled and re-encoded locally via HTML5 Canvas
-              under 90KB before AES encryption. This permits direct peer-to-peer payload
-              delivery without cloud storage buckets.
-            </p>
-            <div
-              style={{
-                fontSize: '12px',
-                padding: '10px 14px',
-                borderRadius: '8px',
-                backgroundColor: '#FAF9F6',
-                border: '1px solid #E7E5E4',
-                color: '#44403C',
-                fontFamily: 'monospace',
-              }}
-            >
-              Compression target: &lt; 90 KB
-              <br />
-              Pipeline: Canvas ➔ WebP/JPEG ➔ AES-GCM
-            </div>
-          </div>
-
-          {/* Card 6: Stealth Game Camouflage */}
-          <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '20px',
-              padding: '32px',
-              border: '1px solid #E7E5E4',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
-            }}
-          >
-            <div
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '12px',
-                backgroundColor: '#F5EBE6',
-                color: '#D96B43',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '20px',
-              }}
-            >
-              <Gamepad2 size={24} />
-            </div>
-            <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '12px' }}>
-              Deep Game Disguise &amp; Anti-Snoop
-            </h3>
-            <p style={{ fontSize: '14px', color: '#57534E', lineHeight: 1.6, marginBottom: '16px' }}>
-              The disguise layer is a complete arcade experience featuring dense brick
-              arrangements, bomb powerups that shatter 25% of bricks, sound switches, ball
-              speed adjustments, and instant lock upon app switching.
-            </p>
-            <div
-              style={{
-                fontSize: '12px',
-                padding: '10px 14px',
-                borderRadius: '8px',
-                backgroundColor: '#FAF9F6',
-                border: '1px solid #E7E5E4',
-                color: '#44403C',
-                fontFamily: 'monospace',
-              }}
-            >
-              Mechanics: 25% bomb blast, 0.8x-1.6x speed
-              <br />
-              Auto-lock: visibilitychange + 60s idle timer
-            </div>
-          </div>
         </div>
       </section>
 
-      {/* ─── Direct APK Download Banner ───────────────────────────────────── */}
+      {/* ─── Direct 54MB APK Download Banner ─────────────────────────────────── */}
       <section
         id="download"
         style={{
-          padding: '80px 24px',
+          padding: '60px 20px',
           backgroundColor: '#141518',
           color: '#FFFFFF',
         }}
       >
         <div
           style={{
-            maxWidth: '1000px',
+            maxWidth: '900px',
             margin: '0 auto',
             textAlign: 'center',
           }}
@@ -1181,28 +1092,28 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '8px',
-              padding: '6px 14px',
+              gap: '6px',
+              padding: '5px 12px',
               borderRadius: '999px',
               backgroundColor: 'rgba(255, 255, 255, 0.1)',
               color: '#D96B43',
-              fontSize: '12px',
+              fontSize: '11px',
               fontWeight: 700,
               letterSpacing: '0.5px',
-              marginBottom: '20px',
+              marginBottom: '16px',
               textTransform: 'uppercase',
             }}
           >
-            <Smartphone size={16} />
+            <Smartphone size={14} />
             <span>Standalone Android Application</span>
           </div>
 
           <h2
             style={{
-              fontSize: 'clamp(28px, 4.5vw, 44px)',
+              fontSize: 'clamp(24px, 4vw, 38px)',
               fontWeight: 800,
-              letterSpacing: '-1px',
-              marginBottom: '16px',
+              letterSpacing: '-0.8px',
+              marginBottom: '12px',
             }}
           >
             Install SecureBox Directly on Your Phone
@@ -1210,27 +1121,27 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
 
           <p
             style={{
-              fontSize: '16px',
+              fontSize: '15px',
               color: '#A8A29E',
-              maxWidth: '680px',
-              margin: '0 auto 36px',
+              maxWidth: '620px',
+              margin: '0 auto 28px',
             }}
           >
             Get the full native mobile experience with vibration haptics, instant offline
             storage, push camouflage alerts, and zero-store tracking. Download the official
-            APK directly below.
+            54 MB APK directly below.
           </p>
 
           {/* Download Box Card */}
           <div
             style={{
               backgroundColor: '#1E2024',
-              borderRadius: '24px',
-              padding: '36px',
-              maxWidth: '640px',
-              margin: '0 auto 32px',
+              borderRadius: '20px',
+              padding: '28px',
+              maxWidth: '560px',
+              margin: '0 auto 24px',
               border: '1px solid #2E333D',
-              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
+              boxShadow: '0 16px 36px rgba(0, 0, 0, 0.5)',
               textAlign: 'left',
             }}
           >
@@ -1240,18 +1151,18 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 flexWrap: 'wrap',
-                gap: '16px',
+                gap: '12px',
                 borderBottom: '1px solid #2E333D',
-                paddingBottom: '20px',
-                marginBottom: '20px',
+                paddingBottom: '16px',
+                marginBottom: '16px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div
                   style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '12px',
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '10px',
                     backgroundColor: '#D96B43',
                     display: 'flex',
                     alignItems: 'center',
@@ -1259,13 +1170,13 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
                     color: '#FFFFFF',
                   }}
                 >
-                  <Smartphone size={26} />
+                  <Smartphone size={22} />
                 </div>
                 <div>
-                  <div style={{ fontWeight: 800, fontSize: '18px', color: '#FFFFFF' }}>
+                  <div style={{ fontWeight: 800, fontSize: '16px', color: '#FFFFFF' }}>
                     SecureBox.apk
                   </div>
-                  <div style={{ fontSize: '13px', color: '#A8A29E' }}>
+                  <div style={{ fontSize: '12px', color: '#A8A29E' }}>
                     Release v1.0.0 · Android 8.0+
                   </div>
                 </div>
@@ -1273,15 +1184,15 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
 
               <div
                 style={{
-                  fontSize: '13px',
+                  fontSize: '12px',
                   color: '#22C55E',
                   fontWeight: 600,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '5px',
                 }}
               >
-                <CheckCircle2 size={16} />
+                <CheckCircle2 size={14} />
                 <span>Verified Direct Build</span>
               </div>
             </div>
@@ -1290,23 +1201,23 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                gap: '12px',
-                marginBottom: '24px',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
+                gap: '10px',
+                marginBottom: '20px',
               }}
             >
               <div
                 style={{
                   backgroundColor: '#141518',
-                  padding: '12px',
-                  borderRadius: '10px',
+                  padding: '10px',
+                  borderRadius: '8px',
                   border: '1px solid #2A2E37',
                 }}
               >
-                <div style={{ fontSize: '11px', color: '#78716C', textTransform: 'uppercase' }}>
+                <div style={{ fontSize: '10px', color: '#78716C', textTransform: 'uppercase' }}>
                   Package
                 </div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: '#E5E7EB' }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#E5E7EB' }}>
                   standalone.apk
                 </div>
               </div>
@@ -1314,32 +1225,32 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
               <div
                 style={{
                   backgroundColor: '#141518',
-                  padding: '12px',
-                  borderRadius: '10px',
+                  padding: '10px',
+                  borderRadius: '8px',
                   border: '1px solid #2A2E37',
                 }}
               >
-                <div style={{ fontSize: '11px', color: '#78716C', textTransform: 'uppercase' }}>
+                <div style={{ fontSize: '10px', color: '#78716C', textTransform: 'uppercase' }}>
                   File Size
                 </div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: '#E5E7EB' }}>
-                  ~105 MB
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#22C55E' }}>
+                  ~54 MB
                 </div>
               </div>
 
               <div
                 style={{
                   backgroundColor: '#141518',
-                  padding: '12px',
-                  borderRadius: '10px',
+                  padding: '10px',
+                  borderRadius: '8px',
                   border: '1px solid #2A2E37',
                 }}
               >
-                <div style={{ fontSize: '11px', color: '#78716C', textTransform: 'uppercase' }}>
+                <div style={{ fontSize: '10px', color: '#78716C', textTransform: 'uppercase' }}>
                   Architecture
                 </div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: '#E5E7EB' }}>
-                  Universal ARM/x86
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#E5E7EB' }}>
+                  Universal ARM
                 </div>
               </div>
             </div>
@@ -1352,28 +1263,26 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '10px',
+                gap: '8px',
                 width: '100%',
-                padding: '16px 24px',
-                borderRadius: '14px',
+                padding: '13px 20px',
+                borderRadius: '12px',
                 backgroundColor: '#D96B43',
                 color: '#FFFFFF',
-                fontSize: '16px',
+                fontSize: '14px',
                 fontWeight: 700,
                 textDecoration: 'none',
-                boxShadow: '0 8px 24px rgba(217, 107, 67, 0.4)',
+                boxShadow: '0 6px 18px rgba(217, 107, 67, 0.35)',
                 boxSizing: 'border-box',
-                transition: 'all 0.15s ease',
               }}
             >
-              <Download size={20} />
-              <span>Download SecureBox.apk Now</span>
+              <Download size={18} />
+              <span>Download SecureBox.apk (54 MB)</span>
             </a>
           </div>
 
-          <div style={{ fontSize: '13px', color: '#78716C' }}>
+          <div style={{ fontSize: '12px', color: '#78716C' }}>
             To install: open the downloaded APK on your Android device and tap &ldquo;Install&rdquo;.
-            Allow &ldquo;Install unknown apps&rdquo; if prompted.
           </div>
         </div>
       </section>
@@ -1381,7 +1290,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
       {/* ─── Footer ──────────────────────────────────────────────────────── */}
       <footer
         style={{
-          padding: '48px 24px',
+          padding: '36px 20px',
           backgroundColor: '#FAF9F6',
           borderTop: '1px solid #E7E5E4',
           textAlign: 'center',
@@ -1389,20 +1298,20 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
       >
         <div
           style={{
-            maxWidth: '1200px',
+            maxWidth: '1100px',
             margin: '0 auto',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: '16px',
+            gap: '12px',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <BrickWallPeeker width={34} height={28} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <BrickWallPeeker width={28} height={22} />
             <span
               style={{
                 fontFamily: '"Press Start 2P", monospace',
-                fontSize: '14px',
+                fontSize: '12px',
                 color: '#141518',
               }}
             >
@@ -1410,14 +1319,14 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
             </span>
           </div>
 
-          <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center' }}>
             <button
               onClick={handleLaunch}
               style={{
                 background: 'none',
                 border: 'none',
                 color: '#57534E',
-                fontSize: '13px',
+                fontSize: '12px',
                 cursor: 'pointer',
                 fontWeight: 500,
               }}
@@ -1429,20 +1338,20 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
               download="SecureBox.apk"
               style={{
                 color: '#57534E',
-                fontSize: '13px',
+                fontSize: '12px',
                 textDecoration: 'none',
                 fontWeight: 500,
               }}
             >
-              Download APK
+              Download APK (54 MB)
             </a>
             <span style={{ color: '#A8A29E' }}>•</span>
-            <span style={{ color: '#78716C', fontSize: '13px' }}>
+            <span style={{ color: '#78716C', fontSize: '12px' }}>
               Zero-Knowledge AES-GCM-256 Architecture
             </span>
           </div>
 
-          <div style={{ fontSize: '12px', color: '#A8A29E', marginTop: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#A8A29E', marginTop: '6px' }}>
             &copy; 2026 SecureBox. All rights reserved. Zero server logs, zero message retention.
           </div>
         </div>
