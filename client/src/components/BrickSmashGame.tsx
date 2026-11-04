@@ -1,11 +1,11 @@
 // client/src/components/BrickSmashGame.tsx
 // High-Performance 60-120 FPS Physics Engine with 0ms React State Overhead
 // Pre-rendered offscreen sprite caches for Animal Character Balls (Panda, Cat, Puppy) using real assets
-// Clean vector arcade gift pills, BOMB bricks with 25% blast mechanic, speed boost, sound toggle & Features Modal
+// Clean vector arcade gift pills, BOMB bricks with 25% blast mechanic, Speed Controller, Sound toggle & Kanelijo style modal
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
-import { Lock, Volume2, VolumeX } from 'lucide-react';
+import { Lock, Volume2, VolumeX, Zap } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
 import { FeaturesModal } from './FeaturesModal';
 
@@ -60,9 +60,24 @@ interface Brick {
   maxBombHits?: number;
 }
 
+const SPEED_OPTIONS = [0.8, 1.0, 1.3, 1.6];
+
 export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, unreadCount = 0 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
+
+  // Speed multiplier state
+  const [speedMultiplier, setSpeedMultiplier] = useState<number>(() => {
+    const saved = localStorage.getItem('brick_smash_speed_mult');
+    return saved ? parseFloat(saved) || 1.0 : 1.0;
+  });
+  const speedMultRef = useRef(speedMultiplier);
+  speedMultRef.current = speedMultiplier;
+
+  // Callback to adjust speed of running balls on-the-fly
+  const adjustBallSpeedRef = useRef<((multiplier: number) => void) | null>(null);
+
+  // Sound toggle state
   const [isMuted, setIsMuted] = useState(() => {
     return localStorage.getItem('brick_smash_sound_muted') === 'true';
   });
@@ -135,6 +150,18 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     if (!next) {
       initAudio();
       setTimeout(() => playTone(600, 0.08, 'sine'), 50);
+    }
+  };
+
+  const cycleSpeed = () => {
+    const currentIndex = SPEED_OPTIONS.indexOf(speedMultiplier);
+    const nextIndex = (currentIndex + 1) % SPEED_OPTIONS.length;
+    const next = SPEED_OPTIONS[nextIndex];
+    setSpeedMultiplier(next);
+    speedMultRef.current = next;
+    localStorage.setItem('brick_smash_speed_mult', String(next));
+    if (adjustBallSpeedRef.current) {
+      adjustBallSpeedRef.current(next);
     }
   };
 
@@ -306,6 +333,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     let highScore = parseInt(localStorage.getItem('brick_smash_high_score') || '0', 10);
     let gameOver = false;
     let victory = false;
+    let levelTransitioning = false;
 
     const dpr = window.devicePixelRatio || 1;
     const updateSize = () => {
@@ -326,8 +354,11 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
 
     let { w, h } = updateSize() || { w: 480, h: 640 };
 
-    // Snappier progressive ball speed
-    const getBallSpeed = (lvl: number) => 8.4 + Math.min((lvl - 1) * 0.35, 4.5);
+    // Progressive ball speed with user-controlled multiplier
+    const getBallSpeed = (lvl: number) => {
+      const base = 8.2 + Math.min((lvl - 1) * 0.35, 4.0);
+      return base * speedMultRef.current;
+    };
 
     const basePaddleWidth = Math.max(86, Math.min(108, w * 0.24));
     let paddleWidth = basePaddleWidth;
@@ -345,13 +376,33 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         x: w / 2,
         y: h - 50,
         radius: 12.5,
-        dx: 5.8,
-        dy: -5.8,
+        dx: 5.6 * speedMultRef.current,
+        dy: -5.6 * speedMultRef.current,
         speed: getBallSpeed(1),
         character: 'panda',
         active: true,
       },
     ];
+
+    // Connect speed controller to dynamically adjust in-flight balls
+    adjustBallSpeedRef.current = (newMult: number) => {
+      floatingTexts.push({
+        x: paddle.x + paddleWidth / 2,
+        y: paddle.y - 12,
+        text: `⚡ SPEED: ${newMult}x`,
+        color: '#E05A38',
+        alpha: 1.0,
+      });
+
+      const targetSpeed = getBallSpeed(level);
+      balls.forEach((b) => {
+        if (!b.active) return;
+        const currentMag = Math.hypot(b.dx, b.dy) || 1;
+        b.dx = (b.dx / currentMag) * targetSpeed;
+        b.dy = (b.dy / currentMag) * targetSpeed;
+        b.speed = targetSpeed;
+      });
+    };
 
     let bricks: Brick[] = [];
     const gifts: Gift[] = [];
@@ -360,12 +411,11 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
 
     // Dense brick grid (more bricks + smaller brick size + bomb placement)
     const initBricks = () => {
-      // 9 to 10 columns for a denser, more satisfying wall
       const cols = Math.floor(Math.min(10, (w - 20) / 42));
       const brickWidth = Math.floor((w - 20 - (cols - 1) * 4) / cols);
       const brickHeight = 12; // decreased height
       const startY = 60;
-      const numRows = Math.min(8, BrickRowColors.length);
+      const numRows = Math.min(8, 5 + Math.min(level - 1, 3)); // progressive rows
       bricks = [];
 
       // Determine bomb bricks (approx 5-6% of bricks, placed in rows 1 to 5)
@@ -375,7 +425,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       let attempts = 0;
       while (bombIndices.size < bombTargetCount && attempts < 100) {
         attempts++;
-        const r = 1 + Math.floor(Math.random() * (numRows - 2));
+        const r = 1 + Math.floor(Math.random() * Math.max(1, numRows - 2));
         const c = Math.floor(Math.random() * cols);
         bombIndices.add(r * cols + c);
       }
@@ -539,6 +589,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       level = 1;
       gameOver = false;
       victory = false;
+      levelTransitioning = false;
       gifts.length = 0;
       floatingTexts.length = 0;
       paddleWidth = basePaddleWidth;
@@ -553,379 +604,408 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     window.addEventListener('keydown', onKeyDown);
 
     // ─────────────────────────────────────────────────────────────
-    // 5. FIXED TIME-STEP PHYSICS LOOP
+    // 5. FIXED TIME-STEP PHYSICS LOOP (CRASH-PROOF & LEVEL PROG)
     // ─────────────────────────────────────────────────────────────
     let lastTime = performance.now();
 
     const loop = (currentTime: number) => {
-      const elapsed = currentTime - lastTime;
-      lastTime = currentTime;
+      // Always schedule next frame first so game never halts
+      animId = requestAnimationFrame(loop);
 
-      const dt = Math.min(elapsed / 16.667, 1.8);
+      try {
+        const elapsed = currentTime - lastTime;
+        lastTime = currentTime;
 
-      if (!gameOver && !victory) {
-        // Update balls
-        for (let i = balls.length - 1; i >= 0; i--) {
-          const b = balls[i];
-          if (!b.active) continue;
+        const dt = Math.min(elapsed / 16.667, 1.8);
 
-          b.x += b.dx * dt;
-          b.y += b.dy * dt;
+        if (!gameOver && !victory && !levelTransitioning) {
+          // Update balls
+          for (let i = balls.length - 1; i >= 0; i--) {
+            const b = balls[i];
+            if (!b || !b.active) continue;
 
-          // Side wall bounce
-          if (b.x - b.radius <= 0) {
-            b.x = b.radius;
-            b.dx = Math.abs(b.dx);
-            playTone(380, 0.04, 'triangle');
-          } else if (b.x + b.radius >= w) {
-            b.x = w - b.radius;
-            b.dx = -Math.abs(b.dx);
-            playTone(380, 0.04, 'triangle');
-          }
+            b.x += b.dx * dt;
+            b.y += b.dy * dt;
 
-          // Top wall bounce
-          if (b.y - b.radius <= 44) {
-            b.y = 44 + b.radius;
-            b.dy = Math.abs(b.dy);
-            playTone(380, 0.04, 'triangle');
-          }
+            // Side wall bounce
+            if (b.x - b.radius <= 0) {
+              b.x = b.radius;
+              b.dx = Math.abs(b.dx);
+              playTone(380, 0.04, 'triangle');
+            } else if (b.x + b.radius >= w) {
+              b.x = w - b.radius;
+              b.dx = -Math.abs(b.dx);
+              playTone(380, 0.04, 'triangle');
+            }
 
-          // Paddle bounce
-          if (
-            b.y + b.radius >= paddle.y &&
-            b.y - b.radius <= paddle.y + paddle.height &&
-            b.x >= paddle.x - 2 &&
-            b.x <= paddle.x + paddleWidth + 2
-          ) {
-            const hitRatio = (b.x - (paddle.x + paddleWidth / 2)) / (paddleWidth / 2);
-            const maxAngle = (Math.PI / 180) * 60;
-            const currentSpeed = Math.sqrt(b.dx * b.dx + b.dy * b.dy);
-            b.dx = currentSpeed * Math.sin(hitRatio * maxAngle);
-            b.dy = -Math.abs(currentSpeed * Math.cos(hitRatio * maxAngle));
-            b.y = paddle.y - b.radius;
-            playTone(440, 0.05, 'triangle');
-          }
+            // Top wall bounce
+            if (b.y - b.radius <= 44) {
+              b.y = 44 + b.radius;
+              b.dy = Math.abs(b.dy);
+              playTone(380, 0.04, 'triangle');
+            }
 
-          // Brick collision
-          let remaining = 0;
-          for (const brick of bricks) {
-            if (!brick.alive) continue;
-            remaining++;
-
+            // Paddle bounce
             if (
-              b.x + b.radius >= brick.x &&
-              b.x - b.radius <= brick.x + brick.width &&
-              b.y + b.radius >= brick.y &&
-              b.y - b.radius <= brick.y + brick.height
+              b.y + b.radius >= paddle.y &&
+              b.y - b.radius <= paddle.y + paddle.height &&
+              b.x >= paddle.x - 2 &&
+              b.x <= paddle.x + paddleWidth + 2
             ) {
-              b.dy = -b.dy;
+              const hitRatio = (b.x - (paddle.x + paddleWidth / 2)) / (paddleWidth / 2);
+              const maxAngle = (Math.PI / 180) * 60;
+              const currentSpeed = Math.hypot(b.dx, b.dy);
+              b.dx = currentSpeed * Math.sin(hitRatio * maxAngle);
+              b.dy = -Math.abs(currentSpeed * Math.cos(hitRatio * maxAngle));
+              b.y = paddle.y - b.radius;
+              playTone(440, 0.05, 'triangle');
+            }
 
-              if (brick.isBomb) {
-                // BOMB BRICK HIT LOGIC
-                if ((brick.bombHitCount || 1) > 1) {
-                  brick.bombHitCount = (brick.bombHitCount || 2) - 1;
-                  brick.border = '#FF3B30';
-                  brick.color = '#381616';
-                  playTone(620, 0.08, 'sawtooth');
-                  floatingTexts.push({
-                    x: brick.x + brick.width / 2,
-                    y: brick.y - 8,
-                    text: '⚠️ 1 HIT TO BLAST!',
-                    color: '#FF3B30',
-                    alpha: 1.0,
-                  });
-                  // Sparks
-                  for (let k = 0; k < 8; k++) {
-                    particles.push({
+            // Brick collision
+            for (const brick of bricks) {
+              if (!brick.alive) continue;
+
+              if (
+                b.x + b.radius >= brick.x &&
+                b.x - b.radius <= brick.x + brick.width &&
+                b.y + b.radius >= brick.y &&
+                b.y - b.radius <= brick.y + brick.height
+              ) {
+                b.dy = -b.dy;
+
+                if (brick.isBomb) {
+                  // BOMB BRICK HIT LOGIC
+                  if ((brick.bombHitCount || 1) > 1) {
+                    brick.bombHitCount = (brick.bombHitCount || 2) - 1;
+                    brick.border = '#FF3B30';
+                    brick.color = '#381616';
+                    playTone(620, 0.08, 'sawtooth');
+                    floatingTexts.push({
                       x: brick.x + brick.width / 2,
-                      y: brick.y + brick.height / 2,
-                      dx: (Math.random() - 0.5) * 6,
-                      dy: (Math.random() - 0.5) * 6,
-                      r: Math.random() * 2.5 + 1,
-                      color: '#FF4444',
-                      life: 1,
+                      y: brick.y - 8,
+                      text: '⚠️ 1 HIT TO BLAST!',
+                      color: '#FF3B30',
+                      alpha: 1.0,
+                    });
+                    // Sparks
+                    for (let k = 0; k < 8; k++) {
+                      particles.push({
+                        x: brick.x + brick.width / 2,
+                        y: brick.y + brick.height / 2,
+                        dx: (Math.random() - 0.5) * 6,
+                        dy: (Math.random() - 0.5) * 6,
+                        r: Math.random() * 2.5 + 1,
+                        color: '#FF4444',
+                        life: 1,
+                      });
+                    }
+                  } else {
+                    // DETONATE: Blast 25% of all remaining alive bricks!
+                    brick.alive = false;
+                    const aliveOthers = bricks.filter((bk) => bk.alive && bk !== brick);
+                    const blastCount = Math.max(1, Math.ceil(aliveOthers.length * 0.25));
+
+                    // Blast nearest surrounding bricks
+                    aliveOthers.sort((bkA, bkB) => {
+                      const da = Math.hypot(bkA.x - brick.x, bkA.y - brick.y);
+                      const db = Math.hypot(bkB.x - brick.x, bkB.y - brick.y);
+                      return da - db;
+                    });
+
+                    const blasted = aliveOthers.slice(0, blastCount);
+                    let blastPoints = 150;
+                    for (const bk of blasted) {
+                      bk.alive = false;
+                      blastPoints += bk.pts;
+                      for (let k = 0; k < 4; k++) {
+                        particles.push({
+                          x: bk.x + bk.width / 2,
+                          y: bk.y + bk.height / 2,
+                          dx: (Math.random() - 0.5) * 8,
+                          dy: (Math.random() - 0.5) * 8,
+                          r: Math.random() * 2 + 1,
+                          color: bk.color,
+                          life: 1.2,
+                        });
+                      }
+                    }
+
+                    score += blastPoints;
+                    if (score > highScore) {
+                      highScore = score;
+                      localStorage.setItem('brick_smash_high_score', highScore.toString());
+                    }
+
+                    playBombExplosion();
+
+                    floatingTexts.push({
+                      x: w / 2,
+                      y: brick.y - 14,
+                      text: `💥 25% BLAST! +${blastPoints}`,
+                      color: '#EF4444',
+                      alpha: 1.0,
                     });
                   }
                 } else {
-                  // DETONATE: Blast 25% of all remaining alive bricks!
+                  // NORMAL BRICK HIT
                   brick.alive = false;
-                  const aliveOthers = bricks.filter((bk) => bk.alive && bk !== brick);
-                  const blastCount = Math.max(1, Math.ceil(aliveOthers.length * 0.25));
+                  score += brick.pts;
 
-                  // Blast nearest surrounding bricks
-                  aliveOthers.sort((bkA, bkB) => {
-                    const da = Math.hypot(bkA.x - brick.x, bkA.y - brick.y);
-                    const db = Math.hypot(bkB.x - brick.x, bkB.y - brick.y);
-                    return da - db;
-                  });
-
-                  const blasted = aliveOthers.slice(0, blastCount);
-                  let blastPoints = 150;
-                  for (const bk of blasted) {
-                    bk.alive = false;
-                    blastPoints += bk.pts;
-                    for (let k = 0; k < 4; k++) {
-                      particles.push({
-                        x: bk.x + bk.width / 2,
-                        y: bk.y + bk.height / 2,
-                        dx: (Math.random() - 0.5) * 8,
-                        dy: (Math.random() - 0.5) * 8,
-                        r: Math.random() * 2 + 1,
-                        color: bk.color,
-                        life: 1.2,
-                      });
-                    }
-                  }
-
-                  score += blastPoints;
                   if (score > highScore) {
                     highScore = score;
                     localStorage.setItem('brick_smash_high_score', highScore.toString());
                   }
 
-                  playBombExplosion();
+                  // Sparks
+                  for (let k = 0; k < 5; k++) {
+                    particles.push({
+                      x: brick.x + brick.width / 2,
+                      y: brick.y + brick.height / 2,
+                      dx: (Math.random() - 0.5) * 5,
+                      dy: (Math.random() - 0.5) * 5,
+                      r: Math.random() * 2 + 1,
+                      color: brick.color,
+                      life: 1,
+                    });
+                  }
 
-                  floatingTexts.push({
-                    x: w / 2,
-                    y: brick.y - 14,
-                    text: `💥 25% BLAST! +${blastPoints}`,
-                    color: '#EF4444',
-                    alpha: 1.0,
-                  });
+                  spawnGift(brick.x + brick.width / 2, brick.y + brick.height);
+                  playTone(480 + brick.pts * 2, 0.04, 'sine');
                 }
-              } else {
-                // NORMAL BRICK HIT
-                brick.alive = false;
-                score += brick.pts;
-
-                if (score > highScore) {
-                  highScore = score;
-                  localStorage.setItem('brick_smash_high_score', highScore.toString());
-                }
-
-                // Sparks
-                for (let k = 0; k < 5; k++) {
-                  particles.push({
-                    x: brick.x + brick.width / 2,
-                    y: brick.y + brick.height / 2,
-                    dx: (Math.random() - 0.5) * 5,
-                    dy: (Math.random() - 0.5) * 5,
-                    r: Math.random() * 2 + 1,
-                    color: brick.color,
-                    life: 1,
-                  });
-                }
-
-                spawnGift(brick.x + brick.width / 2, brick.y + brick.height);
-                playTone(480 + brick.pts * 2, 0.04, 'sine');
+                break;
               }
-              break;
+            }
+
+            if (b.y - b.radius > h) {
+              b.active = false;
             }
           }
 
-          if (remaining === 0) {
+          // ── LEVEL CLEAR CHECK (Handled outside ball iteration to prevent crashes) ──
+          const remainingAlive = bricks.filter((bk) => bk.alive).length;
+          if (remainingAlive === 0 && !levelTransitioning) {
+            levelTransitioning = true;
             level++;
-            if (level > 4) {
-              victory = true;
-            } else {
+            playPowerupChime();
+
+            floatingTexts.push({
+              x: w / 2,
+              y: h / 2 - 20,
+              text: `LEVEL ${level - 1} CLEARED!`,
+              color: '#16a34a',
+              alpha: 1.0,
+            });
+            floatingTexts.push({
+              x: w / 2,
+              y: h / 2 + 10,
+              text: `GET READY FOR LEVEL ${level}!`,
+              color: '#E05A38',
+              alpha: 1.0,
+            });
+
+            gifts.length = 0;
+
+            // Brief, clean 1-second transition then launch next level cleanly
+            setTimeout(() => {
               initBricks();
+              resetPrimaryBall();
+              levelTransitioning = false;
+            }, 1100);
+          }
+
+          // Check if all balls were lost
+          const activeCount = balls.filter((b) => b && b.active).length;
+          if (activeCount === 0 && !levelTransitioning) {
+            lives--;
+            playTone(180, 0.2, 'sawtooth');
+            if (lives <= 0) {
+              gameOver = true;
+            } else {
               resetPrimaryBall();
             }
           }
 
-          if (b.y - b.radius > h) {
-            b.active = false;
+          // Update gifts
+          for (let i = gifts.length - 1; i >= 0; i--) {
+            const g = gifts[i];
+            if (!g || !g.active) continue;
+
+            g.y += g.vy * dt;
+
+            if (
+              g.y + g.height >= paddle.y &&
+              g.y <= paddle.y + paddle.height &&
+              g.x + g.width >= paddle.x &&
+              g.x <= paddle.x + paddleWidth
+            ) {
+              g.active = false;
+              applyGift(g);
+            } else if (g.y > h) {
+              g.active = false;
+            }
+          }
+
+          // Update floating texts
+          for (let i = floatingTexts.length - 1; i >= 0; i--) {
+            const ft = floatingTexts[i];
+            ft.y -= 1.3 * dt;
+            ft.alpha -= 0.022 * dt;
+            if (ft.alpha <= 0) floatingTexts.splice(i, 1);
+          }
+
+          // Update particles
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.dx * dt;
+            p.y += p.dy * dt;
+            p.life -= 0.045 * dt;
+            if (p.life <= 0) particles.splice(i, 1);
           }
         }
 
-        // Check if all balls were lost
-        const activeCount = balls.filter((b) => b.active).length;
-        if (activeCount === 0) {
-          lives--;
-          playTone(180, 0.2, 'sawtooth');
-          if (lives <= 0) {
-            gameOver = true;
-          } else {
-            resetPrimaryBall();
-          }
+        // ─────────────────────────────────────────────────────────────
+        // 6. RENDER
+        // ─────────────────────────────────────────────────────────────
+        ctx.clearRect(0, 0, w, h);
+
+        // Canvas background (warm ivory)
+        ctx.fillStyle = '#FAF9F5';
+        ctx.fillRect(0, 0, w, h);
+
+        // Hairline Grid Lines
+        ctx.strokeStyle = 'rgba(20, 20, 19, 0.04)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < w; x += 32) {
+          ctx.beginPath();
+          ctx.moveTo(x, 44);
+          ctx.lineTo(x, h);
+          ctx.stroke();
         }
 
-        // Update gifts
-        for (let i = gifts.length - 1; i >= 0; i--) {
-          const g = gifts[i];
-          if (!g.active) continue;
-
-          g.y += g.vy * dt;
-
-          if (
-            g.y + g.height >= paddle.y &&
-            g.y <= paddle.y + paddle.height &&
-            g.x + g.width >= paddle.x &&
-            g.x <= paddle.x + paddleWidth
-          ) {
-            g.active = false;
-            applyGift(g);
-          } else if (g.y > h) {
-            g.active = false;
-          }
-        }
-
-        // Update floating texts
-        for (let i = floatingTexts.length - 1; i >= 0; i--) {
-          const ft = floatingTexts[i];
-          ft.y -= 1.3 * dt;
-          ft.alpha -= 0.025 * dt;
-          if (ft.alpha <= 0) floatingTexts.splice(i, 1);
-        }
-
-        // Update particles
-        for (let i = particles.length - 1; i >= 0; i--) {
-          const p = particles[i];
-          p.x += p.dx * dt;
-          p.y += p.dy * dt;
-          p.life -= 0.05 * dt;
-          if (p.life <= 0) particles.splice(i, 1);
-        }
-      }
-
-      // ─────────────────────────────────────────────────────────────
-      // 6. RENDER
-      // ─────────────────────────────────────────────────────────────
-      ctx.clearRect(0, 0, w, h);
-
-      // Canvas background (warm ivory)
-      ctx.fillStyle = '#FAF9F5';
-      ctx.fillRect(0, 0, w, h);
-
-      // Hairline Grid Lines
-      ctx.strokeStyle = 'rgba(20, 20, 19, 0.04)';
-      ctx.lineWidth = 1;
-      for (let x = 0; x < w; x += 32) {
+        // HUD Header (kanelijo style: LVL, SCORE, HIGH, LIVES)
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, w, 44);
+        ctx.strokeStyle = 'rgba(20, 20, 19, 0.08)';
         ctx.beginPath();
-        ctx.moveTo(x, 44);
-        ctx.lineTo(x, h);
-        ctx.stroke();
-      }
-
-      // HUD Header
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, w, 44);
-      ctx.strokeStyle = 'rgba(20, 20, 19, 0.08)';
-      ctx.beginPath();
-      ctx.moveTo(0, 44);
-      ctx.lineTo(w, 44);
-      ctx.stroke();
-
-      ctx.fillStyle = '#141413';
-      ctx.font = '600 13px -apple-system, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(`SCORE: ${score}`, 16, 26);
-
-      ctx.fillStyle = '#87867F';
-      ctx.textAlign = 'center';
-      ctx.fillText(`HIGH: ${highScore}`, w / 2, 26);
-
-      ctx.textAlign = 'right';
-      let hearts = '';
-      for (let i = 0; i < lives; i++) hearts += '♥ ';
-      ctx.fillStyle = Colors.accent.primary;
-      ctx.font = '14px sans-serif';
-      ctx.fillText(hearts.trim(), w - 16, 26);
-
-      // Bricks
-      for (const b of bricks) {
-        if (!b.alive) continue;
-        ctx.fillStyle = b.color;
-        ctx.beginPath();
-        (ctx as any).roundRect ? (ctx as any).roundRect(b.x, b.y, b.width, b.height, 3) : ctx.rect(b.x, b.y, b.width, b.height);
-        ctx.fill();
-
-        ctx.strokeStyle = b.border;
-        ctx.lineWidth = b.isBomb ? 1.5 : 1;
+        ctx.moveTo(0, 44);
+        ctx.lineTo(w, 44);
         ctx.stroke();
 
-        // Bomb indicator with remaining hit count
-        if (b.isBomb) {
+        ctx.fillStyle = '#E05A38';
+        ctx.font = '700 12px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`LVL ${level}`, 14, 26);
+
+        ctx.fillStyle = '#141413';
+        ctx.font = '600 13px -apple-system, sans-serif';
+        ctx.fillText(`SCORE: ${score}`, 68, 26);
+
+        ctx.fillStyle = '#87867F';
+        ctx.textAlign = 'center';
+        ctx.fillText(`BEST: ${highScore}`, w / 2, 26);
+
+        ctx.textAlign = 'right';
+        let hearts = '';
+        for (let i = 0; i < lives; i++) hearts += '♥ ';
+        ctx.fillStyle = Colors.accent.primary;
+        ctx.font = '14px sans-serif';
+        ctx.fillText(hearts.trim(), w - 14, 26);
+
+        // Bricks
+        for (const b of bricks) {
+          if (!b.alive) continue;
+          ctx.fillStyle = b.color;
+          ctx.beginPath();
+          (ctx as any).roundRect ? (ctx as any).roundRect(b.x, b.y, b.width, b.height, 3) : ctx.rect(b.x, b.y, b.width, b.height);
+          ctx.fill();
+
+          ctx.strokeStyle = b.border;
+          ctx.lineWidth = b.isBomb ? 1.5 : 1;
+          ctx.stroke();
+
+          // Bomb indicator with remaining hit count
+          if (b.isBomb) {
+            ctx.save();
+            ctx.fillStyle = b.bombHitCount === 1 ? '#EF4444' : '#FFA500';
+            ctx.font = 'bold 9px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`💣${b.bombHitCount}`, b.x + b.width / 2, b.y + b.height / 2);
+            ctx.restore();
+          }
+        }
+
+        // Particles
+        for (const p of particles) {
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = Math.max(0, p.life);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1.0;
+
+        // Draw Falling Gifts
+        for (const g of gifts) {
+          if (!g || !g.active) continue;
+          const sprite = giftSprites[g.type]?.canvas;
+          if (sprite) {
+            ctx.drawImage(sprite, g.x, g.y);
+          }
+        }
+
+        // Draw Floating Notification Text
+        for (const ft of floatingTexts) {
           ctx.save();
-          ctx.fillStyle = b.bombHitCount === 1 ? '#EF4444' : '#FFA500';
-          ctx.font = 'bold 9px monospace';
+          ctx.globalAlpha = Math.max(0, ft.alpha);
+          ctx.fillStyle = ft.color;
+          ctx.font = 'bold 13px -apple-system, sans-serif';
           ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(`💣${b.bombHitCount}`, b.x + b.width / 2, b.y + b.height / 2);
+          ctx.fillText(ft.text, ft.x, ft.y);
           ctx.restore();
         }
-      }
 
-      // Particles
-      for (const p of particles) {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = Math.max(0, p.life);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1.0;
-
-      // Draw Falling Gifts
-      for (const g of gifts) {
-        if (!g.active) continue;
-        const sprite = giftSprites[g.type]?.canvas;
-        if (sprite) {
-          ctx.drawImage(sprite, g.x, g.y);
-        }
-      }
-
-      // Draw Floating Notification Text
-      for (const ft of floatingTexts) {
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, ft.alpha);
-        ctx.fillStyle = ft.color;
-        ctx.font = 'bold 13px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(ft.text, ft.x, ft.y);
-        ctx.restore();
-      }
-
-      // Paddle
-      ctx.fillStyle = Colors.accent.primary;
-      ctx.beginPath();
-      (ctx as any).roundRect
-        ? (ctx as any).roundRect(paddle.x, paddle.y, paddleWidth, paddle.height, 6)
-        : ctx.rect(paddle.x, paddle.y, paddleWidth, paddle.height);
-      ctx.fill();
-
-      // Blit Animal Character Balls (Panda, Cat, Puppy) using real assets
-      for (const b of balls) {
-        if (!b.active) continue;
-        const sCanvas = b.character === 'cat' ? catCanvas : b.character === 'puppy' ? puppyCanvas : pandaCanvas;
-        const diameter = b.radius * 2;
-        ctx.drawImage(sCanvas, b.x - b.radius, b.y - b.radius, diameter, diameter);
-      }
-
-      // Overlays
-      if (gameOver) {
-        ctx.fillStyle = 'rgba(250, 249, 245, 0.94)';
-        ctx.fillRect(0, 140, w, 140);
-        ctx.textAlign = 'center';
+        // Paddle
         ctx.fillStyle = Colors.accent.primary;
-        ctx.font = '600 24px -apple-system, sans-serif';
-        ctx.fillText('GAME OVER', w / 2, 195);
-        ctx.font = '400 13px -apple-system, sans-serif';
-        ctx.fillStyle = '#5E5D59';
-        ctx.fillText('Tap screen or press Space to play again', w / 2, 230);
-      } else if (victory) {
-        ctx.fillStyle = 'rgba(250, 249, 245, 0.94)';
-        ctx.fillRect(0, 140, w, 140);
-        ctx.textAlign = 'center';
-        ctx.fillStyle = Colors.status.online;
-        ctx.font = '600 24px -apple-system, sans-serif';
-        ctx.fillText('VICTORY!', w / 2, 195);
-        ctx.font = '400 13px -apple-system, sans-serif';
-        ctx.fillStyle = '#5E5D59';
-        ctx.fillText(`Final Score: ${score}`, w / 2, 230);
-      }
+        ctx.beginPath();
+        (ctx as any).roundRect
+          ? (ctx as any).roundRect(paddle.x, paddle.y, paddleWidth, paddle.height, 6)
+          : ctx.rect(paddle.x, paddle.y, paddleWidth, paddle.height);
+        ctx.fill();
 
-      animId = requestAnimationFrame(loop);
+        // Blit Animal Character Balls (Panda, Cat, Puppy) using real assets
+        for (const b of balls) {
+          if (!b || !b.active) continue;
+          const sCanvas = b.character === 'cat' ? catCanvas : b.character === 'puppy' ? puppyCanvas : pandaCanvas;
+          const diameter = b.radius * 2;
+          ctx.drawImage(sCanvas, b.x - b.radius, b.y - b.radius, diameter, diameter);
+        }
+
+        // Overlays
+        if (gameOver) {
+          ctx.fillStyle = 'rgba(250, 249, 245, 0.94)';
+          ctx.fillRect(0, 140, w, 140);
+          ctx.textAlign = 'center';
+          ctx.fillStyle = Colors.accent.primary;
+          ctx.font = '600 24px -apple-system, sans-serif';
+          ctx.fillText('GAME OVER', w / 2, 195);
+          ctx.font = '400 13px -apple-system, sans-serif';
+          ctx.fillStyle = '#5E5D59';
+          ctx.fillText('Tap screen or press Space to play again', w / 2, 230);
+        } else if (levelTransitioning) {
+          ctx.fillStyle = 'rgba(250, 249, 245, 0.85)';
+          ctx.fillRect(0, 150, w, 110);
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#16a34a';
+          ctx.font = '700 20px -apple-system, sans-serif';
+          ctx.fillText(`LEVEL ${level - 1} COMPLETED!`, w / 2, 195);
+          ctx.font = '500 13px -apple-system, sans-serif';
+          ctx.fillStyle = '#E05A38';
+          ctx.fillText(`Starting Level ${level}...`, w / 2, 225);
+        }
+      } catch (err) {
+        console.error('Game loop error:', err);
+      }
     };
 
     animId = requestAnimationFrame(loop);
@@ -962,11 +1042,11 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 14px',
+        padding: '0 12px',
         borderBottom: `1px solid ${Colors.border}`,
         backgroundColor: Colors.bg.elevated,
       }}>
-        {/* Clickable Title: Brick Wall Peeker + "Brick Smash × SecureBox" Font */}
+        {/* Clickable Title: Brick Wall Peeker + "Brick Smash × SecureBox" Font (NO INFO TAG) */}
         <div
           onClick={() => setIsFeaturesOpen(true)}
           style={{
@@ -978,7 +1058,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             borderRadius: 8,
             transition: 'background-color 0.15s ease',
           }}
-          title="Click to discover all SecureBox features"
+          title="SecureBox by Kanelijo & Team43 — Click to open blueprint"
         >
           {/* Brick wall with panda peeking behind it */}
           <BrickWallPeeker width={34} height={28} />
@@ -1007,31 +1087,40 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             >
               SecureBox
             </span>
-            <span
-              style={{
-                fontSize: 9,
-                fontWeight: 700,
-                padding: '2px 5px',
-                borderRadius: 4,
-                backgroundColor: 'rgba(217, 119, 87, 0.12)',
-                color: Colors.accent.primary,
-                letterSpacing: '0.04em',
-                marginLeft: 2,
-              }}
-            >
-              INFO
-            </span>
           </div>
         </div>
 
-        {/* Right Controls: Sound Toggle, Animal Companion Badge, PIN Trigger */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* Right Controls: Speed Controller, Sound Toggle, Animal Companion Badge, PIN Trigger */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {/* Ball Speed Controller Button */}
+          <button
+            onClick={cycleSpeed}
+            style={{
+              height: 32,
+              padding: '0 9px',
+              borderRadius: 8,
+              backgroundColor: 'rgba(224, 90, 56, 0.08)',
+              border: '1px solid rgba(224, 90, 56, 0.25)',
+              color: '#E05A38',
+              fontSize: 11.5,
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              cursor: 'pointer',
+            }}
+            title={`Ball Speed: ${speedMultiplier}x (Click to cycle)`}
+          >
+            <Zap size={13} color="#E05A38" />
+            <span>{speedMultiplier}x</span>
+          </button>
+
           {/* Sound On / Off Icon */}
           <button
             onClick={toggleSound}
             style={{
-              width: 34,
-              height: 34,
+              width: 32,
+              height: 32,
               borderRadius: 8,
               backgroundColor: isMuted ? Colors.bg.secondary : 'rgba(217, 119, 87, 0.1)',
               border: `1px solid ${isMuted ? Colors.border : 'rgba(217, 119, 87, 0.3)'}`,
@@ -1043,7 +1132,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             }}
             title={isMuted ? 'Turn Sound ON' : 'Turn Sound OFF'}
           >
-            {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            {isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
           </button>
 
           {/* Animal companion icon with direct unread message notification badge */}
@@ -1054,8 +1143,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: 34,
-              height: 34,
+              width: 33,
+              height: 33,
               borderRadius: '50%',
               backgroundColor: '#FFFFFF',
               border: `1.5px solid ${Colors.border}`,
@@ -1069,8 +1158,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
               src="/characters/panda-idle.png"
               alt="Companion"
               style={{
-                width: 25,
-                height: 25,
+                width: 24,
+                height: 24,
                 borderRadius: '50%',
                 objectFit: 'contain',
               }}
@@ -1083,17 +1172,17 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
                 position: 'absolute',
                 top: -3,
                 right: -5,
-                minWidth: 17,
-                height: 17,
-                borderRadius: 9,
+                minWidth: 16,
+                height: 16,
+                borderRadius: 8,
                 backgroundColor: unreadCount > 0 ? '#E53E3E' : Colors.bg.secondary,
                 color: unreadCount > 0 ? '#FFFFFF' : Colors.text.placeholder,
-                fontSize: 9.5,
+                fontSize: 9,
                 fontWeight: 800,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '0 3px',
+                padding: '0 2px',
                 border: unreadCount > 0 ? '2px solid #FFFFFF' : `1.5px solid ${Colors.border}`,
                 boxShadow: unreadCount > 0 ? '0 0 0 1.5px rgba(229, 62, 62, 0.4)' : 'none',
               }}
@@ -1108,8 +1197,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 5,
-              padding: '6px 11px',
+              gap: 4,
+              padding: '6px 10px',
               borderRadius: 8,
               backgroundColor: Colors.bg.secondary,
               border: `1px solid ${Colors.border}`,
@@ -1120,7 +1209,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             }}
             title="Security PIN"
           >
-            <Lock size={13} color={Colors.accent.primary} />
+            <Lock size={12} color={Colors.accent.primary} />
             <span>PIN</span>
           </button>
         </div>
@@ -1152,7 +1241,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       <div style={{
         width: '100%',
         maxWidth: 560,
-        padding: '10px 16px',
+        padding: '9px 16px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -1162,10 +1251,10 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         backgroundColor: Colors.bg.elevated,
       }}>
         <span>Drag to move paddle</span>
-        <span style={{ fontSize: 11, opacity: 0.85 }}>💣 Bombs Blast 25% • Assets Active</span>
+        <span style={{ fontSize: 11, opacity: 0.85 }}>💣 Bombs Blast 25% • ⚡ Speed Controlled</span>
       </div>
 
-      {/* Complete SecureBox Features Information Modal */}
+      {/* Complete SecureBox Features Information Modal (kanelijo.com/securebox style) */}
       <FeaturesModal
         isOpen={isFeaturesOpen}
         onClose={() => setIsFeaturesOpen(false)}
