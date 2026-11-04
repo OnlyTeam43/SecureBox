@@ -1,13 +1,12 @@
 // client/src/components/BrickSmashGame.tsx
-// High-Performance 60-120 FPS Physics Engine with 0ms React State Overhead
-// Pre-rendered offscreen sprite caches for Animal Character Balls (Panda, Cat, Puppy) using real assets
-// Clean vector arcade gift capsules (NO EMOJIS), BOMB bricks with 25% blast mechanic, Speed Controller, Sound toggle & Dedicated SecureBox Showcase
+// High-Performance 60-120 FPS Arcade Game Disguise
+// Native vector character graphics (Panda, Cat, Puppy) with zero emojis
+// Manual level progression (NO auto-start), Speed Controller, Sound toggle & SecureBox Gateway
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
-import { Lock, Volume2, VolumeX, Zap } from 'lucide-react';
+import { Lock, Volume2, VolumeX, Zap, Trophy, RotateCcw, ArrowRight } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
-
 
 interface BrickSmashGameProps {
   onUnlockClick: () => void;
@@ -17,6 +16,7 @@ interface BrickSmashGameProps {
 
 type AnimalType = 'panda' | 'cat' | 'puppy';
 type GiftType = 'multiball' | 'points' | 'heart' | 'wide';
+type GamePlayState = 'ready' | 'playing' | 'cleared' | 'over';
 
 interface Gift {
   x: number;
@@ -63,9 +63,17 @@ interface Brick {
 
 const SPEED_OPTIONS = [0.8, 1.0, 1.3, 1.6];
 
-export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, unreadCount = 0, onOpenSecureboxPage }) => {
+export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
+  onUnlockClick,
+  unreadCount = 0,
+  onOpenSecureboxPage,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // High-level React game states for clean UI overlays
+  const [gameState, setGameState] = useState<GamePlayState>('ready');
+  const [levelDisplay, setLevelDisplay] = useState(1);
+  const [scoreDisplay, setScoreDisplay] = useState(0);
 
   // Speed multiplier state
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(() => {
@@ -74,9 +82,6 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
   });
   const speedMultRef = useRef(speedMultiplier);
   speedMultRef.current = speedMultiplier;
-
-  // Callback to adjust speed of running balls on-the-fly
-  const adjustBallSpeedRef = useRef<((multiplier: number) => void) | null>(null);
 
   // Sound toggle state
   const [isMuted, setIsMuted] = useState(() => {
@@ -87,6 +92,12 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
 
   // Audio Context Ref
   const audioCtxRef = useRef<AudioContext | null>(null);
+
+  // Engine control bridge refs
+  const serveBallRef = useRef<(() => void) | null>(null);
+  const nextLevelRef = useRef<(() => void) | null>(null);
+  const restartGameRef = useRef<(() => void) | null>(null);
+  const adjustBallSpeedRef = useRef<((multiplier: number) => void) | null>(null);
 
   const initAudio = () => {
     if (!audioCtxRef.current) {
@@ -121,6 +132,14 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     playTone(523, 0.05, 'sine');
     setTimeout(() => playTone(659, 0.05, 'sine'), 50);
     setTimeout(() => playTone(784, 0.08, 'sine'), 100);
+  };
+
+  const playLevelWinChime = () => {
+    if (isMutedRef.current) return;
+    playTone(523, 0.08, 'sine');
+    setTimeout(() => playTone(659, 0.08, 'sine'), 80);
+    setTimeout(() => playTone(784, 0.08, 'sine'), 160);
+    setTimeout(() => playTone(1046, 0.16, 'triangle'), 240);
   };
 
   const playBombExplosion = () => {
@@ -166,6 +185,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     }
   };
 
+  // Main game initialization & physics lifecycle
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -173,189 +193,389 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     if (!ctx) return;
 
     // ─────────────────────────────────────────────────────────────
-    // 1. PRE-RENDER OFFSCREEN SPRITES USING OUR ASSETS (/characters)
+    // 1. PRE-RENDER CRISP NATIVE VECTOR SPRITES (NO EMOJIS, HIGH-DPI)
     // ─────────────────────────────────────────────────────────────
-    const SPRITE_SIZE = 64; // High DPI 2x sprite
-    const makeOffscreen = (w = SPRITE_SIZE, h = SPRITE_SIZE) => {
+    const SPRITE_SIZE = 96; // 3x resolution for razor-sharp vector rendering
+
+    const makeOffscreen = (sw = SPRITE_SIZE, sh = SPRITE_SIZE) => {
       const off = document.createElement('canvas');
-      off.width = w;
-      off.height = h;
+      off.width = sw;
+      off.height = sh;
       return off;
     };
 
+    // --- Vector Panda Sprite ---
     const pandaCanvas = makeOffscreen();
-    const catCanvas = makeOffscreen();
-    const puppyCanvas = makeOffscreen();
+    {
+      const pCtx = pandaCanvas.getContext('2d');
+      if (pCtx) {
+        const cx = SPRITE_SIZE / 2;
+        const cy = SPRITE_SIZE / 2;
+        const r = SPRITE_SIZE * 0.38;
 
-    // Helper to draw asset image clipped to crisp ball
-    const renderBallFromImage = (
-      targetCanvas: HTMLCanvasElement,
-      img: HTMLImageElement,
-      fallbackColor: string
-    ) => {
-      const sCtx = targetCanvas.getContext('2d');
-      if (!sCtx) return;
-      sCtx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
-      const cx = SPRITE_SIZE / 2;
-      const cy = SPRITE_SIZE / 2;
-      const r = 24;
+        // Ears
+        pCtx.fillStyle = '#2C2C2A';
+        pCtx.beginPath();
+        pCtx.arc(cx - r * 0.72, cy - r * 0.72, r * 0.36, 0, Math.PI * 2);
+        pCtx.arc(cx + r * 0.72, cy - r * 0.72, r * 0.36, 0, Math.PI * 2);
+        pCtx.fill();
 
-      sCtx.save();
-      // Circular clipping
-      sCtx.beginPath();
-      sCtx.arc(cx, cy, r, 0, Math.PI * 2);
-      sCtx.clip();
+        // Head Base
+        pCtx.fillStyle = '#FFFFFF';
+        pCtx.beginPath();
+        pCtx.arc(cx, cy, r, 0, Math.PI * 2);
+        pCtx.fill();
+        pCtx.strokeStyle = '#2C2C2A';
+        pCtx.lineWidth = 2.4;
+        pCtx.stroke();
 
-      // Clean background
-      sCtx.fillStyle = '#FFFFFF';
-      sCtx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+        // Eye Patches
+        pCtx.save();
+        pCtx.fillStyle = '#2C2C2A';
+        pCtx.translate(cx - r * 0.38, cy - r * 0.1);
+        pCtx.rotate(0.32);
+        pCtx.beginPath();
+        (pCtx as any).ellipse
+          ? (pCtx as any).ellipse(0, 0, r * 0.22, r * 0.28, 0, 0, Math.PI * 2)
+          : pCtx.arc(0, 0, r * 0.24, 0, Math.PI * 2);
+        pCtx.fill();
+        pCtx.restore();
 
-      if (img.complete && img.naturalWidth > 0) {
-        sCtx.drawImage(img, cx - r + 1, cy - r + 1, (r - 1) * 2, (r - 1) * 2);
-      } else {
-        sCtx.fillStyle = fallbackColor;
-        sCtx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+        pCtx.save();
+        pCtx.fillStyle = '#2C2C2A';
+        pCtx.translate(cx + r * 0.38, cy - r * 0.1);
+        pCtx.rotate(-0.32);
+        pCtx.beginPath();
+        (pCtx as any).ellipse
+          ? (pCtx as any).ellipse(0, 0, r * 0.22, r * 0.28, 0, 0, Math.PI * 2)
+          : pCtx.arc(0, 0, r * 0.24, 0, Math.PI * 2);
+        pCtx.fill();
+        pCtx.restore();
+
+        // White specular eye glints
+        pCtx.fillStyle = '#FFFFFF';
+        pCtx.beginPath();
+        pCtx.arc(cx - r * 0.36, cy - r * 0.14, r * 0.08, 0, Math.PI * 2);
+        pCtx.arc(cx + r * 0.36, cy - r * 0.14, r * 0.08, 0, Math.PI * 2);
+        pCtx.fill();
+
+        // Cute blush cheeks
+        pCtx.fillStyle = '#F4C0D1';
+        pCtx.beginPath();
+        pCtx.arc(cx - r * 0.65, cy + r * 0.24, r * 0.13, 0, Math.PI * 2);
+        pCtx.arc(cx + r * 0.65, cy + r * 0.24, r * 0.13, 0, Math.PI * 2);
+        pCtx.fill();
+
+        // Snout Nose
+        pCtx.fillStyle = '#2C2C2A';
+        pCtx.beginPath();
+        pCtx.arc(cx, cy + r * 0.16, r * 0.14, 0, Math.PI * 2);
+        pCtx.fill();
+
+        // Smile
+        pCtx.strokeStyle = '#2C2C2A';
+        pCtx.lineWidth = 1.8;
+        pCtx.beginPath();
+        pCtx.arc(cx, cy + r * 0.24, r * 0.18, 0.15 * Math.PI, 0.85 * Math.PI);
+        pCtx.stroke();
+
+        // 3D Glass Sheen
+        const sheen = pCtx.createLinearGradient(cx, cy - r, cx, cy);
+        sheen.addColorStop(0, 'rgba(255, 255, 255, 0.55)');
+        sheen.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        pCtx.fillStyle = sheen;
+        pCtx.beginPath();
+        pCtx.arc(cx, cy, r - 2, Math.PI * 1.15, Math.PI * 1.85);
+        pCtx.lineTo(cx, cy);
+        pCtx.closePath();
+        pCtx.fill();
       }
-      sCtx.restore();
+    }
 
-      // Rim & 3D bevel
-      sCtx.strokeStyle = 'rgba(20, 20, 19, 0.25)';
-      sCtx.lineWidth = 1.6;
-      sCtx.beginPath();
-      sCtx.arc(cx, cy, r, 0, Math.PI * 2);
-      sCtx.stroke();
+    // --- Vector Cat Sprite ---
+    const catCanvas = makeOffscreen();
+    {
+      const cCtx = catCanvas.getContext('2d');
+      if (cCtx) {
+        const cx = SPRITE_SIZE / 2;
+        const cy = SPRITE_SIZE / 2;
+        const r = SPRITE_SIZE * 0.38;
 
-      // Subtle gloss sheen
-      const grad = sCtx.createLinearGradient(cx, cy - r, cx, cy);
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-      grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-      sCtx.fillStyle = grad;
-      sCtx.beginPath();
-      sCtx.arc(cx, cy, r - 1.5, Math.PI * 1.1, Math.PI * 1.9);
-      sCtx.lineTo(cx, cy);
-      sCtx.closePath();
-      sCtx.fill();
-    };
+        // Cat Ears
+        cCtx.fillStyle = '#FAC775';
+        cCtx.strokeStyle = '#854F0B';
+        cCtx.lineWidth = 2.4;
+        cCtx.beginPath();
+        cCtx.moveTo(cx - r * 0.8, cy - r * 0.3);
+        cCtx.lineTo(cx - r * 0.65, cy - r * 1.05);
+        cCtx.lineTo(cx - r * 0.05, cy - r * 0.65);
+        cCtx.closePath();
+        cCtx.fill();
+        cCtx.stroke();
 
-    // Load actual character image assets
-    const pandaImg = new Image();
-    pandaImg.src = '/characters/panda-idle.png';
-    pandaImg.onload = () => renderBallFromImage(pandaCanvas, pandaImg, '#FFFFFF');
+        cCtx.beginPath();
+        cCtx.moveTo(cx + r * 0.8, cy - r * 0.3);
+        cCtx.lineTo(cx + r * 0.65, cy - r * 1.05);
+        cCtx.lineTo(cx + r * 0.05, cy - r * 0.65);
+        cCtx.closePath();
+        cCtx.fill();
+        cCtx.stroke();
 
-    const catImg = new Image();
-    catImg.src = '/characters/cat-idle.png';
-    catImg.onload = () => renderBallFromImage(catCanvas, catImg, '#FAC775');
+        // Inner ears
+        cCtx.fillStyle = '#F4A56C';
+        cCtx.beginPath();
+        cCtx.moveTo(cx - r * 0.68, cy - r * 0.4);
+        cCtx.lineTo(cx - r * 0.6, cy - r * 0.9);
+        cCtx.lineTo(cx - r * 0.15, cy - r * 0.65);
+        cCtx.closePath();
+        cCtx.fill();
 
-    const puppyImg = new Image();
-    puppyImg.src = '/characters/puppy-idle.png';
-    puppyImg.onload = () => renderBallFromImage(puppyCanvas, puppyImg, '#F5C4B3');
+        cCtx.beginPath();
+        cCtx.moveTo(cx + r * 0.68, cy - r * 0.4);
+        cCtx.lineTo(cx + r * 0.6, cy - r * 0.9);
+        cCtx.lineTo(cx + r * 0.15, cy - r * 0.65);
+        cCtx.closePath();
+        cCtx.fill();
 
-    // Initial render in case cached or fallback
-    renderBallFromImage(pandaCanvas, pandaImg, '#FFFFFF');
-    renderBallFromImage(catCanvas, catImg, '#FAC775');
-    renderBallFromImage(puppyCanvas, puppyImg, '#F5C4B3');
+        // Head Base
+        cCtx.fillStyle = '#FAC775';
+        cCtx.beginPath();
+        cCtx.arc(cx, cy, r, 0, Math.PI * 2);
+        cCtx.fill();
+        cCtx.strokeStyle = '#854F0B';
+        cCtx.lineWidth = 2.4;
+        cCtx.stroke();
+
+        // Whiskers
+        cCtx.strokeStyle = '#854F0B';
+        cCtx.lineWidth = 1.4;
+        cCtx.beginPath();
+        cCtx.moveTo(cx - r * 0.9, cy + r * 0.1);
+        cCtx.lineTo(cx - r * 0.35, cy + r * 0.15);
+        cCtx.moveTo(cx - r * 0.9, cy + r * 0.3);
+        cCtx.lineTo(cx - r * 0.35, cy + r * 0.25);
+        cCtx.moveTo(cx + r * 0.9, cy + r * 0.1);
+        cCtx.lineTo(cx + r * 0.35, cy + r * 0.15);
+        cCtx.moveTo(cx + r * 0.9, cy + r * 0.3);
+        cCtx.lineTo(cx + r * 0.35, cy + r * 0.25);
+        cCtx.stroke();
+
+        // Cheeks
+        cCtx.fillStyle = '#F4C0D1';
+        cCtx.beginPath();
+        cCtx.arc(cx - r * 0.6, cy + r * 0.2, r * 0.12, 0, Math.PI * 2);
+        cCtx.arc(cx + r * 0.6, cy + r * 0.2, r * 0.12, 0, Math.PI * 2);
+        cCtx.fill();
+
+        // Eyes
+        cCtx.fillStyle = '#412402';
+        cCtx.beginPath();
+        cCtx.arc(cx - r * 0.35, cy - r * 0.08, r * 0.12, 0, Math.PI * 2);
+        cCtx.arc(cx + r * 0.35, cy - r * 0.08, r * 0.12, 0, Math.PI * 2);
+        cCtx.fill();
+
+        cCtx.fillStyle = '#FFFFFF';
+        cCtx.beginPath();
+        cCtx.arc(cx - r * 0.32, cy - r * 0.12, r * 0.045, 0, Math.PI * 2);
+        cCtx.arc(cx + r * 0.38, cy - r * 0.12, r * 0.045, 0, Math.PI * 2);
+        cCtx.fill();
+
+        // Nose & Mouth
+        cCtx.fillStyle = '#D4537E';
+        cCtx.beginPath();
+        cCtx.moveTo(cx - r * 0.1, cy + r * 0.15);
+        cCtx.lineTo(cx + r * 0.1, cy + r * 0.15);
+        cCtx.lineTo(cx, cy + r * 0.25);
+        cCtx.closePath();
+        cCtx.fill();
+      }
+    }
+
+    // --- Vector Puppy Sprite ---
+    const puppyCanvas = makeOffscreen();
+    {
+      const uCtx = puppyCanvas.getContext('2d');
+      if (uCtx) {
+        const cx = SPRITE_SIZE / 2;
+        const cy = SPRITE_SIZE / 2;
+        const r = SPRITE_SIZE * 0.38;
+
+        // Floppy Ears
+        uCtx.fillStyle = '#854F0B';
+        uCtx.save();
+        uCtx.translate(cx - r * 0.85, cy - r * 0.1);
+        uCtx.rotate(0.25);
+        uCtx.beginPath();
+        (uCtx as any).ellipse
+          ? (uCtx as any).ellipse(0, 0, r * 0.3, r * 0.6, 0, 0, Math.PI * 2)
+          : uCtx.arc(0, 0, r * 0.4, 0, Math.PI * 2);
+        uCtx.fill();
+        uCtx.restore();
+
+        uCtx.save();
+        uCtx.translate(cx + r * 0.85, cy - r * 0.1);
+        uCtx.rotate(-0.25);
+        uCtx.beginPath();
+        (uCtx as any).ellipse
+          ? (uCtx as any).ellipse(0, 0, r * 0.3, r * 0.6, 0, 0, Math.PI * 2)
+          : uCtx.arc(0, 0, r * 0.4, 0, Math.PI * 2);
+        uCtx.fill();
+        uCtx.restore();
+
+        // Head Base
+        uCtx.fillStyle = '#F5C4B3';
+        uCtx.beginPath();
+        uCtx.arc(cx, cy, r, 0, Math.PI * 2);
+        uCtx.fill();
+        uCtx.strokeStyle = '#993C1D';
+        uCtx.lineWidth = 2.4;
+        uCtx.stroke();
+
+        // Muzzle
+        uCtx.fillStyle = '#FAECE7';
+        uCtx.beginPath();
+        (uCtx as any).ellipse
+          ? (uCtx as any).ellipse(cx, cy + r * 0.3, r * 0.45, r * 0.32, 0, 0, Math.PI * 2)
+          : uCtx.arc(cx, cy + r * 0.3, r * 0.35, 0, Math.PI * 2);
+        uCtx.fill();
+
+        // Cheeks
+        uCtx.fillStyle = '#F4C0D1';
+        uCtx.beginPath();
+        uCtx.arc(cx - r * 0.58, cy + r * 0.18, r * 0.11, 0, Math.PI * 2);
+        uCtx.arc(cx + r * 0.58, cy + r * 0.18, r * 0.11, 0, Math.PI * 2);
+        uCtx.fill();
+
+        // Eyes
+        uCtx.fillStyle = '#2C2C2A';
+        uCtx.beginPath();
+        uCtx.arc(cx - r * 0.34, cy - r * 0.12, r * 0.11, 0, Math.PI * 2);
+        uCtx.arc(cx + r * 0.34, cy - r * 0.12, r * 0.11, 0, Math.PI * 2);
+        uCtx.fill();
+
+        uCtx.fillStyle = '#FFFFFF';
+        uCtx.beginPath();
+        uCtx.arc(cx - r * 0.31, cy - r * 0.16, r * 0.045, 0, Math.PI * 2);
+        uCtx.arc(cx + r * 0.37, cy - r * 0.16, r * 0.045, 0, Math.PI * 2);
+        uCtx.fill();
+
+        // Nose
+        uCtx.fillStyle = '#2C2C2A';
+        uCtx.beginPath();
+        uCtx.arc(cx, cy + r * 0.18, r * 0.13, 0, Math.PI * 2);
+        uCtx.fill();
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────
-    // 2. PRE-RENDER CLEAN VECTOR ARCADE GIFT CAPSULES (NO EMOJIS)
+    // 2. VECTOR GIFT CAPSULES (NO EMOJIS)
     // ─────────────────────────────────────────────────────────────
     const giftSprites: Record<GiftType, { canvas: HTMLCanvasElement; label: string; color: string }> = {
-      multiball: { canvas: makeOffscreen(44, 24), label: 'MULTI-BALL ACTIVE!', color: '#D97757' },
-      points: { canvas: makeOffscreen(44, 24), label: '+100 BONUS POINTS!', color: '#F59E0B' },
-      heart: { canvas: makeOffscreen(44, 24), label: '+1 EXTRA LIFE!', color: '#EF4444' },
-      wide: { canvas: makeOffscreen(44, 24), label: 'WIDE PADDLE EXTENSION!', color: '#10B981' },
+      multiball: { canvas: makeOffscreen(44, 22), label: 'TRIPLE BALL!', color: '#D97757' },
+      points: { canvas: makeOffscreen(44, 22), label: '+100 POINTS!', color: '#F59E0B' },
+      heart: { canvas: makeOffscreen(44, 22), label: '+1 EXTRA LIFE!', color: '#EF4444' },
+      wide: { canvas: makeOffscreen(44, 22), label: 'WIDE PADDLE!', color: '#10B981' },
     };
 
-    (Object.keys(giftSprites) as GiftType[]).forEach((type) => {
-      const gC = giftSprites[type].canvas;
-      const gCtx = gC.getContext('2d');
+    Object.entries(giftSprites).forEach(([key, meta]) => {
+      const gCtx = meta.canvas.getContext('2d');
       if (gCtx) {
-        const themeColor = giftSprites[type].color;
+        const type = key as GiftType;
+        gCtx.clearRect(0, 0, 44, 22);
 
-        // Dark arcade pill body with glowing themed border
-        gCtx.fillStyle = '#1C1917';
-        gCtx.strokeStyle = themeColor;
-        gCtx.lineWidth = 1.8;
+        // Capsule Body
+        gCtx.fillStyle = '#1E1E1C';
         gCtx.beginPath();
-        (gCtx as any).roundRect
-          ? (gCtx as any).roundRect(1, 1, 42, 22, 11)
-          : gCtx.rect(1, 1, 42, 22);
+        (gCtx as any).roundRect ? (gCtx as any).roundRect(2, 2, 40, 18, 9) : gCtx.rect(2, 2, 40, 18);
         gCtx.fill();
+
+        gCtx.strokeStyle = meta.color;
+        gCtx.lineWidth = 1.6;
         gCtx.stroke();
 
-        // Gloss sheen on top half of capsule
-        const gloss = gCtx.createLinearGradient(0, 2, 0, 11);
-        gloss.addColorStop(0, 'rgba(255, 255, 255, 0.28)');
-        gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        gCtx.fillStyle = gloss;
-        gCtx.beginPath();
-        (gCtx as any).roundRect
-          ? (gCtx as any).roundRect(4, 2, 36, 9, 4)
-          : gCtx.rect(4, 2, 36, 9);
-        gCtx.fill();
-
-        // Vector graphics per powerup — sleek, sharp, high-tech (NO EMOJIS)
         if (type === 'multiball') {
-          // Three connected energy companion spheres
           gCtx.fillStyle = '#FFFFFF';
           gCtx.beginPath();
-          gCtx.arc(14, 12, 3.2, 0, Math.PI * 2);
-          gCtx.arc(22, 12, 3.2, 0, Math.PI * 2);
-          gCtx.arc(30, 12, 3.2, 0, Math.PI * 2);
+          gCtx.arc(14, 11, 3.2, 0, Math.PI * 2);
+          gCtx.arc(22, 11, 3.2, 0, Math.PI * 2);
+          gCtx.arc(30, 11, 3.2, 0, Math.PI * 2);
           gCtx.fill();
-
-          gCtx.strokeStyle = '#D97757';
-          gCtx.lineWidth = 1.2;
-          gCtx.beginPath();
-          gCtx.moveTo(14, 12);
-          gCtx.lineTo(30, 12);
-          gCtx.stroke();
         } else if (type === 'points') {
           gCtx.fillStyle = '#F59E0B';
           gCtx.font = 'bold 10px monospace';
           gCtx.textAlign = 'center';
           gCtx.textBaseline = 'middle';
-          gCtx.fillText('+100', 22, 12.5);
+          gCtx.fillText('+100', 22, 11);
         } else if (type === 'heart') {
-          // Sharp medical / life cross in bright red & white
+          // Sharp medical cross in bright crimson
           gCtx.fillStyle = '#EF4444';
-          gCtx.fillRect(19, 6.5, 6, 11);
-          gCtx.fillRect(16.5, 9, 11, 6);
-          // Highlight center
-          gCtx.fillStyle = '#FFFFFF';
-          gCtx.fillRect(20, 10, 4, 4);
+          gCtx.fillRect(19, 6, 6, 10);
+          gCtx.fillRect(17, 8, 10, 6);
         } else if (type === 'wide') {
-          // Clean wide paddle symbol with expansion arrows
           gCtx.fillStyle = '#10B981';
-          gCtx.fillRect(14, 10, 16, 4);
+          gCtx.fillRect(13, 9.5, 18, 3);
           // Left arrow
           gCtx.beginPath();
-          gCtx.moveTo(11, 12);
-          gCtx.lineTo(13, 9);
-          gCtx.lineTo(13, 15);
+          gCtx.moveTo(10, 11);
+          gCtx.lineTo(13, 8);
+          gCtx.lineTo(13, 14);
           gCtx.closePath();
           gCtx.fill();
           // Right arrow
           gCtx.beginPath();
-          gCtx.moveTo(33, 12);
-          gCtx.lineTo(31, 9);
-          gCtx.lineTo(31, 15);
+          gCtx.moveTo(34, 11);
+          gCtx.lineTo(31, 8);
+          gCtx.lineTo(31, 14);
           gCtx.closePath();
           gCtx.fill();
         }
       }
     });
 
+    // Helper to draw vector hearts for Lives HUD
+    const drawVectorHeart = (hx: number, hy: number, size: number, filled: boolean) => {
+      ctx.save();
+      ctx.translate(hx, hy);
+      const s = size / 24;
+      ctx.translate(-12 * s, -12 * s);
+      ctx.scale(s, s);
+
+      ctx.beginPath();
+      ctx.moveTo(12, 21.35);
+      ctx.lineTo(10.55, 20.03);
+      ctx.bezierCurveTo(5.4, 15.36, 2, 12.28, 2, 8.5);
+      ctx.bezierCurveTo(2, 5.42, 4.42, 3, 7.5, 3);
+      ctx.bezierCurveTo(9.24, 3, 10.91, 3.81, 12, 5.09);
+      ctx.bezierCurveTo(13.09, 3.81, 14.76, 3, 16.5, 3);
+      ctx.bezierCurveTo(19.58, 3, 22, 5.42, 22, 8.5);
+      ctx.bezierCurveTo(22, 12.28, 18.6, 15.36, 13.45, 20.04);
+      ctx.closePath();
+
+      if (filled) {
+        ctx.fillStyle = '#E53935';
+        ctx.fill();
+        ctx.strokeStyle = '#B91C1C';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = 'rgba(212, 208, 197, 0.15)';
+        ctx.fill();
+        ctx.strokeStyle = '#D4D0C5';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+
     // ─────────────────────────────────────────────────────────────
-    // 3. ZERO-OVERHEAD GAME STATE
+    // 3. ZERO-OVERHEAD ENGINE STATE MACHINE
     // ─────────────────────────────────────────────────────────────
     let animId: number;
     let score = 0;
     let lives = 3;
     let level = 1;
     let highScore = parseInt(localStorage.getItem('brick_smash_high_score') || '0', 10);
-    let gameOver = false;
-    let victory = false;
-    let levelTransitioning = false;
+    let currentGameState: GamePlayState = 'ready';
 
     const dpr = window.devicePixelRatio || 1;
     const updateSize = () => {
@@ -376,9 +596,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
 
     let { w, h } = updateSize() || { w: 480, h: 640 };
 
-    // Progressive ball speed with user-controlled multiplier
     const getBallSpeed = (lvl: number) => {
-      const base = 8.2 + Math.min((lvl - 1) * 0.35, 4.0);
+      const base = 8.0 + Math.min((lvl - 1) * 0.35, 4.0);
       return base * speedMultRef.current;
     };
 
@@ -392,21 +611,96 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       height: 13,
     };
 
-    // Balls Pool
+    // Ball definition
     const balls: Ball[] = [
       {
-        x: w / 2,
-        y: h - 50,
+        x: paddle.x + paddleWidth / 2,
+        y: paddle.y - 14,
         radius: 12.5,
-        dx: 5.6 * speedMultRef.current,
-        dy: -5.6 * speedMultRef.current,
+        dx: 0,
+        dy: 0,
         speed: getBallSpeed(1),
         character: 'panda',
         active: true,
       },
     ];
 
-    // Connect speed controller to dynamically adjust in-flight balls
+    let bricks: Brick[] = [];
+    const gifts: Gift[] = [];
+    const floatingTexts: FloatingText[] = [];
+    const particles: Array<{ x: number; y: number; dx: number; dy: number; r: number; color: string; life: number }> = [];
+
+    // Dock ball firmly on paddle
+    const dockBallOnPaddle = () => {
+      balls.length = 0;
+      balls.push({
+        x: paddle.x + paddleWidth / 2,
+        y: paddle.y - 14,
+        radius: 12.5,
+        dx: 0,
+        dy: 0,
+        speed: getBallSpeed(level),
+        character: 'panda',
+        active: true,
+      });
+    };
+
+    // Serve ball on user command (tap / drag / space)
+    const serveBall = () => {
+      if (currentGameState !== 'ready') return;
+      initAudio();
+      const primary = balls[0];
+      if (!primary) return;
+
+      const angle = Math.PI / 4 + (Math.random() * Math.PI) / 2;
+      const speed = getBallSpeed(level);
+      primary.dx = Math.cos(angle) * (Math.random() > 0.5 ? speed : -speed);
+      primary.dy = -Math.abs(Math.sin(angle) * speed);
+      primary.active = true;
+
+      currentGameState = 'playing';
+      setGameState('playing');
+      playTone(440, 0.08, 'sine');
+    };
+    serveBallRef.current = serveBall;
+
+    // Advance to next level — strictly manual on user trigger!
+    const advanceNextLevel = () => {
+      level++;
+      setLevelDisplay(level);
+      initBricks();
+      dockBallOnPaddle();
+      gifts.length = 0;
+      floatingTexts.length = 0;
+      paddleWidth = basePaddleWidth;
+
+      currentGameState = 'ready';
+      setGameState('ready');
+      playTone(520, 0.1, 'sine');
+    };
+    nextLevelRef.current = advanceNextLevel;
+
+    // Restart game from Level 1
+    const restartGame = () => {
+      score = 0;
+      lives = 3;
+      level = 1;
+      setLevelDisplay(1);
+      setScoreDisplay(0);
+
+      initBricks();
+      dockBallOnPaddle();
+      gifts.length = 0;
+      floatingTexts.length = 0;
+      paddleWidth = basePaddleWidth;
+
+      currentGameState = 'ready';
+      setGameState('ready');
+      playTone(400, 0.1, 'sine');
+    };
+    restartGameRef.current = restartGame;
+
+    // Adjust in-flight ball speed on speed button click
     adjustBallSpeedRef.current = (newMult: number) => {
       floatingTexts.push({
         x: paddle.x + paddleWidth / 2,
@@ -418,7 +712,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
 
       const targetSpeed = getBallSpeed(level);
       balls.forEach((b) => {
-        if (!b.active) return;
+        if (!b.active || (b.dx === 0 && b.dy === 0)) return;
         const currentMag = Math.hypot(b.dx, b.dy) || 1;
         b.dx = (b.dx / currentMag) * targetSpeed;
         b.dy = (b.dy / currentMag) * targetSpeed;
@@ -426,21 +720,15 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       });
     };
 
-    let bricks: Brick[] = [];
-    const gifts: Gift[] = [];
-    const floatingTexts: FloatingText[] = [];
-    const particles: Array<{ x: number; y: number; dx: number; dy: number; r: number; color: string; life: number }> = [];
-
-    // Dense brick grid (more bricks + smaller brick size + bomb placement)
+    // Brick generation
     const initBricks = () => {
       const cols = Math.floor(Math.min(10, (w - 20) / 42));
       const brickWidth = Math.floor((w - 20 - (cols - 1) * 4) / cols);
-      const brickHeight = 12; // decreased height
+      const brickHeight = 12;
       const startY = 60;
       const numRows = Math.min(8, 5 + Math.min(level - 1, 3));
       bricks = [];
 
-      // Determine bomb bricks (approx 5-6% of bricks, placed in rows 1 to 5)
       const totalBricks = numRows * cols;
       const bombIndices = new Set<number>();
       const bombTargetCount = Math.max(3, Math.min(5, Math.floor(totalBricks * 0.06)));
@@ -475,22 +763,6 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       }
     };
 
-    const resetPrimaryBall = () => {
-      balls.length = 0;
-      const speed = getBallSpeed(level);
-      const angle = Math.PI / 4 + (Math.random() * Math.PI) / 2;
-      balls.push({
-        x: paddle.x + paddleWidth / 2,
-        y: paddle.y - 15,
-        radius: 12.5,
-        dx: Math.cos(angle) * (Math.random() > 0.5 ? speed : -speed),
-        dy: -Math.abs(Math.sin(angle) * speed),
-        speed,
-        character: 'panda',
-        active: true,
-      });
-    };
-
     const spawnMultiBall = () => {
       const refBall = balls.find((b) => b.active) || balls[0];
       const companions: AnimalType[] = ['cat', 'puppy'];
@@ -520,8 +792,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         x: bx - 22,
         y: by,
         width: 44,
-        height: 24,
-        vy: 3.5,
+        height: 22,
+        vy: 2.8,
         type: chosen,
         active: true,
       });
@@ -543,6 +815,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         spawnMultiBall();
       } else if (g.type === 'points') {
         score += 100;
+        setScoreDisplay(score);
         if (score > highScore) {
           highScore = score;
           localStorage.setItem('brick_smash_high_score', highScore.toString());
@@ -558,11 +831,52 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       }
     };
 
+    // Detonate 25% of bricks when bomb shatters
+    const triggerBombBlast = (bombBrick: Brick) => {
+      playBombExplosion();
+      const aliveBricks = bricks.filter((b) => b.alive && b !== bombBrick);
+      const shatterCount = Math.max(1, Math.floor(aliveBricks.length * 0.25));
+
+      aliveBricks.sort((a, b) => {
+        const da = Math.hypot(a.x - bombBrick.x, a.y - bombBrick.y);
+        const db = Math.hypot(b.x - bombBrick.x, b.y - bombBrick.y);
+        return da - db;
+      });
+
+      const toShatter = aliveBricks.slice(0, shatterCount);
+      toShatter.forEach((bk) => {
+        bk.alive = false;
+        score += bk.pts;
+        for (let p = 0; p < 4; p++) {
+          particles.push({
+            x: bk.x + bk.width / 2,
+            y: bk.y + bk.height / 2,
+            dx: (Math.random() - 0.5) * 6,
+            dy: (Math.random() - 0.5) * 6,
+            r: 2.2,
+            color: bk.color,
+            life: 1.0,
+          });
+        }
+      });
+
+      setScoreDisplay(score);
+
+      floatingTexts.push({
+        x: bombBrick.x + bombBrick.width / 2,
+        y: bombBrick.y - 15,
+        text: `BOOM! -${shatterCount} BRICKS (25%)`,
+        color: '#EF4444',
+        alpha: 1.0,
+      });
+    };
+
+    // Initialize board
     initBricks();
-    resetPrimaryBall();
+    dockBallOnPaddle();
 
     // ─────────────────────────────────────────────────────────────
-    // 4. INSTANT 0-LATENCY POINTER CONTROLS
+    // 4. INSTANT POINTER & DRAG CONTROLS
     // ─────────────────────────────────────────────────────────────
     let isPointerDown = false;
 
@@ -570,6 +884,12 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       const rect = canvas.getBoundingClientRect();
       const pointerX = clientX - rect.left;
       paddle.x = Math.max(0, Math.min(w - paddleWidth, pointerX - paddleWidth / 2));
+
+      // In ready mode, dock the ball so it smoothly tracks paddle center
+      if (currentGameState === 'ready' && balls.length > 0) {
+        balls[0].x = paddle.x + paddleWidth / 2;
+        balls[0].y = paddle.y - 14;
+      }
     };
 
     const onPointerDown = (e: PointerEvent) => {
@@ -579,7 +899,10 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         canvas.setPointerCapture(e.pointerId);
       } catch (_) {}
       updatePaddlePos(e.clientX);
-      if (gameOver || victory) restartGame();
+
+      if (currentGameState === 'ready') {
+        serveBall();
+      }
     };
 
     const onPointerMove = (e: PointerEvent) => {
@@ -598,25 +921,23 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       initAudio();
       if (e.key === 'ArrowLeft' || e.key === 'a') {
         paddle.x = Math.max(0, paddle.x - 26);
+        if (currentGameState === 'ready' && balls.length > 0) {
+          balls[0].x = paddle.x + paddleWidth / 2;
+        }
       } else if (e.key === 'ArrowRight' || e.key === 'd') {
         paddle.x = Math.min(w - paddleWidth, paddle.x + 26);
+        if (currentGameState === 'ready' && balls.length > 0) {
+          balls[0].x = paddle.x + paddleWidth / 2;
+        }
       } else if (e.key === ' ' || e.key === 'Enter') {
-        if (gameOver || victory) restartGame();
+        if (currentGameState === 'ready') {
+          serveBall();
+        } else if (currentGameState === 'cleared') {
+          advanceNextLevel();
+        } else if (currentGameState === 'over') {
+          restartGame();
+        }
       }
-    };
-
-    const restartGame = () => {
-      score = 0;
-      lives = 3;
-      level = 1;
-      gameOver = false;
-      victory = false;
-      levelTransitioning = false;
-      gifts.length = 0;
-      floatingTexts.length = 0;
-      paddleWidth = basePaddleWidth;
-      initBricks();
-      resetPrimaryBall();
     };
 
     canvas.addEventListener('pointerdown', onPointerDown, { passive: true });
@@ -626,7 +947,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
     window.addEventListener('keydown', onKeyDown);
 
     // ─────────────────────────────────────────────────────────────
-    // 5. FIXED TIME-STEP PHYSICS LOOP (CRASH-PROOF & LEVEL PROG)
+    // 5. PHYSICS LOOP
     // ─────────────────────────────────────────────────────────────
     let lastTime = performance.now();
 
@@ -636,216 +957,146 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
       try {
         const elapsed = currentTime - lastTime;
         lastTime = currentTime;
-
         const dt = Math.min(elapsed / 16.667, 1.8);
 
-        if (!gameOver && !victory && !levelTransitioning) {
-          // Update balls
+        if (currentGameState === 'playing') {
+          // Update active balls
           for (let i = balls.length - 1; i >= 0; i--) {
             const b = balls[i];
-            if (!b || !b.active) continue;
+            if (!b.active) continue;
 
             b.x += b.dx * dt;
             b.y += b.dy * dt;
 
-            // Side wall bounce
+            // Walls collision
             if (b.x - b.radius <= 0) {
               b.x = b.radius;
               b.dx = Math.abs(b.dx);
-              playTone(380, 0.04, 'triangle');
+              playTone(280, 0.04, 'sine');
             } else if (b.x + b.radius >= w) {
               b.x = w - b.radius;
               b.dx = -Math.abs(b.dx);
-              playTone(380, 0.04, 'triangle');
+              playTone(280, 0.04, 'sine');
             }
 
-            // Top wall bounce
+            // Top boundary
             if (b.y - b.radius <= 44) {
               b.y = 44 + b.radius;
               b.dy = Math.abs(b.dy);
-              playTone(380, 0.04, 'triangle');
+              playTone(320, 0.04, 'sine');
             }
 
             // Paddle bounce
             if (
+              b.dy > 0 &&
               b.y + b.radius >= paddle.y &&
               b.y - b.radius <= paddle.y + paddle.height &&
-              b.x >= paddle.x - 2 &&
-              b.x <= paddle.x + paddleWidth + 2
+              b.x >= paddle.x - b.radius * 0.5 &&
+              b.x <= paddle.x + paddleWidth + b.radius * 0.5
             ) {
-              const hitRatio = (b.x - (paddle.x + paddleWidth / 2)) / (paddleWidth / 2);
-              const maxAngle = (Math.PI / 180) * 60;
-              const currentSpeed = Math.hypot(b.dx, b.dy);
-              b.dx = currentSpeed * Math.sin(hitRatio * maxAngle);
-              b.dy = -Math.abs(currentSpeed * Math.cos(hitRatio * maxAngle));
               b.y = paddle.y - b.radius;
-              playTone(440, 0.05, 'triangle');
+              const hitOffset = (b.x - (paddle.x + paddleWidth / 2)) / (paddleWidth / 2);
+              const maxAngle = (Math.PI / 3) * 0.9;
+              const bounceAngle = hitOffset * maxAngle;
+              const currentSpeed = Math.hypot(b.dx, b.dy) || getBallSpeed(level);
+
+              b.dx = currentSpeed * Math.sin(bounceAngle);
+              b.dy = -currentSpeed * Math.cos(bounceAngle);
+
+              playTone(360 + Math.abs(hitOffset) * 120, 0.05, 'triangle');
             }
 
-            // Brick collision
-            for (const brick of bricks) {
-              if (!brick.alive) continue;
+            // Bricks collision
+            for (let k = 0; k < bricks.length; k++) {
+              const bk = bricks[k];
+              if (!bk.alive) continue;
 
               if (
-                b.x + b.radius >= brick.x &&
-                b.x - b.radius <= brick.x + brick.width &&
-                b.y + b.radius >= brick.y &&
-                b.y - b.radius <= brick.y + brick.height
+                b.x + b.radius > bk.x &&
+                b.x - b.radius < bk.x + bk.width &&
+                b.y + b.radius > bk.y &&
+                b.y - b.radius < bk.y + bk.height
               ) {
-                b.dy = -b.dy;
+                const prevX = b.x - b.dx * dt;
+                const prevY = b.y - b.dy * dt;
 
-                if (brick.isBomb) {
-                  // BOMB BRICK HIT LOGIC
-                  if ((brick.bombHitCount || 1) > 1) {
-                    brick.bombHitCount = (brick.bombHitCount || 2) - 1;
-                    brick.border = '#FF3B30';
-                    brick.color = '#381616';
-                    playTone(620, 0.08, 'sawtooth');
-                    floatingTexts.push({
-                      x: brick.x + brick.width / 2,
-                      y: brick.y - 8,
-                      text: '1 HIT TO BLAST!',
-                      color: '#FF3B30',
-                      alpha: 1.0,
-                    });
-                    // Sparks
-                    for (let k = 0; k < 8; k++) {
-                      particles.push({
-                        x: brick.x + brick.width / 2,
-                        y: brick.y + brick.height / 2,
-                        dx: (Math.random() - 0.5) * 6,
-                        dy: (Math.random() - 0.5) * 6,
-                        r: Math.random() * 2.5 + 1,
-                        color: '#FF4444',
-                        life: 1,
-                      });
-                    }
-                  } else {
-                    // DETONATE: Blast 25% of all remaining alive bricks!
-                    brick.alive = false;
-                    const aliveOthers = bricks.filter((bk) => bk.alive && bk !== brick);
-                    const blastCount = Math.max(1, Math.ceil(aliveOthers.length * 0.25));
+                if (prevX + b.radius <= bk.x || prevX - b.radius >= bk.x + bk.width) {
+                  b.dx = -b.dx;
+                } else {
+                  b.dy = -b.dy;
+                }
 
-                    // Blast nearest surrounding bricks
-                    aliveOthers.sort((bkA, bkB) => {
-                      const da = Math.hypot(bkA.x - brick.x, bkA.y - brick.y);
-                      const db = Math.hypot(bkB.x - brick.x, bkB.y - brick.y);
-                      return da - db;
-                    });
+                if (bk.isBomb) {
+                  bk.bombHitCount = (bk.bombHitCount || 2) - 1;
+                  playTone(480, 0.06, 'sawtooth');
 
-                    const blasted = aliveOthers.slice(0, blastCount);
-                    let blastPoints = 150;
-                    for (const bk of blasted) {
-                      bk.alive = false;
-                      blastPoints += bk.pts;
-                      for (let k = 0; k < 4; k++) {
-                        particles.push({
-                          x: bk.x + bk.width / 2,
-                          y: bk.y + bk.height / 2,
-                          dx: (Math.random() - 0.5) * 8,
-                          dy: (Math.random() - 0.5) * 8,
-                          r: Math.random() * 2 + 1,
-                          color: bk.color,
-                          life: 1.2,
-                        });
-                      }
-                    }
-
-                    score += blastPoints;
-                    if (score > highScore) {
-                      highScore = score;
-                      localStorage.setItem('brick_smash_high_score', highScore.toString());
-                    }
-
-                    playBombExplosion();
-
-                    floatingTexts.push({
-                      x: w / 2,
-                      y: brick.y - 14,
-                      text: `25% BLAST! +${blastPoints}`,
-                      color: '#EF4444',
-                      alpha: 1.0,
-                    });
+                  if (bk.bombHitCount <= 0) {
+                    bk.alive = false;
+                    score += bk.pts;
+                    setScoreDisplay(score);
+                    triggerBombBlast(bk);
                   }
                 } else {
-                  // NORMAL BRICK HIT
-                  brick.alive = false;
-                  score += brick.pts;
-
-                  if (score > highScore) {
-                    highScore = score;
-                    localStorage.setItem('brick_smash_high_score', highScore.toString());
-                  }
-
-                  // Sparks
-                  for (let k = 0; k < 5; k++) {
-                    particles.push({
-                      x: brick.x + brick.width / 2,
-                      y: brick.y + brick.height / 2,
-                      dx: (Math.random() - 0.5) * 5,
-                      dy: (Math.random() - 0.5) * 5,
-                      r: Math.random() * 2 + 1,
-                      color: brick.color,
-                      life: 1,
-                    });
-                  }
-
-                  spawnGift(brick.x + brick.width / 2, brick.y + brick.height);
-                  playTone(480 + brick.pts * 2, 0.04, 'sine');
+                  bk.alive = false;
+                  score += bk.pts;
+                  setScoreDisplay(score);
+                  playTone(420 + (bk.pts / 10) * 15, 0.05, 'sine');
+                  spawnGift(bk.x + bk.width / 2, bk.y + bk.height);
                 }
+
+                if (score > highScore) {
+                  highScore = score;
+                  localStorage.setItem('brick_smash_high_score', highScore.toString());
+                }
+
                 break;
               }
             }
 
+            // Ball fell off screen
             if (b.y - b.radius > h) {
               b.active = false;
             }
           }
 
-          // ── LEVEL CLEAR CHECK (Handled safely outside ball iteration) ──
-          const remainingAlive = bricks.filter((bk) => bk.alive).length;
-          if (remainingAlive === 0 && !levelTransitioning) {
-            levelTransitioning = true;
-            level++;
-            playPowerupChime();
-
-            floatingTexts.push({
-              x: w / 2,
-              y: h / 2 - 20,
-              text: `LEVEL ${level - 1} CLEARED!`,
-              color: '#16a34a',
-              alpha: 1.0,
-            });
-            floatingTexts.push({
-              x: w / 2,
-              y: h / 2 + 10,
-              text: `GET READY FOR LEVEL ${level}!`,
-              color: '#E05A38',
-              alpha: 1.0,
-            });
-
-            gifts.length = 0;
-
-            setTimeout(() => {
-              initBricks();
-              resetPrimaryBall();
-              levelTransitioning = false;
-            }, 1100);
-          }
-
           // Check if all balls were lost
-          const activeCount = balls.filter((b) => b && b.active).length;
-          if (activeCount === 0 && !levelTransitioning) {
+          const activeBalls = balls.filter((b) => b && b.active);
+          if (activeBalls.length === 0) {
             lives--;
-            playTone(180, 0.2, 'sawtooth');
+            playTone(180, 0.22, 'sawtooth');
+
             if (lives <= 0) {
-              gameOver = true;
+              currentGameState = 'over';
+              setGameState('over');
             } else {
-              resetPrimaryBall();
+              dockBallOnPaddle();
+              currentGameState = 'ready';
+              setGameState('ready');
             }
           }
 
-          // Update gifts
+          // ── CHECK LEVEL CLEARED ──
+          const remainingAlive = bricks.filter((bk) => bk.alive).length;
+          if (remainingAlive === 0 && currentGameState === 'playing') {
+            currentGameState = 'cleared';
+            setGameState('cleared');
+            playLevelWinChime();
+
+            // Calculate level bonus
+            const bonus = 200 * level;
+            score += bonus;
+            setScoreDisplay(score);
+            if (score > highScore) {
+              highScore = score;
+              localStorage.setItem('brick_smash_high_score', highScore.toString());
+            }
+
+            gifts.length = 0;
+            // HALT balls — NO AUTO-START! Waits for user tap!
+            dockBallOnPaddle();
+          }
+
+          // Update falling gifts
           for (let i = gifts.length - 1; i >= 0; i--) {
             const g = gifts[i];
             if (!g || !g.active) continue;
@@ -860,7 +1111,10 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             ) {
               g.active = false;
               applyGift(g);
-            } else if (g.y > h) {
+              continue;
+            }
+
+            if (g.y > h) {
               g.active = false;
             }
           }
@@ -868,8 +1122,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
           // Update floating texts
           for (let i = floatingTexts.length - 1; i >= 0; i--) {
             const ft = floatingTexts[i];
-            ft.y -= 1.3 * dt;
-            ft.alpha -= 0.022 * dt;
+            ft.y -= 0.8 * dt;
+            ft.alpha -= 0.02 * dt;
             if (ft.alpha <= 0) floatingTexts.splice(i, 1);
           }
 
@@ -884,15 +1138,15 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         }
 
         // ─────────────────────────────────────────────────────────────
-        // 6. RENDER
+        // 6. CRISP CANVAS RENDERING (100% VECTOR, ZERO EMOJIS)
         // ─────────────────────────────────────────────────────────────
         ctx.clearRect(0, 0, w, h);
 
-        // Canvas background (warm ivory)
+        // Background
         ctx.fillStyle = '#FAF9F5';
         ctx.fillRect(0, 0, w, h);
 
-        // Hairline Grid Lines
+        // Subtle arcade grid
         ctx.strokeStyle = 'rgba(20, 20, 19, 0.04)';
         ctx.lineWidth = 1;
         for (let x = 0; x < w; x += 32) {
@@ -902,7 +1156,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
           ctx.stroke();
         }
 
-        // HUD Header (Arcade status: LVL, SCORE, BEST, LIVES)
+        // Top HUD Bar
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, w, 44);
         ctx.strokeStyle = 'rgba(20, 20, 19, 0.08)';
@@ -924,34 +1178,74 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         ctx.textAlign = 'center';
         ctx.fillText(`BEST: ${highScore}`, w / 2, 26);
 
-        ctx.textAlign = 'right';
-        let hearts = '';
-        for (let i = 0; i < lives; i++) hearts += '♥ ';
-        ctx.fillStyle = Colors.accent.primary;
-        ctx.font = '14px sans-serif';
-        ctx.fillText(hearts.trim(), w - 14, 26);
+        // Render 3 Crisp Vector Hearts for Lives (NO text emojis)
+        for (let i = 0; i < 3; i++) {
+          const heartX = w - 16 - (2 - i) * 19;
+          const heartY = 24;
+          drawVectorHeart(heartX, heartY, 14, i < lives);
+        }
 
-        // Bricks
+        // Render Bricks
         for (const b of bricks) {
           if (!b.alive) continue;
-          ctx.fillStyle = b.color;
-          ctx.beginPath();
-          (ctx as any).roundRect ? (ctx as any).roundRect(b.x, b.y, b.width, b.height, 3) : ctx.rect(b.x, b.y, b.width, b.height);
-          ctx.fill();
 
-          ctx.strokeStyle = b.border;
-          ctx.lineWidth = b.isBomb ? 1.5 : 1;
-          ctx.stroke();
-
-          // Bomb indicator with remaining hit count
           if (b.isBomb) {
-            ctx.save();
-            ctx.fillStyle = b.bombHitCount === 1 ? '#EF4444' : '#FFA500';
-            ctx.font = 'bold 9px monospace';
+            // Explosive bomb brick with dark plate & glowing warning border
+            ctx.fillStyle = '#1E1614';
+            ctx.beginPath();
+            (ctx as any).roundRect ? (ctx as any).roundRect(b.x, b.y, b.width, b.height, 3) : ctx.rect(b.x, b.y, b.width, b.height);
+            ctx.fill();
+
+            ctx.strokeStyle = b.bombHitCount === 1 ? '#EF4444' : '#F97316';
+            ctx.lineWidth = 1.4;
+            ctx.stroke();
+
+            // Vector Bomb Capsule (Sphere + Fuse Spark + Counter Pill)
+            const bx = b.x + b.width / 2;
+            const by = b.y + b.height / 2;
+
+            // Bomb body
+            ctx.fillStyle = '#141413';
+            ctx.beginPath();
+            ctx.arc(bx - 6, by + 0.5, 4.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#D6D3D1';
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+
+            // Spark
+            ctx.strokeStyle = '#F59E0B';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(bx - 6, by - 3.5);
+            ctx.lineTo(bx - 4.5, by - 5.5);
+            ctx.stroke();
+
+            // Counter Badge
+            ctx.fillStyle = b.bombHitCount === 1 ? '#EF4444' : '#EA580C';
+            ctx.beginPath();
+            (ctx as any).roundRect ? (ctx as any).roundRect(bx + 1, by - 4.5, 9, 9, 2.5) : ctx.rect(bx + 1, by - 4.5, 9, 9);
+            ctx.fill();
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 8px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(`BOMB ${b.bombHitCount}`, b.x + b.width / 2, b.y + b.height / 2);
-            ctx.restore();
+            ctx.fillText(`${b.bombHitCount}`, bx + 5.5, by);
+          } else {
+            // Regular Brick
+            ctx.fillStyle = b.color;
+            ctx.beginPath();
+            (ctx as any).roundRect ? (ctx as any).roundRect(b.x, b.y, b.width, b.height, 3) : ctx.rect(b.x, b.y, b.width, b.height);
+            ctx.fill();
+
+            ctx.strokeStyle = b.border;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Subtle 3D top shine
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+            ctx.fillRect(b.x + 1, b.y + 1, b.width - 2, 2.5);
           }
         }
 
@@ -965,16 +1259,16 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
         }
         ctx.globalAlpha = 1.0;
 
-        // Draw Falling Gifts (Clean Vector Capsules - NO EMOJIS)
+        // Falling Gifts
         for (const g of gifts) {
-          if (!g || !g.active) continue;
-          const sprite = giftSprites[g.type]?.canvas;
-          if (sprite) {
-            ctx.drawImage(sprite, g.x, g.y);
+          if (!g.active) continue;
+          const spr = giftSprites[g.type];
+          if (spr) {
+            ctx.drawImage(spr.canvas, g.x, g.y, g.width, g.height);
           }
         }
 
-        // Draw Floating Notification Text
+        // Floating texts
         for (const ft of floatingTexts) {
           ctx.save();
           ctx.globalAlpha = Math.max(0, ft.alpha);
@@ -993,38 +1287,18 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
           : ctx.rect(paddle.x, paddle.y, paddleWidth, paddle.height);
         ctx.fill();
 
-        // Blit Animal Character Balls (Panda, Cat, Puppy) using real assets
-        for (const b of balls) {
-          if (!b || !b.active) continue;
-          const sCanvas = b.character === 'cat' ? catCanvas : b.character === 'puppy' ? puppyCanvas : pandaCanvas;
-          const diameter = b.radius * 2;
-          ctx.drawImage(sCanvas, b.x - b.radius, b.y - b.radius, diameter, diameter);
-        }
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.fillRect(paddle.x + 4, paddle.y + 2, paddleWidth - 8, 2.5);
 
-        // Overlays
-        if (gameOver) {
-          ctx.fillStyle = 'rgba(250, 249, 245, 0.94)';
-          ctx.fillRect(0, 140, w, 140);
-          ctx.textAlign = 'center';
-          ctx.fillStyle = Colors.accent.primary;
-          ctx.font = '600 24px -apple-system, sans-serif';
-          ctx.fillText('GAME OVER', w / 2, 195);
-          ctx.font = '400 13px -apple-system, sans-serif';
-          ctx.fillStyle = '#5E5D59';
-          ctx.fillText('Tap screen or press Space to play again', w / 2, 230);
-        } else if (levelTransitioning) {
-          ctx.fillStyle = 'rgba(250, 249, 245, 0.88)';
-          ctx.fillRect(0, 150, w, 110);
-          ctx.textAlign = 'center';
-          ctx.fillStyle = '#16a34a';
-          ctx.font = '700 20px -apple-system, sans-serif';
-          ctx.fillText(`LEVEL ${level - 1} CLEARED!`, w / 2, 195);
-          ctx.font = '500 13px -apple-system, sans-serif';
-          ctx.fillStyle = '#E05A38';
-          ctx.fillText(`Starting Level ${level}...`, w / 2, 225);
+        // Razor-sharp Vector Character Balls (Panda, Cat, Puppy)
+        for (const b of balls) {
+          if (!b.active) continue;
+          const sCanvas = b.character === 'cat' ? catCanvas : b.character === 'puppy' ? puppyCanvas : pandaCanvas;
+          const size = b.radius * 2;
+          ctx.drawImage(sCanvas, b.x - b.radius, b.y - b.radius, size, size);
         }
       } catch (err) {
-        console.error('Game loop error:', err);
+        console.error('Physics loop error caught:', err);
       }
     };
 
@@ -1032,41 +1306,46 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
 
     return () => {
       cancelAnimationFrame(animId);
-      if (widePaddleTimer) clearTimeout(widePaddleTimer);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);
       canvas.removeEventListener('pointercancel', onPointerUp);
       window.removeEventListener('keydown', onKeyDown);
+      if (widePaddleTimer) clearTimeout(widePaddleTimer);
     };
   }, []);
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: Colors.bg.primary,
-      touchAction: 'none',
-      userSelect: 'none',
-      WebkitUserSelect: 'none',
-    }}>
-      {/* Top Header */}
-      <div style={{
+    <div
+      style={{
         width: '100%',
-        maxWidth: 560,
-        height: 54,
+        height: '100%',
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 12px',
-        borderBottom: `1px solid ${Colors.border}`,
-        backgroundColor: Colors.bg.elevated,
-      }}>
-        {/* Clickable Title: Brick Wall Peeker + "Brick Smash × SecureBox" Font (NO INFO TAG) */}
+        backgroundColor: Colors.bg.primary,
+        userSelect: 'none',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      {/* ─── Arcade Top Bar ─────────────────────────────────────────────────── */}
+      <div
+        style={{
+          width: '100%',
+          maxWidth: 560,
+          height: 48,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '0 12px',
+          borderBottom: `1px solid ${Colors.border}`,
+          backgroundColor: Colors.bg.elevated,
+          zIndex: 15,
+        }}
+      >
+        {/* Clickable Title: Brick Wall Peeker + "Brick Smash × SecureBox" Font */}
         <div
           onClick={() => {
             if (onOpenSecureboxPage) {
@@ -1087,7 +1366,6 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
           }}
           title="SecureBox — Click to explore features and download APK"
         >
-          {/* Brick wall with panda peeking behind it */}
           <BrickWallPeeker width={34} height={28} />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: 1 }}>
@@ -1123,18 +1401,18 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
           <button
             onClick={cycleSpeed}
             style={{
-              height: 32,
-              padding: '0 9px',
+              padding: '5px 8px',
               borderRadius: 8,
-              backgroundColor: 'rgba(224, 90, 56, 0.08)',
-              border: '1px solid rgba(224, 90, 56, 0.25)',
-              color: '#E05A38',
-              fontSize: 11.5,
-              fontWeight: 700,
+              border: `1px solid ${Colors.border}`,
+              backgroundColor: Colors.bg.primary,
               display: 'flex',
               alignItems: 'center',
               gap: 4,
               cursor: 'pointer',
+              color: Colors.text.secondary,
+              fontSize: 11,
+              fontWeight: 700,
+              fontFamily: 'monospace',
             }}
             title={`Ball Speed: ${speedMultiplier}x (Click to cycle)`}
           >
@@ -1142,16 +1420,15 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             <span>{speedMultiplier}x</span>
           </button>
 
-          {/* Sound On / Off Icon */}
+          {/* Sound Mute/Unmute Toggle Button */}
           <button
             onClick={toggleSound}
             style={{
-              width: 32,
-              height: 32,
+              padding: '6px',
               borderRadius: 8,
-              backgroundColor: isMuted ? Colors.bg.secondary : 'rgba(217, 119, 87, 0.1)',
-              border: `1px solid ${isMuted ? Colors.border : 'rgba(217, 119, 87, 0.3)'}`,
-              color: isMuted ? Colors.text.placeholder : Colors.accent.primary,
+              border: `1px solid ${Colors.border}`,
+              backgroundColor: isMuted ? Colors.bg.primary : Colors.accent.soft,
+              color: isMuted ? Colors.text.secondary : Colors.accent.primary,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -1167,16 +1444,14 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             onClick={onUnlockClick}
             style={{
               position: 'relative',
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              backgroundColor: '#FAF0EB',
+              border: unreadCount > 0 ? '1.5px solid #EF4444' : `1px solid ${Colors.border}`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: 34,
-              height: 34,
-              borderRadius: '50%',
-              backgroundColor: '#FFFFFF',
-              border: `1.5px solid ${Colors.border}`,
-              padding: 0,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
               cursor: 'pointer',
             }}
             title={unreadCount > 0 ? `${unreadCount} unread message(s) - Click to unlock` : 'Secret Vault / Open Chat'}
@@ -1195,33 +1470,31 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             {/* Notification Badge Dot (Vibrant red, only visible when unreadCount > 0) */}
             {unreadCount > 0 && (
               <span
-                className="char-badge-pulse"
                 style={{
                   position: 'absolute',
                   top: -4,
-                  right: -6,
-                  minWidth: 18,
-                  height: 18,
-                  borderRadius: 9,
-                  backgroundColor: '#E53E3E',
+                  right: -4,
+                  minWidth: 16,
+                  height: 16,
+                  borderRadius: '999px',
+                  backgroundColor: '#EF4444',
                   color: '#FFFFFF',
                   fontSize: 10,
                   fontWeight: 800,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: '0 3px',
-                  border: '2px solid #FFFFFF',
-                  boxShadow: '0 0 0 1.5px rgba(229, 62, 62, 0.5), 0 2px 6px rgba(0,0,0,0.25)',
-                  zIndex: 10,
+                  padding: '0 4px',
+                  boxShadow: '0 2px 5px rgba(239, 68, 68, 0.4)',
+                  border: '1.5px solid #FFFFFF',
                 }}
               >
-                {unreadCount > 99 ? '99+' : unreadCount}
+                {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
           </div>
 
-          {/* Discreet PIN trigger */}
+          {/* Discrete Lock Icon */}
           <button
             onClick={onUnlockClick}
             style={{
@@ -1230,33 +1503,35 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
               gap: 4,
               padding: '6px 10px',
               borderRadius: 8,
-              backgroundColor: Colors.bg.secondary,
               border: `1px solid ${Colors.border}`,
-              color: Colors.accent.primary,
+              backgroundColor: 'transparent',
+              color: Colors.text.secondary,
               fontSize: 12,
               fontWeight: 600,
               cursor: 'pointer',
             }}
             title="Security PIN"
           >
-            <Lock size={12} color={Colors.accent.primary} />
+            <Lock size={13} />
             <span>PIN</span>
           </button>
         </div>
       </div>
 
-      {/* Canvas Wrapper */}
-      <div style={{
-        flex: 1,
-        width: '100%',
-        maxWidth: 560,
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        overflow: 'hidden',
-        position: 'relative',
-        touchAction: 'none',
-      }}>
+      {/* ─── Main Game Canvas Area & Overlays ───────────────────────────────── */}
+      <div
+        style={{
+          flex: 1,
+          width: '100%',
+          maxWidth: 560,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          overflow: 'hidden',
+          position: 'relative',
+          touchAction: 'none',
+        }}
+      >
         <canvas
           ref={canvasRef}
           style={{
@@ -1265,31 +1540,225 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({ onUnlockClick, u
             display: 'block',
           }}
         />
+
+        {/* ── READY OVERLAY (Tap to Launch Ball) ── */}
+        {gameState === 'ready' && (
+          <div
+            onClick={() => serveBallRef.current && serveBallRef.current()}
+            style={{
+              position: 'absolute',
+              bottom: 80,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              backgroundColor: 'rgba(20, 21, 24, 0.88)',
+              color: '#FFFFFF',
+              padding: '10px 22px',
+              borderRadius: '999px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              zIndex: 10,
+              userSelect: 'none',
+              animation: 'pulse 1.8s infinite',
+            }}
+          >
+            <Zap size={14} color="#F59E0B" />
+            <span>Level {levelDisplay} • Tap to Launch Ball</span>
+          </div>
+        )}
+
+        {/* ── LEVEL CLEARED OVERLAY (DOES NOT AUTO-START) ── */}
+        {gameState === 'cleared' && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundColor: 'rgba(17, 17, 17, 0.72)',
+              backdropFilter: 'blur(6px)',
+              WebkitBackdropFilter: 'blur(6px)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 20,
+              padding: '24px',
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: '24px',
+                padding: '32px 28px',
+                maxWidth: '340px',
+                width: '100%',
+                textAlign: 'center',
+                boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
+                border: '1px solid #E7E5E4',
+              }}
+            >
+              {/* Clean Vector Trophy Badge */}
+              <div
+                style={{
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '50%',
+                  backgroundColor: '#FEF3C7',
+                  color: '#D97706',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px',
+                }}
+              >
+                <Trophy size={28} />
+              </div>
+
+              <div
+                style={{
+                  fontFamily: '"Press Start 2P", monospace',
+                  fontSize: '14px',
+                  color: '#141518',
+                  marginBottom: '8px',
+                }}
+              >
+                LEVEL {levelDisplay} CLEARED!
+              </div>
+
+              <div
+                style={{
+                  fontSize: '14px',
+                  color: '#16A34A',
+                  fontWeight: 700,
+                  marginBottom: '24px',
+                }}
+              >
+                +{200 * levelDisplay} Level Bonus
+              </div>
+
+              <button
+                onClick={() => nextLevelRef.current && nextLevelRef.current()}
+                style={{
+                  width: '100%',
+                  padding: '14px 20px',
+                  borderRadius: '12px',
+                  backgroundColor: '#D96B43',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  fontSize: '15px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  boxShadow: '0 4px 14px rgba(217, 107, 67, 0.35)',
+                }}
+              >
+                <span>Next Level</span>
+                <ArrowRight size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── GAME OVER OVERLAY ── */}
+        {gameState === 'over' && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundColor: 'rgba(17, 17, 17, 0.72)',
+              backdropFilter: 'blur(6px)',
+              WebkitBackdropFilter: 'blur(6px)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 20,
+              padding: '24px',
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: '24px',
+                padding: '32px 28px',
+                maxWidth: '340px',
+                width: '100%',
+                textAlign: 'center',
+                boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
+                border: '1px solid #E7E5E4',
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: '"Press Start 2P", monospace',
+                  fontSize: '14px',
+                  color: '#DC2626',
+                  marginBottom: '10px',
+                }}
+              >
+                GAME OVER
+              </div>
+
+              <div
+                style={{
+                  fontSize: '14px',
+                  color: '#57534E',
+                  marginBottom: '24px',
+                }}
+              >
+                Final Score: <strong>{scoreDisplay}</strong>
+              </div>
+
+              <button
+                onClick={() => restartGameRef.current && restartGameRef.current()}
+                style={{
+                  width: '100%',
+                  padding: '14px 20px',
+                  borderRadius: '12px',
+                  backgroundColor: '#141518',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                }}
+              >
+                <RotateCcw size={16} />
+                <span>Play Again</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Bottom Bar */}
-      <div style={{
-        width: '100%',
-        maxWidth: 560,
-        padding: '9px 16px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        fontSize: 12,
-        color: Colors.text.placeholder,
-        borderTop: `1px solid ${Colors.border}`,
-        backgroundColor: Colors.bg.elevated,
-      }}>
+      {/* ─── Bottom Status Bar ────────────────────────────────────────────── */}
+      <div
+        style={{
+          width: '100%',
+          maxWidth: 560,
+          padding: '9px 16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          fontSize: 12,
+          color: Colors.text.placeholder,
+          borderTop: `1px solid ${Colors.border}`,
+          backgroundColor: Colors.bg.elevated,
+        }}
+      >
         <span>Drag to move paddle</span>
         <span style={{ fontSize: 11, opacity: 0.85 }}>Bombs Detonate 25% • Vector Powerups Active</span>
       </div>
-
-
-
-
-
-
-
     </div>
   );
 };
