@@ -1,143 +1,192 @@
 // client/src/components/Composer.tsx
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Colors } from '../theme/tokens';
-import { Image, Send, Loader2 } from 'lucide-react';
+import { Image, Send, Loader2, X, Reply } from 'lucide-react';
 import { compressImage } from '../utils/imageCompressor';
+import { ChatMessage } from '../types';
 
 interface ComposerProps {
-  onSendMessage: (text: string) => void;
-  onSendMedia: (base64: string) => void;
-  onTyping: () => void;
+  onSendMessage: (text: string, replyTo?: ChatMessage['replyTo']) => void;
+  onSendMedia: (base64: string, replyTo?: ChatMessage['replyTo']) => void;
+  onTyping: (isTyping: boolean) => void;
+  replyingTo: ChatMessage | null;
+  onCancelReply: () => void;
 }
 
-export const Composer: React.FC<ComposerProps> = ({ onSendMessage, onSendMedia, onTyping }) => {
+export const Composer: React.FC<ComposerProps> = ({
+  onSendMessage, onSendMedia, onTyping, replyingTo, onCancelReply,
+}) => {
   const [text, setText] = useState('');
   const [isCompressing, setIsCompressing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const typingActiveRef = useRef(false);
+  const typingStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!text.trim()) return;
-    onSendMessage(text.trim());
+    const reply = replyingTo ? {
+      id: replyingTo.id,
+      sender: replyingTo.sender,
+      text: replyingTo.text,
+      media: replyingTo.media,
+    } : undefined;
+    onSendMessage(text.trim(), reply);
     setText('');
+    onCancelReply();
+    // stop typing signal
+    if (typingActiveRef.current) {
+      typingActiveRef.current = false;
+      onTyping(false);
+    }
+    if (typingStopRef.current) clearTimeout(typingStopRef.current);
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setText(e.target.value);
+    // Fire typing start immediately (no debounce)
+    if (!typingActiveRef.current) {
+      typingActiveRef.current = true;
+      onTyping(true);
+    }
+    // Auto-stop after 2.5s inactivity
+    if (typingStopRef.current) clearTimeout(typingStopRef.current);
+    typingStopRef.current = setTimeout(() => {
+      typingActiveRef.current = false;
+      onTyping(false);
+    }, 2500);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleSubmit();
-    } else {
-      onTyping();
     }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-
     try {
       setIsCompressing(true);
-      // Downscale and compress image to high-clarity JPEG under 90KB
-      // Ensures instant delivery across WebSockets & Supabase Realtime limits
       const compressedBase64 = await compressImage(file, 1024, 0.72);
       if (compressedBase64) {
-        onSendMedia(compressedBase64);
+        const reply = replyingTo ? {
+          id: replyingTo.id,
+          sender: replyingTo.sender,
+          text: replyingTo.text,
+          media: replyingTo.media,
+        } : undefined;
+        onSendMedia(compressedBase64, reply);
+        onCancelReply();
       }
     } catch (err) {
-      console.error('Image compression failed:', err);
-      alert('Could not prepare image for encrypted transmission. Please try again.');
+      alert('Could not prepare image. Please try again.');
     } finally {
       setIsCompressing(false);
       e.target.value = '';
     }
   };
 
+  // Cleanup on unmount
+  useEffect(() => () => {
+    if (typingStopRef.current) clearTimeout(typingStopRef.current);
+  }, []);
+
   return (
     <div style={{
       flexShrink: 0,
-      padding: '10px 14px',
-      paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))',
       backgroundColor: Colors.bg.elevated,
       borderTop: `1px solid ${Colors.border}`,
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
       zIndex: 20,
       boxSizing: 'border-box',
     }}>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
+      {/* Reply Preview Bar */}
+      {replyingTo && (
+        <div style={{
+          display: 'flex', alignItems: 'center',
+          padding: '8px 14px 4px',
+          gap: 8,
+          borderBottom: `1px solid ${Colors.border}`,
+        }}>
+          <Reply size={14} color={Colors.accent.primary} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: Colors.accent.primary }}>
+              {replyingTo.isOutgoing ? 'You' : replyingTo.sender}
+            </div>
+            <div style={{ fontSize: 12, color: Colors.text.secondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {replyingTo.media && !replyingTo.text ? '📷 Photo' : replyingTo.text}
+            </div>
+          </div>
+          <button
+            onClick={onCancelReply}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: Colors.text.secondary, padding: 2 }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
-      {/* Attachment Button */}
-      <button
-        onClick={() => fileInputRef.current?.click()}
-        disabled={isCompressing}
-        style={{
-          width: 38,
-          height: 38,
-          borderRadius: '50%',
-          backgroundColor: Colors.bg.secondary,
-          border: `1px solid ${Colors.border}`,
-          color: isCompressing ? Colors.accent.primary : Colors.text.secondary,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: isCompressing ? 'wait' : 'pointer',
-          opacity: isCompressing ? 0.7 : 1,
-        }}
-        title="Attach image"
-      >
-        {isCompressing ? <Loader2 size={17} className="animate-spin" /> : <Image size={17} />}
-      </button>
-
-      {/* Input Field */}
-      <div style={{ flex: 1, position: 'relative' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '10px 14px',
+        paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))',
+      }}>
         <input
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isCompressing ? 'Compressing photo...' : 'Encrypted message...'}
-          style={{
-            width: '100%',
-            height: 42,
-            borderRadius: 21,
-            backgroundColor: Colors.bg.primary,
-            border: `1px solid ${Colors.borderStrong}`,
-            padding: '0 16px',
-            fontSize: 14,
-            color: Colors.text.primary,
-            outline: 'none',
-            boxSizing: 'border-box',
-          }}
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
         />
-      </div>
 
-      {/* Send Button */}
-      <button
-        onClick={() => handleSubmit()}
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: '50%',
-          backgroundColor: Colors.accent.primary,
-          border: 'none',
-          color: Colors.text.inverse,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          boxShadow: '0 2px 8px rgba(217, 119, 87, 0.3)',
-        }}
-        title="Send"
-      >
-        <Send size={17} />
-      </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isCompressing}
+          style={{
+            width: 38, height: 38, borderRadius: '50%',
+            backgroundColor: Colors.bg.secondary,
+            border: `1px solid ${Colors.border}`,
+            color: isCompressing ? Colors.accent.primary : Colors.text.secondary,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: isCompressing ? 'wait' : 'pointer',
+            opacity: isCompressing ? 0.7 : 1,
+            flexShrink: 0,
+          }}
+        >
+          {isCompressing ? <Loader2 size={17} className="animate-spin" /> : <Image size={17} />}
+        </button>
+
+        <div style={{ flex: 1, position: 'relative' }}>
+          <input
+            type="text"
+            value={text}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            placeholder={isCompressing ? 'Compressing photo...' : 'Encrypted message...'}
+            style={{
+              width: '100%', height: 42, borderRadius: 21,
+              backgroundColor: Colors.bg.primary,
+              border: `1px solid ${Colors.borderStrong}`,
+              padding: '0 16px', fontSize: 14,
+              color: Colors.text.primary, outline: 'none', boxSizing: 'border-box',
+            }}
+          />
+        </div>
+
+        <button
+          onClick={() => handleSubmit()}
+          style={{
+            width: 42, height: 42, borderRadius: '50%',
+            backgroundColor: Colors.accent.primary, border: 'none',
+            color: Colors.text.inverse, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(217, 119, 87, 0.3)', flexShrink: 0,
+          }}
+        >
+          <Send size={17} />
+        </button>
+      </div>
     </div>
   );
 };

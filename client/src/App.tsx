@@ -18,6 +18,8 @@ import {
   subscribeToRoom,
   sendTypingStatus,
   sendWipeSignal,
+  sendSeenReceipt,
+  sendLastSeen,
 } from './services/supabase';
 
 import { BrickSmashGame } from './components/BrickSmashGame';
@@ -147,6 +149,8 @@ export const App: React.FC = () => {
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingUnlockAction = useRef<(() => void) | null>(null);
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const [partnerLastSeen, setPartnerLastSeen] = useState<number | null>(null);
 
   // Reset unread count for current room when entering chat
   useEffect(() => {
@@ -724,6 +728,8 @@ export const App: React.FC = () => {
             <ChatHeader
               partnerName={activeRoom.partnerHandle || 'Waiting for partner...'}
               isOnline={isPartnerOnline}
+              partnerLastSeen={partnerLastSeen}
+              typingUser={typingUser}
               onHubClick={() => {
                 localStorage.removeItem(ACTIVE_ROOM_KEY);
                 setActiveRoom(null);
@@ -742,11 +748,23 @@ export const App: React.FC = () => {
               }}
               onWipeClick={handleWipeRoom}
             />
-            <ChatMessages messages={messages} typingUser={typingUser} />
+            <ChatMessages
+                messages={messages}
+                typingUser={typingUser}
+                partnerLastSeen={partnerLastSeen}
+                onReply={(msg) => setReplyingTo(msg)}
+                onMessageVisible={(msgId) => {
+                  const mySess = getSessionId();
+                  sendSeenReceipt(activeRoom.roomId, mySess, [msgId]);
+                  sendLastSeen(activeRoom.roomId, mySess);
+                }}
+              />
             <Composer
               onSendMessage={handleSendMessage}
               onSendMedia={handleSendMedia}
               onTyping={handleTyping}
+              replyingTo={replyingTo}
+              onCancelReply={() => setReplyingTo(null)}
             />
           </div>
         )}

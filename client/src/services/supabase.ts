@@ -240,6 +240,8 @@ export function subscribeToRoom(
     onMessage: (payload: any) => void;
     onTyping: (payload: { sender: string; isTyping: boolean }) => void;
     onPresenceChange: (activeUsers: Array<{ handle: string; sessionId: string }>) => void;
+    onSeen?: (messageIds: string[]) => void;
+    onLastSeen?: (ts: number) => void;
     onWipe?: () => void;
   }
 ): RealtimeChannel {
@@ -269,6 +271,16 @@ export function subscribeToRoom(
     .on('broadcast', { event: 'typing' }, ({ payload }) => {
       if (payload && payload.sessionId !== mySessionId) {
         handlers.onTyping(payload);
+      }
+    })
+    .on('broadcast', { event: 'seen' }, ({ payload }) => {
+      if (payload && payload.sessionId !== mySessionId && payload.messageIds) {
+        handlers.onSeen?.(payload.messageIds);
+      }
+    })
+    .on('broadcast', { event: 'last_seen' }, ({ payload }) => {
+      if (payload && payload.sessionId !== mySessionId && payload.ts) {
+        handlers.onLastSeen?.(payload.ts);
       }
     })
     .on('broadcast', { event: 'wipe_room' }, ({ payload }) => {
@@ -310,6 +322,32 @@ export function subscribeToRoom(
     });
 
   return channel;
+}
+
+export async function sendSeenReceipt(roomId: string, sessionId: string, messageIds: string[]) {
+  try {
+    const channel = supabase.getChannels().find((c) => c.topic === `realtime:room_${roomId}`);
+    if (channel && messageIds.length > 0) {
+      channel.send({
+        type: 'broadcast',
+        event: 'seen',
+        payload: { sessionId, messageIds },
+      }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+export async function sendLastSeen(roomId: string, sessionId: string) {
+  try {
+    const channel = supabase.getChannels().find((c) => c.topic === `realtime:room_${roomId}`);
+    if (channel) {
+      channel.send({
+        type: 'broadcast',
+        event: 'last_seen',
+        payload: { sessionId, ts: Date.now() },
+      }).catch(() => {});
+    }
+  } catch (_) {}
 }
 
 export async function sendTypingStatus(roomId: string, myHandle: string, sessionId: string, isTyping: boolean) {

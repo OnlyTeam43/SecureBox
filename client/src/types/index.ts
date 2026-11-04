@@ -21,6 +21,12 @@ export interface ChatMessage {
   timestamp: number;
   isOutgoing: boolean;
   status?: 'sent' | 'delivered' | 'seen';
+  replyTo?: {
+    id: string;
+    sender: string;
+    text: string;
+    media?: string | null;
+  } | null;
 }
 
 export interface EncryptedPayload {

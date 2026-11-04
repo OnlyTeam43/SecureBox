@@ -3,9 +3,20 @@ import React, { useState } from 'react';
 import { Colors } from '../theme/tokens';
 import { Gamepad2, Lock, MoreVertical, ArrowLeft, Home, Trash2 } from 'lucide-react';
 
+const formatLastSeen = (ts: number | null): string => {
+  if (!ts) return 'waiting...';
+  const diff = Date.now() - ts;
+  if (diff < 60000) return 'last seen just now';
+  if (diff < 3600000) return 'last seen ' + Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return 'last seen ' + Math.floor(diff / 3600000) + 'h ago';
+  return 'last seen recently';
+};
+
 interface ChatHeaderProps {
   partnerName: string;
   isOnline: boolean;
+  partnerLastSeen: number | null;
+  typingUser: string | null;
   onHubClick: () => void;
   onGameClick: () => void;
   onLockClick: () => void;
@@ -15,6 +26,8 @@ interface ChatHeaderProps {
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
   partnerName,
   isOnline,
+  partnerLastSeen,
+  typingUser,
   onHubClick,
   onGameClick,
   onLockClick,
@@ -112,16 +125,16 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
               width: 6,
               height: 6,
               borderRadius: '50%',
-              backgroundColor: isOnline ? Colors.status.online : '#E0A82E',
+              backgroundColor: typingUser ? Colors.accent.primary : isOnline ? Colors.status.online : '#E0A82E',
               flexShrink: 0,
             }} />
             <span style={{
               fontSize: 10.5,
               fontWeight: isOnline ? 600 : 500,
-              color: isOnline ? Colors.status.online : '#B07E15',
+              color: typingUser ? Colors.accent.primary : isOnline ? Colors.status.online : '#B07E15',
               whiteSpace: 'nowrap',
             }}>
-              {isOnline ? 'Connected' : 'Waiting...'}
+              {typingUser ? 'typing...' : isOnline ? 'connected' : partnerLastSeen ? formatLastSeen(partnerLastSeen) : 'waiting...'}
             </span>
           </div>
         </div>
