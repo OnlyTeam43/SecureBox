@@ -1,20 +1,22 @@
 // client/src/components/JoinModal.tsx
 // Guest Join Screen — shown when a partner opens an invite link
-// Step 1 : enter display name
+// Step 1 : enter display name (prefilled with remembered @handle)
 // Step 2 : enter 4-digit Room Secret PIN (must match what creator set)
-// No hub password logic here — hub password setup is handled by PinModal after join.
 
 import React, { useState } from 'react';
 import { Colors } from '../theme/tokens';
-import { Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Lock, ArrowRight, Eye, EyeOff, ArrowLeft, UserCheck } from 'lucide-react';
 
 interface JoinModalProps {
   roomId: string;
   onJoin: (handle: string, pin: string) => void;
+  onCancel?: () => void;
 }
 
-export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
-  const [handle, setHandle] = useState('');
+export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin, onCancel }) => {
+  const [handle, setHandle] = useState(() => {
+    return localStorage.getItem('securebox_user_handle') || '';
+  });
   const [pin, setPin] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -24,7 +26,8 @@ export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
     e.preventDefault();
     setError(null);
 
-    if (!handle.trim()) {
+    const cleanHandle = handle.replace(/^@+/, '').trim();
+    if (!cleanHandle) {
       setError('Please choose a name / handle.');
       return;
     }
@@ -33,9 +36,10 @@ export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
       return;
     }
 
+    localStorage.setItem('securebox_user_handle', cleanHandle);
     setIsLoading(true);
     try {
-      await onJoin(handle.trim(), pin.trim());
+      await onJoin(cleanHandle, pin.trim());
     } catch (_) {
       setError('Could not join room. Check the PIN and try again.');
       setIsLoading(false);
@@ -57,14 +61,34 @@ export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
         padding: 28,
         boxShadow: '0 8px 32px rgba(0,0,0,0.07)',
       }}>
-        {/* Icon */}
-        <div style={{
-          width: 48, height: 48, borderRadius: 14,
-          backgroundColor: Colors.accent.soft,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: Colors.accent.primary, marginBottom: 16,
-        }}>
-          <Lock size={22} />
+        {/* Top actions */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12,
+            backgroundColor: Colors.accent.soft,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: Colors.accent.primary,
+          }}>
+            <Lock size={22} />
+          </div>
+
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '6px 10px', borderRadius: 8,
+                backgroundColor: Colors.bg.secondary,
+                border: `1px solid ${Colors.border}`,
+                color: Colors.text.secondary,
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              <ArrowLeft size={13} />
+              <span>Back to Hub</span>
+            </button>
+          )}
         </div>
 
         <h2 style={{ fontSize: 19, fontWeight: 700, color: Colors.text.primary, marginBottom: 4 }}>
@@ -81,9 +105,9 @@ export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
           Room: {roomId}
         </div>
 
-        <p style={{ fontSize: 13, color: Colors.text.secondary, lineHeight: 1.5, marginBottom: 22 }}>
+        <p style={{ fontSize: 13, color: Colors.text.secondary, lineHeight: 1.5, marginBottom: 20 }}>
           You have been invited to a private 2-person room.
-          Ask the creator for the <strong>4-digit Room PIN</strong> to unlock end-to-end encryption.
+          Enter your partner's <strong>4-digit Room PIN</strong> to unlock end-to-end encryption.
         </p>
 
         {/* Error */}
@@ -107,24 +131,46 @@ export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
               color: Colors.text.secondary, marginBottom: 7,
               textTransform: 'uppercase', letterSpacing: '0.6px',
             }}>
-              Your Name / Handle
+              Your Display Handle
             </label>
-            <input
-              type="text"
-              value={handle}
-              onChange={(e) => { setHandle(e.target.value); setError(null); }}
-              placeholder="e.g. Sam"
-              maxLength={20}
-              autoComplete="off"
-              style={{
-                width: '100%', height: 46, borderRadius: 12,
-                backgroundColor: Colors.bg.primary,
-                border: `1.5px solid ${Colors.borderStrong}`,
-                padding: '0 14px', fontSize: 14,
-                color: Colors.text.primary, outline: 'none',
-                boxSizing: 'border-box',
-              }}
-            />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <span style={{
+                position: 'absolute', left: 14,
+                fontSize: 14, fontWeight: 700, color: Colors.accent.primary,
+                userSelect: 'none',
+              }}>
+                @
+              </span>
+              <input
+                type="text"
+                value={handle}
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/^@+/, '').slice(0, 20);
+                  setHandle(cleaned);
+                  setError(null);
+                }}
+                placeholder="Alex"
+                maxLength={20}
+                autoComplete="off"
+                style={{
+                  width: '100%', height: 46, borderRadius: 12,
+                  backgroundColor: Colors.bg.primary,
+                  border: `1.5px solid ${Colors.borderStrong}`,
+                  padding: '0 14px 0 32px', fontSize: 14, fontWeight: 600,
+                  color: Colors.text.primary, outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            {handle.trim() && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                fontSize: 11.5, color: Colors.accent.primary, fontWeight: 600, marginTop: 5,
+              }}>
+                <UserCheck size={12} />
+                <span>Joining as @{handle.trim()}</span>
+              </div>
+            )}
           </div>
 
           {/* Room Secret PIN */}
@@ -141,7 +187,6 @@ export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
                 type={showPin ? 'text' : 'password'}
                 value={pin}
                 onChange={(e) => {
-                  // Allow only digits, max 4
                   const val = e.target.value.replace(/\D/g, '').slice(0, 4);
                   setPin(val);
                   setError(null);
@@ -173,8 +218,7 @@ export const JoinModal: React.FC<JoinModalProps> = ({ roomId, onJoin }) => {
               </button>
             </div>
             <div style={{ fontSize: 11, color: Colors.text.placeholder, marginTop: 5 }}>
-              This PIN was created by the room creator and shared with you.
-              It is <strong>different</strong> from your personal Hub Password.
+              Enter the 4-digit PIN shared by the room creator.
             </div>
           </div>
 

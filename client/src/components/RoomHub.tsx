@@ -33,7 +33,9 @@ export const RoomHub: React.FC<RoomHubProps> = ({
   onPlayGame,
   onOpenQuickDrop,
 }) => {
-  const [handle, setHandle] = useState('');
+  const [handle, setHandle] = useState(() => {
+    return localStorage.getItem('securebox_user_handle') || '';
+  });
   const [pin, setPin] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [handleError, setHandleError] = useState('');
@@ -88,7 +90,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
 
     setIsSubmitting(true);
     setCreatedPin(pin);
-    onCreateRoom(handle.trim(), pin);
+    const cleanHandle = handle.replace(/^@+/, '').trim(); localStorage.setItem('securebox_user_handle', cleanHandle); onCreateRoom(cleanHandle, pin);
     setIsSubmitting(false);
   };
 
@@ -259,7 +261,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
               <input
                 type="text"
                 value={handle}
-                onChange={(e) => { setHandle(e.target.value); if (handleError) setHandleError(''); }}
+                onChange={(e) => { const cleaned = e.target.value.replace(/^@+/, '').slice(0, 20); setHandle(cleaned); localStorage.setItem('securebox_user_handle', cleaned); if (handleError) setHandleError(''); }}
                 placeholder="e.g. Alex"
                 maxLength={20}
                 style={{

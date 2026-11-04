@@ -1321,6 +1321,11 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
     };
     window.addEventListener('resize', handleResize);
     const initialResizeTimer = setTimeout(handleResize, 80);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && canvas.parentElement) {
+      ro = new ResizeObserver(() => handleResize());
+      ro.observe(canvas.parentElement);
+    }
 
     animId = requestAnimationFrame(loop);
 
@@ -1328,6 +1333,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
       clearTimeout(initialResizeTimer);
+      if (ro) ro.disconnect();
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);

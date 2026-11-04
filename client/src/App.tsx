@@ -25,6 +25,7 @@ import { BrickSmashGame } from './components/BrickSmashGame';
 import { PinModal } from './components/PinModal';
 import { RoomHub } from './components/RoomHub';
 import { JoinModal } from './components/JoinModal';
+import { OnboardingModal } from './components/OnboardingModal';
 import { ShareModal } from './components/ShareModal';
 import { ChatHeader } from './components/ChatHeader';
 import { ChatMessages } from './components/ChatMessages';
@@ -110,7 +111,13 @@ export const App: React.FC = () => {
     window.addEventListener('popstate', handlePop);
     return () => window.removeEventListener('popstate', handlePop);
   }, []);
-  const [screenMode, setScreenMode] = useState<ScreenMode>('game');
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const hasHandle = !!localStorage.getItem('securebox_user_handle');
+    const hasHubPin = !!localStorage.getItem(HUB_KEY);
+    return !hasHandle || !hasHubPin;
+  });
+  const [screenMode, setScreenMode] = useState<ScreenMode>('hub');
   const screenModeRef = useRef<ScreenMode>(screenMode);
   screenModeRef.current = screenMode;
 
@@ -214,7 +221,6 @@ export const App: React.FC = () => {
       }
 
       if (!roomId) {
-        setScreenMode('game');
         return;
       }
 
@@ -233,7 +239,8 @@ export const App: React.FC = () => {
           setIsPinModalOpen(true);
         } else {
           alert('This room has expired (24 hours have passed).');
-          setScreenMode('game');
+          deleteRoom(roomId);
+          setScreenMode('hub');
         }
       } else {
         // Brand new guest — go to join screen to enter room PIN
@@ -245,36 +252,7 @@ export const App: React.FC = () => {
     parseUrl();
   }, []);
 
-  // Camouflage Auto-Lock
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden && screenMode === 'chat') {
-        setScreenMode('game');
-        document.title = 'Brick Smash | Arcade Retro Game';
-      }
-    };
-
-    let idleTimer: NodeJS.Timeout;
-    const resetIdle = () => {
-      clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        if (screenMode === 'chat') {
-          setScreenMode('game');
-          document.title = 'Brick Smash | Arcade Retro Game';
-        }
-      }, 60000);
-    };
-
-    document.addEventListener('visibilitychange', handleVisibility);
-    ['touchstart', 'mousemove', 'keydown', 'click'].forEach((evt) => {
-      window.addEventListener(evt, resetIdle, { passive: true });
-    });
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      clearTimeout(idleTimer);
-    };
-  }, [screenMode]);
+  // Per requirements: Never fall into game mode automatically unless user clicks Play Game
 
   // Strict Chat Isolation: flush on room change
   useEffect(() => {
@@ -409,6 +387,7 @@ export const App: React.FC = () => {
       },
       onWipe: () => {
         if (activeRoom) deleteRoom(activeRoom.roomId);
+        localStorage.removeItem(ACTIVE_ROOM_KEY);
         setMessages([]);
         setActiveRoom(null);
         setCryptoKey(null);
@@ -661,18 +640,25 @@ export const App: React.FC = () => {
   const handleRoomOptions = async () => {
     if (!activeRoom) return;
     const choice = prompt(
-      'Room Options:\n1. Return to SecureBox Hub\n2. Extend room lifespan (+24 hours)\n3. Wipe and self-destruct room\n\nEnter 1, 2, or 3:'
+      'Room Options:\n1. Return to SecureBox Hub\n2. Play Retro Game Disguise\n3. Extend room lifespan (+24 hours)\n4. Wipe and self-destruct room\n\nEnter 1, 2, 3, or 4:'
     );
 
     if (choice === '1') {
+      localStorage.removeItem(ACTIVE_ROOM_KEY);
+      setActiveRoom(null);
+      setCryptoKey(null);
+      setMessages([]);
       setScreenMode('hub');
     } else if (choice === '2') {
-      await handleExtendRoom();
+      setScreenMode('game');
     } else if (choice === '3') {
+      await handleExtendRoom();
+    } else if (choice === '4') {
       if (confirm('Are you sure you want to completely wipe this room? All history will self-destruct permanently on both devices.')) {
         const rId = activeRoom.roomId;
         await sendWipeSignal(rId);
         deleteRoom(rId);
+        localStorage.removeItem(ACTIVE_ROOM_KEY);
         setMessages([]);
         setActiveRoom(null);
         setCryptoKey(null);
@@ -689,7 +675,7 @@ export const App: React.FC = () => {
           onLaunchApp={() => {
             window.history.pushState(null, '', '/');
             setIsDedicatedPage(false);
-            setScreenMode('game');
+            setScreenMode('hub');
           }}
           onOpenQuickDrop={() => {
             setQuickDropTab('upload');
@@ -781,6 +767,10 @@ export const App: React.FC = () => {
           <JoinModal
             roomId={pendingJoin.roomId}
             onJoin={handleJoinRoom}
+            onCancel={() => {
+              setPendingJoin(null);
+              setScreenMode('hub');
+            }}
           />
         )}
 
@@ -798,6 +788,10 @@ export const App: React.FC = () => {
               roomExpiresAt={activeRoom.expiresAt}
               onExtendRoom={handleExtendRoom}
               onHubClick={() => {
+                localStorage.removeItem(ACTIVE_ROOM_KEY);
+                setActiveRoom(null);
+                setCryptoKey(null);
+                setMessages([]);
                 setScreenMode('hub');
               }}
               onGameClick={() => {
@@ -820,6 +814,17 @@ export const App: React.FC = () => {
           </div>
         )}
 
+        {/* First-time Profile & Password Onboarding */}
+        <OnboardingModal
+          isOpen={isOnboardingOpen}
+          onComplete={(chosenHandle, hash) => {
+            setIsOnboardingOpen(false);
+            if (!pendingJoin) {
+              setScreenMode('hub');
+            }
+          }}
+        />
+
         {/* Hub Password Modal */}
         <PinModal
           isOpen={isPinModalOpen}
@@ -832,9 +837,7 @@ export const App: React.FC = () => {
               pendingUnlockAction.current = null;
               act();
             } else {
-              if (screenMode !== 'chat') {
-                setScreenMode(activeRoom ? 'chat' : 'hub');
-              }
+              setScreenMode('hub');
             }
           }}
         />

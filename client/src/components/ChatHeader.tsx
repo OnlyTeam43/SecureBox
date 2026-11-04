@@ -59,8 +59,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
       zIndex: 50,
       boxSizing: 'border-box',
     }}>
-      {/* Left: Hub Navigation, Game Camouflage, Avatar & Partner Info */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+      {/* Left: Hub Navigation, Avatar & Partner Info */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexShrink: 1 }}>
         {/* Back to Hub Button */}
         {onHubClick && (
           <button
@@ -68,13 +68,13 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 3,
-              padding: '5px 8px',
+              gap: 4,
+              padding: '6px 9px',
               borderRadius: 8,
               backgroundColor: Colors.bg.secondary,
               border: `1px solid ${Colors.borderStrong}`,
               color: Colors.text.primary,
-              fontSize: 11.5,
+              fontSize: 12,
               fontWeight: 600,
               cursor: 'pointer',
               flexShrink: 0,
@@ -83,35 +83,10 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             }}
             title="Return to SecureBox Hub"
           >
-            <ArrowLeft size={13} />
+            <ArrowLeft size={14} />
             <span>Hub</span>
           </button>
         )}
-
-        {/* Conceal / Camouflage Game Button */}
-        <button
-          onClick={onGameClick}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 3,
-            padding: '5px 7px',
-            borderRadius: 8,
-            backgroundColor: Colors.accent.soft,
-            border: `1px solid ${Colors.accent.light}`,
-            color: Colors.accent.primary,
-            fontSize: 11.5,
-            fontWeight: 600,
-            cursor: 'pointer',
-            flexShrink: 0,
-            userSelect: 'none',
-            transition: 'all 0.15s ease',
-          }}
-          title="Conceal chat & jump directly to Brick Smash Game"
-        >
-          <Gamepad2 size={13} />
-          <span>Game</span>
-        </button>
 
         {/* Animal Character Avatar from Assets */}
         <div style={{
@@ -140,7 +115,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         </div>
 
         {/* Partner Name & Real-time Connection Status */}
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flexShrink: 1, overflow: 'hidden' }}>
           <span style={{
             fontSize: 13.5,
             fontWeight: 600,
@@ -166,13 +141,13 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
               color: isOnline ? Colors.status.online : '#B07E15',
               whiteSpace: 'nowrap',
             }}>
-              {isOnline ? 'Connected' : 'Waiting for partner...'}
+              {isOnline ? 'Connected' : 'Waiting...'}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Right Actions: Timer, Extend, Lock, Options */}
+      {/* Right Actions: Timer, Game Camouflage, Lock, Options */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
         {/* Countdown Timer Pill */}
         <div style={{
@@ -209,6 +184,31 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             </button>
           )}
         </div>
+
+        {/* Conceal / Camouflage Game Button */}
+        <button
+          onClick={onGameClick}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 3,
+            padding: '5px 7px',
+            borderRadius: 8,
+            backgroundColor: Colors.accent.soft,
+            border: `1px solid ${Colors.accent.light}`,
+            color: Colors.accent.primary,
+            fontSize: 11.5,
+            fontWeight: 600,
+            cursor: 'pointer',
+            flexShrink: 0,
+            userSelect: 'none',
+            transition: 'all 0.15s ease',
+          }}
+          title="Conceal chat & jump directly to Brick Smash Game"
+        >
+          <Gamepad2 size={13} />
+          <span>Game</span>
+        </button>
 
         {/* Lock with PIN */}
         <button
