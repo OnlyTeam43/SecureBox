@@ -20,17 +20,26 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
+export function getSessionId(): string {
+  if (typeof window === 'undefined') return 'server';
+  let id = sessionStorage.getItem('securebox_session_id');
+  if (!id) {
+    id = 's_' + Math.random().toString(36).slice(2, 9);
+    sessionStorage.setItem('securebox_session_id', id);
+  }
+  return id;
+}
+
 /**
- * Register or fetch room state to enforce the 2-person limit
+ * Register or fetch room state to link partners and enforce the 2-person limit
  */
 export async function getOrCreateRoomState(
   roomId: string,
   myHandle: string,
-  isCreator: boolean = false,
-  pinHash?: string
+  isCreator: boolean = false
 ): Promise<RoomStateResponse> {
   const roomRecordId = `room_state_${roomId}`;
-  const cleanHandle = myHandle.trim().toLowerCase();
+  const cleanHandle = myHandle.trim();
 
   try {
     const { data, error } = await supabase
@@ -40,7 +49,7 @@ export async function getOrCreateRoomState(
       .maybeSingle();
 
     if (error && error.code !== 'PGRST116') {
-      console.warn('Fetch room state error:', error.message);
+      console.warn('Fetch room state notice:', error.message);
     }
 
     if (!data) {
@@ -49,7 +58,6 @@ export async function getOrCreateRoomState(
           creator: cleanHandle,
           guest: null,
           isFull: false,
-          pinHash: null,
           createdAt: Date.now(),
         };
         await supabase.from('messages').insert({
@@ -67,40 +75,44 @@ export async function getOrCreateRoomState(
     }
 
     const meta = typeof data.body === 'string' ? JSON.parse(data.body) : data.body;
-    const creator = (meta.creator || '').toLowerCase();
-    const guest = (meta.guest || '').toLowerCase();
+    const creator = (meta.creator || '').trim();
+    const guest = (meta.guest || '').trim();
 
-    // No expiration and no room PIN check required per configuration
-
-    if (cleanHandle === creator) {
-      return { success: true, isCreator: true, isFull: !!guest, partner: guest || null };
-    }
-    if (cleanHandle === guest) {
-      return { success: true, isCreator: false, isFull: true, partner: creator };
-    }
-
-    if (guest && guest !== cleanHandle) {
+    if (isCreator || cleanHandle.toLowerCase() === creator.toLowerCase()) {
       return {
-        success: false,
-        isCreator: false,
-        isFull: true,
-        partner: null,
-        error: 'This private room is already full (2/2 members). The invite link has expired.',
+        success: true,
+        isCreator: true,
+        isFull: !!guest,
+        partner: guest || null,
       };
     }
 
-    // Claim guest spot
-    meta.guest = cleanHandle;
-    meta.isFull = true;
+    if (guest && cleanHandle.toLowerCase() === guest.toLowerCase()) {
+      return { success: true, isCreator: false, isFull: true, partner: creator };
+    }
 
-    await supabase
-      .from('messages')
-      .update({
-        body: JSON.stringify(meta),
-      })
-      .eq('id', roomRecordId);
+    // Guest claiming spot or room already has creator
+    if (!guest) {
+      meta.guest = cleanHandle;
+      meta.isFull = true;
 
-    return { success: true, isCreator: false, isFull: true, partner: creator };
+      await supabase
+        .from('messages')
+        .update({
+          body: JSON.stringify(meta),
+        })
+        .eq('id', roomRecordId);
+
+      return { success: true, isCreator: false, isFull: true, partner: creator };
+    }
+
+    // Room already has 2 members
+    return {
+      success: true,
+      isCreator: false,
+      isFull: true,
+      partner: creator,
+    };
   } catch (err: any) {
     console.warn('getOrCreateRoomState notice:', err?.message || err);
     return { success: true, isCreator, isFull: false, partner: null };
@@ -113,60 +125,58 @@ export async function getOrCreateRoomState(
 export async function sendEncryptedMessage({
   roomId,
   sender,
-  recipient,
+  sessionId,
   encryptedPayload,
 }: {
   roomId: string;
   sender: string;
-  recipient: string | null;
+  sessionId: string;
   encryptedPayload: EncryptedPayload;
 }): Promise<{ success: boolean; id: string }> {
-  const cleanSender = sender.trim().toLowerCase();
-  const cleanRecipient = (recipient || '').trim().toLowerCase();
   const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const cleanSender = sender.trim();
 
   const wsPayload = {
     id: messageId,
     roomId,
     sender: cleanSender,
-    recipient: cleanRecipient,
+    sessionId,
     iv: encryptedPayload.iv,
     data: encryptedPayload.data,
     timestamp: Date.now(),
   };
 
-  // 1. Instant WebSocket broadcast
+  // 1. WebSocket Broadcast to active room channel
   try {
     const channel = supabase.getChannels().find((c) => c.topic === `realtime:room_${roomId}`);
     if (channel) {
-      await channel.send({
+      channel.send({
         type: 'broadcast',
         event: 'message',
         payload: wsPayload,
-      });
+      }).catch(() => {});
     }
   } catch (err) {
-    console.warn('Realtime broadcast error:', err);
+    console.warn('Realtime broadcast notice:', err);
   }
 
   // 2. Ephemeral Offline Relay in Supabase (purged immediately upon receipt)
   try {
-    const relayReceiver = cleanRecipient ? `${roomId}_${cleanRecipient}` : `${roomId}_broadcast`;
     await supabase.from('messages').insert({
       id: messageId,
       sender: cleanSender,
-      receiver: relayReceiver,
+      receiver: `relay_${roomId}`,
       body: JSON.stringify({
+        sessionId,
         iv: encryptedPayload.iv,
         data: encryptedPayload.data,
         timestamp: Date.now(),
       }),
       type: 'room_msg',
       created_at: Date.now(),
-      expires_at: Date.now() + 86400000 * 2, // 48h fallback purge
     });
   } catch (err) {
-    console.warn('Ephemeral insert error:', err);
+    console.warn('Ephemeral insert notice:', err);
   }
 
   return { success: true, id: messageId };
@@ -177,34 +187,33 @@ export async function sendEncryptedMessage({
  */
 export async function fetchAndClearOfflineMessages(
   roomId: string,
-  myHandle: string
+  mySessionId: string
 ): Promise<Array<{ id: string; sender: string; iv: string; data: string; timestamp: number }>> {
-  if (!myHandle) return [];
-
-  const cleanHandle = myHandle.trim().toLowerCase();
-  const targetReceiver = `${roomId}_${cleanHandle}`;
-
   try {
     const { data, error } = await supabase
       .from('messages')
       .select('*')
-      .or(`receiver.eq.${targetReceiver},receiver.eq.${roomId}_broadcast`)
+      .eq('receiver', `relay_${roomId}`)
       .eq('type', 'room_msg')
-      .neq('sender', cleanHandle)
       .order('created_at', { ascending: true });
 
     if (error || !data || data.length === 0) return [];
 
-    const idsToDelete = data.map((d) => d.id);
+    const validMessages = data.filter((d) => {
+      try {
+        const parsed = typeof d.body === 'string' ? JSON.parse(d.body) : d.body;
+        return parsed.sessionId !== mySessionId;
+      } catch (_) {
+        return false;
+      }
+    });
 
-    // Immediately remove from remote relay queue (Zero-Storage)
-    supabase
-      .from('messages')
-      .delete()
-      .in('id', idsToDelete)
-      .then(() => {}, () => {});
+    if (validMessages.length === 0) return [];
 
-    return data.map((d) => {
+    const idsToDelete = validMessages.map((d) => d.id);
+    supabase.from('messages').delete().in('id', idsToDelete).then(() => {}, () => {});
+
+    return validMessages.map((d) => {
       const parsed = typeof d.body === 'string' ? JSON.parse(d.body) : d.body;
       return {
         id: d.id,
@@ -226,16 +235,16 @@ export async function fetchAndClearOfflineMessages(
 export function subscribeToRoom(
   roomId: string,
   myHandle: string,
+  mySessionId: string,
   handlers: {
     onMessage: (payload: any) => void;
     onTyping: (payload: { sender: string; isTyping: boolean }) => void;
-    onPresenceChange: (activeUsers: string[]) => void;
-    onRoomExtended?: (newExpiresAt: number) => void;
+    onPresenceChange: (activeUsers: Array<{ handle: string; sessionId: string }>) => void;
     onWipe?: () => void;
   }
 ): RealtimeChannel {
   const channelName = `room_${roomId}`;
-  const cleanMy = myHandle.trim().toLowerCase();
+  const cleanMy = myHandle.trim();
 
   const existing = supabase.getChannels().find((c) => c.topic === `realtime:${channelName}`);
   if (existing) {
@@ -246,17 +255,21 @@ export function subscribeToRoom(
 
   const channel = supabase.channel(channelName, {
     config: {
-      presence: { key: cleanMy },
-      broadcast: { ack: true },
+      presence: { key: mySessionId },
+      broadcast: { self: false },
     },
   });
 
   channel
     .on('broadcast', { event: 'message' }, ({ payload }) => {
-      if (payload) handlers.onMessage(payload);
+      if (payload && payload.sessionId !== mySessionId) {
+        handlers.onMessage(payload);
+      }
     })
     .on('broadcast', { event: 'typing' }, ({ payload }) => {
-      if (payload && payload.sender !== cleanMy) handlers.onTyping(payload);
+      if (payload && payload.sessionId !== mySessionId) {
+        handlers.onTyping(payload);
+      }
     })
     .on('broadcast', { event: 'wipe_room' }, ({ payload }) => {
       const targetId = payload?.roomId || roomId;
@@ -274,103 +287,59 @@ export function subscribeToRoom(
 
       if (handlers.onWipe) {
         handlers.onWipe();
-      } else {
-        window.location.reload();
-      }
-    })
-    .on('broadcast', { event: 'extend_room' }, ({ payload }) => {
-      if (payload && payload.newExpiresAt) {
-        handlers.onRoomExtended?.(payload.newExpiresAt);
       }
     })
     .on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState();
-      handlers.onPresenceChange(Object.keys(state));
+      const users: Array<{ handle: string; sessionId: string }> = [];
+      Object.keys(state).forEach((key) => {
+        const entries = state[key] as any[];
+        if (entries && entries.length > 0) {
+          users.push({
+            sessionId: key,
+            handle: entries[0].handle || 'Partner',
+          });
+        }
+      });
+      handlers.onPresenceChange(users);
     })
     .subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
-        await channel.track({ handle: cleanMy, joinedAt: Date.now() });
+        await channel.track({ handle: cleanMy, sessionId: mySessionId, joinedAt: Date.now() });
       }
     });
 
   return channel;
 }
 
-export async function sendTypingStatus(roomId: string, myHandle: string, isTyping: boolean) {
+export async function sendTypingStatus(roomId: string, myHandle: string, sessionId: string, isTyping: boolean) {
   try {
     const channel = supabase.getChannels().find((c) => c.topic === `realtime:room_${roomId}`);
     if (channel) {
-      await channel.send({
+      channel.send({
         type: 'broadcast',
         event: 'typing',
-        payload: { sender: myHandle.trim().toLowerCase(), isTyping },
-      });
+        payload: { sender: myHandle.trim(), sessionId, isTyping },
+      }).catch(() => {});
     }
   } catch (_) {}
 }
 
 export async function sendWipeSignal(roomId: string) {
   try {
+    await supabase.from('messages').delete().eq('receiver', roomId);
+    await supabase.from('messages').delete().eq('receiver', `relay_${roomId}`);
+    await supabase.from('messages').delete().eq('id', `room_state_${roomId}`);
+
     const channel = supabase.getChannels().find((c) => c.topic === `realtime:room_${roomId}`);
     if (channel) {
       await channel.send({
         type: 'broadcast',
         event: 'wipe_room',
-        payload: { roomId },
+        payload: { roomId, timestamp: Date.now() },
       });
     }
-    // Zero-trace remote database cleanup
-    await supabase
-      .from('messages')
-      .delete()
-      .or(`receiver.eq.${roomId},receiver.like.${roomId}_%`);
-  } catch (_) {}
-}
-
-/**
- * Extend room lifespan by extra time (e.g. +24 hours)
- */
-export async function extendRoomLifespan(
-  roomId: string,
-  extraMs: number = 86400000 // 24 hours
-): Promise<{ success: boolean; newExpiresAt: number }> {
-  const roomRecordId = `room_state_${roomId}`;
-
-  try {
-    const { data } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('id', roomRecordId)
-      .maybeSingle();
-
-    const currentMeta = data ? (typeof data.body === 'string' ? JSON.parse(data.body) : data.body) : {};
-    const baseTime = currentMeta.expiresAt && currentMeta.expiresAt > Date.now() ? currentMeta.expiresAt : Date.now();
-    const newExpiresAt = baseTime + extraMs;
-
-    currentMeta.expiresAt = newExpiresAt;
-
-    // Update room record in Supabase
-    await supabase
-      .from('messages')
-      .update({
-        body: JSON.stringify(currentMeta),
-        expires_at: newExpiresAt,
-      })
-      .eq('id', roomRecordId);
-
-    // Broadcast extension event to partner in real-time
-    const channel = supabase.getChannels().find((c) => c.topic === `realtime:room_${roomId}`);
-    if (channel) {
-      await channel.send({
-        type: 'broadcast',
-        event: 'extend_room',
-        payload: { roomId, newExpiresAt },
-      });
-    }
-
-    return { success: true, newExpiresAt };
   } catch (err) {
-    console.warn('Extend room error:', err);
-    return { success: false, newExpiresAt: Date.now() + extraMs };
+    console.warn('Wipe signal notice:', err);
   }
 }

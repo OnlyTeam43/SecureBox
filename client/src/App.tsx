@@ -11,6 +11,7 @@ import {
   hashPin,
 } from './services/crypto';
 import {
+  getSessionId,
   getOrCreateRoomState,
   sendEncryptedMessage,
   fetchAndClearOfflineMessages,
@@ -201,12 +202,18 @@ export const App: React.FC = () => {
         window.history.replaceState(null, '', window.location.pathname);
       }
 
-      const params = new URLSearchParams(rawHash.includes('=') ? rawHash : '');
-      let roomId = params.get('id') || params.get('room');
-      let secretKey = params.get('key') || params.get('k') || '';
+      let roomId = '';
+      let secretKey = '';
 
-      // Short link: #k9x2m4
-      if (!roomId && rawHash && !rawHash.includes('&') && !rawHash.includes('=')) {
+      if (rawHash.includes('_') && !rawHash.includes('&') && !rawHash.includes('=')) {
+        const parts = rawHash.split('_');
+        roomId = parts[0].toLowerCase();
+        secretKey = parts[1] || '';
+      } else if (rawHash.includes('=')) {
+        const params = new URLSearchParams(rawHash);
+        roomId = (params.get('room') || params.get('r') || params.get('id') || '').toLowerCase();
+        secretKey = params.get('key') || params.get('k') || '';
+      } else if (rawHash) {
         roomId = rawHash.toLowerCase();
       }
 
@@ -237,11 +244,12 @@ export const App: React.FC = () => {
           setPinModalTitle('Unlock Secret Room Invite');
           setPinModalSubtitle('Enter your Hub Password to access this room');
           pendingUnlockAction.current = async () => {
+            const state = await getOrCreateRoomState(roomId, userHandle, false);
             const room: RoomMetadata = {
               roomId,
               secretKey,
               myHandle: userHandle,
-              partnerHandle: null,
+              partnerHandle: state.partner || null,
               isCreator: false,
               createdAt: Date.now(),
             };
@@ -276,11 +284,13 @@ export const App: React.FC = () => {
 
   // ─── Incoming packet handler with live screenModeRef ───────────────────────
   const handleIncomingPacket = useCallback(
-    async (packet: { id: string; sender: string; iv: string; data: string; timestamp?: number }) => {
+    async (packet: { id: string; sender: string; sessionId?: string; iv: string; data: string; timestamp?: number }) => {
       const room = activeRoomRef.current;
       const key = cryptoKeyRef.current;
       if (!key || !room) return;
-      if (packet.sender.toLowerCase() === room.myHandle.toLowerCase()) return;
+
+      const mySess = getSessionId();
+      if (packet.sessionId && packet.sessionId === mySess) return;
 
       // Register partner handle from first message if not saved yet
       if (!room.partnerHandle && packet.sender) {
@@ -361,25 +371,26 @@ export const App: React.FC = () => {
   // ─── Real-time subscription ───────────────────────────────────────────────
   useEffect(() => {
     if (!activeRoom || !cryptoKey) return;
+    const mySess = getSessionId();
 
-    const channel = subscribeToRoom(activeRoom.roomId, activeRoom.myHandle, {
+    const channel = subscribeToRoom(activeRoom.roomId, activeRoom.myHandle, mySess, {
       onMessage: (payload) => handleIncomingPacket(payload),
       onTyping: ({ sender, isTyping }) => {
         setTypingUser(isTyping ? sender : null);
       },
       onPresenceChange: (activeUsers) => {
-        const myName = activeRoom.myHandle.toLowerCase();
-        const otherUser = activeUsers.find((u) => u.toLowerCase() !== myName);
-        if (otherUser && !activeRoom.partnerHandle) {
-          const updated = { ...activeRoom, partnerHandle: otherUser };
-          saveRoom(updated);
-          setActiveRoom(updated);
+        const mySessId = getSessionId();
+        const otherUser = activeUsers.find((u) => u.sessionId !== mySessId);
+        if (otherUser) {
+          if (!activeRoom.partnerHandle) {
+            const updated = { ...activeRoom, partnerHandle: otherUser.handle };
+            saveRoom(updated);
+            setActiveRoom(updated);
+          }
+          setIsPartnerOnline(true);
+        } else {
+          setIsPartnerOnline(false);
         }
-        const cleanPartner = (activeRoom.partnerHandle || otherUser || '').toLowerCase();
-        const isOnline = cleanPartner
-          ? activeUsers.some((u) => u.toLowerCase() === cleanPartner)
-          : false;
-        setIsPartnerOnline(isOnline);
       },
 
       onWipe: () => {
@@ -401,20 +412,40 @@ export const App: React.FC = () => {
   // ─── Offline relay poll ───────────────────────────────────────────────────
   useEffect(() => {
     if (!activeRoom || !cryptoKey) return;
+    const mySess = getSessionId();
 
-    const pullOffline = () => {
-      fetchAndClearOfflineMessages(activeRoom.roomId, activeRoom.myHandle).then((packets) => {
-        packets.forEach((p) => handleIncomingPacket(p));
-      });
+    const pullOfflineAndCheckPartner = async () => {
+      // 1. Fetch and clear offline queued messages
+      const packets = await fetchAndClearOfflineMessages(activeRoom.roomId, mySess);
+      packets.forEach((p) => handleIncomingPacket({ ...p, sessionId: '' }));
+
+      // 2. Discover partner handle if not set yet
+      if (!activeRoomRef.current?.partnerHandle) {
+        try {
+          const state = await getOrCreateRoomState(
+            activeRoom.roomId,
+            activeRoom.myHandle,
+            activeRoom.isCreator
+          );
+          if (state.partner) {
+            const cur = activeRoomRef.current;
+            if (cur && !cur.partnerHandle) {
+              const updated = { ...cur, partnerHandle: state.partner };
+              saveRoom(updated);
+              setActiveRoom(updated);
+            }
+          }
+        } catch (_) {}
+      }
     };
 
-    pullOffline();
+    pullOfflineAndCheckPartner();
 
-    const ms = screenMode === 'chat' ? 3000 : 7000;
-    const interval = setInterval(pullOffline, ms);
+    const ms = screenMode === 'chat' ? 2500 : 6000;
+    const interval = setInterval(pullOfflineAndCheckPartner, ms);
 
     const onVisible = () => {
-      if (document.visibilityState === 'visible') pullOffline();
+      if (document.visibilityState === 'visible') pullOfflineAndCheckPartner();
     };
     document.addEventListener('visibilitychange', onVisible);
 
@@ -453,11 +484,7 @@ export const App: React.FC = () => {
     const secretKey = await generateSecretKey();
     const key = await importSecretKey(secretKey);
 
-    const state = await getOrCreateRoomState(roomId, handle, true);
-    if (!state.success) {
-      alert(state.error || 'Failed to create room.');
-      return;
-    }
+    await getOrCreateRoomState(roomId, handle, true);
 
     const room: RoomMetadata = {
       roomId,
@@ -474,8 +501,12 @@ export const App: React.FC = () => {
     setCryptoKey(key);
     localStorage.setItem(ACTIVE_ROOM_KEY, roomId);
 
+    // Auto-enter chat room immediately
+    setScreenMode('chat');
+
+    // Ultra-compact invite link (only 29 chars total: #roomId_secretKey)
     const base = window.location.origin + window.location.pathname;
-    setShareLink(`${base}#room=${roomId}&key=${secretKey}`);
+    setShareLink(`${base}#${roomId}_${secretKey}`);
     setIsShareModalOpen(true);
   };
 
@@ -506,10 +537,11 @@ export const App: React.FC = () => {
         return next;
       });
 
+      const mySess = getSessionId();
       await sendEncryptedMessage({
         roomId: activeRoom.roomId,
         sender: activeRoom.myHandle,
-        recipient: activeRoom.partnerHandle,
+        sessionId: mySess,
         encryptedPayload: encrypted,
       });
     } catch (err) {
@@ -544,10 +576,11 @@ export const App: React.FC = () => {
         return next;
       });
 
+      const mySess = getSessionId();
       await sendEncryptedMessage({
         roomId: activeRoom.roomId,
         sender: activeRoom.myHandle,
-        recipient: activeRoom.partnerHandle,
+        sessionId: mySess,
         encryptedPayload: encrypted,
       });
     } catch (err) {
@@ -558,12 +591,13 @@ export const App: React.FC = () => {
   // ─── Typing indicator ────────────────────────────────────────────────────
   const handleTyping = () => {
     if (!activeRoom) return;
-    sendTypingStatus(activeRoom.roomId, activeRoom.myHandle, true);
+    const mySess = getSessionId();
+    sendTypingStatus(activeRoom.roomId, activeRoom.myHandle, mySess, true);
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       if (activeRoom) {
-        sendTypingStatus(activeRoom.roomId, activeRoom.myHandle, false);
+        sendTypingStatus(activeRoom.roomId, activeRoom.myHandle, mySess, false);
       }
     }, 2000);
   };
@@ -725,11 +759,12 @@ export const App: React.FC = () => {
             if (pendingInvite) {
               const invite = pendingInvite;
               setPendingInvite(null);
+              const state = await getOrCreateRoomState(invite.roomId, chosenHandle, false);
               const room: RoomMetadata = {
                 roomId: invite.roomId,
                 secretKey: invite.secretKey,
                 myHandle: chosenHandle,
-                partnerHandle: null,
+                partnerHandle: state.partner || null,
                 isCreator: false,
                 createdAt: Date.now(),
               };

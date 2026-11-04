@@ -40,7 +40,7 @@ function fromBase64Url(base64url: string): string {
  * Generate a new random 256-bit AES-GCM key as a URL-safe string
  */
 export async function generateSecretKey(): Promise<string> {
-  const rawKey = window.crypto.getRandomValues(new Uint8Array(32));
+  const rawKey = window.crypto.getRandomValues(new Uint8Array(16));
   return toBase64Url(uint8ToBase64(rawKey));
 }
 
