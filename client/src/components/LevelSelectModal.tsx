@@ -29,7 +29,7 @@ export const LevelSelectModal: React.FC<LevelSelectModalProps> = ({
   onSelectCharacter,
   highScore,
 }) => {
-  if (!isOpen) return null;
+
 
   // Determine initial tier tab based on current level
   const initialTierIndex = Math.min(
@@ -37,6 +37,8 @@ export const LevelSelectModal: React.FC<LevelSelectModalProps> = ({
     TIERS.length - 1
   );
   const [selectedTierIndex, setSelectedTierIndex] = useState(initialTierIndex);
+
+  if (!isOpen) return null;
 
   const activeTier = TIERS[selectedTierIndex] || TIERS[0];
   const levelsInTier: number[] = [];

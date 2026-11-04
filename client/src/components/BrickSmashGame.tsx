@@ -5,13 +5,14 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
-import { Lock, Volume2, VolumeX, Zap, Trophy, RotateCcw, ArrowRight } from 'lucide-react';
+import { Lock, Volume2, VolumeX, Zap, Trophy, RotateCcw, ArrowRight, UploadCloud } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
 
 interface BrickSmashGameProps {
   onUnlockClick: () => void;
   unreadCount?: number;
   onOpenSecureboxPage?: () => void;
+  onOpenQuickDrop?: () => void;
 }
 
 type AnimalType = 'panda' | 'cat' | 'puppy';
@@ -67,6 +68,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
   onUnlockClick,
   unreadCount = 0,
   onOpenSecureboxPage,
+  onOpenQuickDrop,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -582,8 +584,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
       const parent = canvas.parentElement;
       if (!parent) return;
       const rect = parent.getBoundingClientRect();
-      const w = Math.min(rect.width || 480, 560);
-      const h = Math.min(rect.height || 640, 700);
+      const w = Math.min(rect.width || 480, 520);
+      const h = Math.max(480, rect.height || 640);
 
       canvas.width = w * dpr;
       canvas.height = h * dpr;
@@ -1302,10 +1304,29 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
       }
     };
 
+    const handleResize = () => {
+      const size = updateSize();
+      if (size) {
+        w = size.w;
+        h = size.h;
+        paddle.y = h - 35;
+        if (currentGameState === 'ready') {
+          balls.forEach((b) => {
+            b.x = paddle.x + paddleWidth / 2;
+            b.y = paddle.y - 14;
+          });
+        }
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    const initialResizeTimer = setTimeout(handleResize, 80);
+
     animId = requestAnimationFrame(loop);
 
     return () => {
       cancelAnimationFrame(animId);
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(initialResizeTimer);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);
@@ -1397,6 +1418,30 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
 
         {/* Right Controls: Speed Controller, Sound Toggle, Animal Companion Badge, PIN Trigger */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {/* QuickDrop Media Shuttle Button */}
+          {onOpenQuickDrop && (
+            <button
+              onClick={onOpenQuickDrop}
+              style={{
+                padding: '5px 9px',
+                borderRadius: 8,
+                border: `1px solid ${Colors.border}`,
+                backgroundColor: 'rgba(217, 119, 87, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                cursor: 'pointer',
+                color: Colors.accent.primary,
+                fontSize: 11,
+                fontWeight: 700,
+                transition: 'all 0.15s ease',
+              }}
+              title="QuickDrop — Anonymous Cross-Device Media & Doc Transfer"
+            >
+              <UploadCloud size={13} />
+              <span>QuickDrop</span>
+            </button>
+          )}
           {/* Ball Speed Controller Button */}
           <button
             onClick={cycleSpeed}
@@ -1523,10 +1568,10 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
         style={{
           flex: 1,
           width: '100%',
-          maxWidth: 560,
+          maxWidth: 520,
           display: 'flex',
           justifyContent: 'center',
-          alignItems: 'center',
+          alignItems: 'stretch',
           overflow: 'hidden',
           position: 'relative',
           touchAction: 'none',

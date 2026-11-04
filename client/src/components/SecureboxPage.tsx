@@ -28,27 +28,20 @@ import {
   Clock,
   Eye,
   FileCode,
+  UploadCloud,
 } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
 
 interface SecureboxPageProps {
   onLaunchApp?: () => void;
+  onOpenQuickDrop?: () => void;
 }
 
-export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => {
+export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpenQuickDrop }) => {
   const [activeMockupIndex, setActiveMockupIndex] = useState(0);
 
-  // Enable body and document scrolling while on this page
+  // Preload all 5 mockup screenshot images
   useEffect(() => {
-    document.documentElement.style.overflow = 'auto';
-    document.body.style.overflow = 'auto';
-    const root = document.getElementById('root');
-    if (root) {
-      root.style.overflow = 'visible';
-      root.style.height = 'auto';
-    }
-
-    // Preload all 5 mockup screenshot images
     const images = [
       '/mockups/mockup-game.jpg',
       '/mockups/mockup-password.jpg',
@@ -60,15 +53,6 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
       const img = new Image();
       img.src = src;
     });
-
-    return () => {
-      document.documentElement.style.overflow = 'hidden';
-      document.body.style.overflow = 'hidden';
-      if (root) {
-        root.style.overflow = 'hidden';
-        root.style.height = '100%';
-      }
-    };
   }, []);
 
   const mockups = [
@@ -172,16 +156,18 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp }) => 
 
   return (
     <div
+      id="securebox-scroll-container"
       style={{
         width: '100%',
-        minHeight: '100vh',
+        height: '100dvh',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        WebkitOverflowScrolling: 'touch',
         backgroundColor: '#FAF9F6',
         color: '#141518',
         fontFamily:
           '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
         lineHeight: 1.6,
-        overflowX: 'hidden',
-        overflowY: 'visible',
       }}
     >
       {/* ─── Top Navigation Bar ────────────────────────────────────────────── */}

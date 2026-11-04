@@ -30,11 +30,25 @@ import { ChatHeader } from './components/ChatHeader';
 import { ChatMessages } from './components/ChatMessages';
 import { Composer } from './components/Composer';
 import { SecureboxPage } from './components/SecureboxPage';
+import { QuickDropModal } from './components/QuickDropModal';
 
 // ─── Storage Key Constants ──────────────────────────────────────────────────
 const HUB_KEY = 'securebox_hub_hash';
 const ROOMS_KEY = 'securebox_rooms';
 const ACTIVE_ROOM_KEY = 'securebox_active_room_id';
+
+const isDropRoute = (path: string, hash: string = ''): boolean => {
+  const clean = path.toLowerCase().replace(/\/+$/, '');
+  const cleanHash = hash.toLowerCase();
+  return (
+    clean === '/drop' ||
+    clean.endsWith('/drop') ||
+    clean === '/quickdrop' ||
+    clean.endsWith('/quickdrop') ||
+    cleanHash.startsWith('#drop') ||
+    cleanHash.includes('code=')
+  );
+};
 
 const isSecureboxRoute = (path: string): boolean => {
   const clean = path.toLowerCase().replace(/\/+$/, '');
@@ -59,6 +73,22 @@ const getTotalUnreadCount = (): number => {
 };
 
 export const App: React.FC = () => {
+  const [isQuickDropOpen, setIsQuickDropOpen] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? isDropRoute(window.location.pathname, window.location.hash) : false
+  );
+  const [quickDropCode, setQuickDropCode] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    const hash = window.location.hash.slice(1);
+    const p = new URLSearchParams(hash.includes('=') ? hash : '');
+    return p.get('code') || '';
+  });
+  const [quickDropTab, setQuickDropTab] = useState<'upload' | 'retrieve'>(() => {
+    if (typeof window === 'undefined') return 'upload';
+    const hash = window.location.hash.slice(1);
+    const p = new URLSearchParams(hash.includes('=') ? hash : '');
+    return p.get('code') ? 'retrieve' : 'upload';
+  });
+
   const [isDedicatedPage, setIsDedicatedPage] = useState<boolean>(() =>
     typeof window !== 'undefined' ? isSecureboxRoute(window.location.pathname) : false
   );
@@ -66,6 +96,16 @@ export const App: React.FC = () => {
   useEffect(() => {
     const handlePop = () => {
       setIsDedicatedPage(isSecureboxRoute(window.location.pathname));
+      if (isDropRoute(window.location.pathname, window.location.hash)) {
+        const hash = window.location.hash.slice(1);
+        const p = new URLSearchParams(hash.includes('=') ? hash : '');
+        const c = p.get('code');
+        if (c) {
+          setQuickDropCode(c);
+          setQuickDropTab('retrieve');
+        }
+        setIsQuickDropOpen(true);
+      }
     };
     window.addEventListener('popstate', handlePop);
     return () => window.removeEventListener('popstate', handlePop);
@@ -146,6 +186,21 @@ export const App: React.FC = () => {
   useEffect(() => {
     const parseUrl = async () => {
       const rawHash = window.location.hash.slice(1).trim();
+
+      // QuickDrop direct link (#code=... or #drop)
+      if (rawHash.includes('code=') || rawHash === 'drop') {
+        const p = new URLSearchParams(rawHash.includes('=') ? rawHash : '');
+        const c = p.get('code');
+        if (c) {
+          setQuickDropCode(c);
+          setQuickDropTab('retrieve');
+        } else {
+          setQuickDropTab('upload');
+        }
+        setIsQuickDropOpen(true);
+        window.history.replaceState(null, '', window.location.pathname);
+        return;
+      }
 
       // Clear the URL hash immediately so refresh never re-triggers join
       if (rawHash) {
@@ -647,19 +702,25 @@ export const App: React.FC = () => {
   return (
     <div style={{
       width: '100%',
-      height: '100%',
+      height: '100dvh',
       backgroundColor: Colors.bg.primary,
       display: 'flex',
       flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
       overflow: 'hidden',
     }}>
       <div style={{
         flex: 1,
         width: '100%',
+        maxWidth: 520,
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
+        position: 'relative',
+        backgroundColor: Colors.bg.primary,
+        boxShadow: '0 0 32px rgba(0,0,0,0.06)',
       }}>
         {/* Screen 1: Brick Smash Retro Arcade Game Disguise */}
         {screenMode === 'game' && (
@@ -668,6 +729,10 @@ export const App: React.FC = () => {
             onOpenSecureboxPage={() => {
               window.history.pushState(null, '', '/Securebox');
               setIsDedicatedPage(true);
+            }}
+            onOpenQuickDrop={() => {
+              setQuickDropTab('upload');
+              setIsQuickDropOpen(true);
             }}
             onUnlockClick={() => {
               // Action when unlocked via Hub Password
@@ -727,6 +792,10 @@ export const App: React.FC = () => {
             }}
             onDeleteRoom={deleteRoom}
             onPlayGame={() => setScreenMode('game')}
+            onOpenQuickDrop={() => {
+              setQuickDropTab('upload');
+              setIsQuickDropOpen(true);
+            }}
           />
         )}
 
@@ -788,6 +857,19 @@ export const App: React.FC = () => {
               }
             }
           }}
+        />
+
+        {/* QuickDrop Modal */}
+        <QuickDropModal
+          isOpen={isQuickDropOpen}
+          onClose={() => {
+            setIsQuickDropOpen(false);
+            if (window.location.pathname.toLowerCase().includes('drop')) {
+              window.history.replaceState(null, '', '/');
+            }
+          }}
+          initialCode={quickDropCode}
+          initialTab={quickDropTab}
         />
 
         {/* Share Modal */}

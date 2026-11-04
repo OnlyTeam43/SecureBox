@@ -13,6 +13,7 @@ import {
   Check,
   Calendar,
   MessageSquare,
+  UploadCloud,
 } from 'lucide-react';
 
 interface RoomHubProps {
@@ -21,6 +22,7 @@ interface RoomHubProps {
   onEnterRoom: (room: RoomMetadata) => void;
   onDeleteRoom: (roomId: string) => void;
   onPlayGame: () => void;
+  onOpenQuickDrop?: () => void;
 }
 
 export const RoomHub: React.FC<RoomHubProps> = ({
@@ -29,6 +31,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
   onEnterRoom,
   onDeleteRoom,
   onPlayGame,
+  onOpenQuickDrop,
 }) => {
   const [handle, setHandle] = useState('');
   const [pin, setPin] = useState('');
@@ -141,25 +144,49 @@ export const RoomHub: React.FC<RoomHubProps> = ({
             </span>
           </div>
 
-          <button
-            onClick={onPlayGame}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 14px',
-              borderRadius: 9999,
-              backgroundColor: Colors.bg.secondary,
-              border: `1px solid ${Colors.borderStrong}`,
-              color: Colors.text.primary,
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: 'pointer',
-            }}
-          >
-            <Gamepad2 size={16} color={Colors.accent.primary} />
-            <span>Play Game</span>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {onOpenQuickDrop && (
+              <button
+                onClick={onOpenQuickDrop}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 14px',
+                  borderRadius: 9999,
+                  backgroundColor: 'rgba(217, 119, 87, 0.12)',
+                  border: '1px solid ' + Colors.accent.primary,
+                  color: Colors.accent.primary,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title="QuickDrop - Anonymous Cross-Device Media and Document Transfer"
+              >
+                <UploadCloud size={16} />
+                <span>QuickDrop</span>
+              </button>
+            )}
+            <button
+              onClick={onPlayGame}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 14px',
+                borderRadius: 9999,
+                backgroundColor: Colors.bg.secondary,
+                border: '1px solid ' + Colors.borderStrong,
+                color: Colors.text.primary,
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              <Gamepad2 size={16} color={Colors.accent.primary} />
+              <span>Play Game</span>
+            </button>
+          </div>
         </div>
 
         {/* Create Room Card */}
