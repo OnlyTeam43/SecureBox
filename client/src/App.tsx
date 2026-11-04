@@ -370,9 +370,16 @@ export const App: React.FC = () => {
     setSavedRooms(Object.values(map));
   };
 
-  const deleteRoom = (roomId: string) => {
+  const deleteRoom = (roomId: string, wipeOnServer: boolean = false) => {
     const raw = localStorage.getItem(ROOMS_KEY);
     const map = raw ? JSON.parse(raw) : {};
+    const room = map[roomId] as RoomMetadata | undefined;
+
+    // If the creator deletes the room, destroy it on the server so it expires for partner too
+    if (wipeOnServer || room?.isCreator) {
+      sendWipeSignal(roomId).catch(() => {});
+    }
+
     delete map[roomId];
     localStorage.setItem(ROOMS_KEY, JSON.stringify(map));
     localStorage.removeItem(`room_chat_${roomId}`);
@@ -388,6 +395,53 @@ export const App: React.FC = () => {
     setSavedRooms(Object.values(map));
     setUnreadCount(getTotalUnreadCount());
   };
+
+  // ─── Auto-Sync Hub Saved Rooms With Server ──────────────────────────────────
+  useEffect(() => {
+    if (screenMode !== 'hub') return;
+
+    let isMounted = true;
+
+    const syncHubRooms = async () => {
+      const stored = localStorage.getItem(ROOMS_KEY);
+      if (!stored) return;
+      const map = JSON.parse(stored);
+      let changed = false;
+
+      for (const roomId of Object.keys(map)) {
+        const room = map[roomId] as RoomMetadata;
+        try {
+          const state = await getOrCreateRoomState(roomId, room.myHandle, room.isCreator);
+          if (state.destroyed || (!state.success && !room.isCreator)) {
+            delete map[roomId];
+            localStorage.removeItem(`room_chat_${roomId}`);
+            localStorage.removeItem(`securebox_unread_count_${roomId}`);
+            changed = true;
+          }
+        } catch (_) {}
+      }
+
+      if (changed && isMounted) {
+        localStorage.setItem(ROOMS_KEY, JSON.stringify(map));
+        setSavedRooms(Object.values(map));
+        setUnreadCount(getTotalUnreadCount());
+      }
+    };
+
+    syncHubRooms();
+    const interval = setInterval(syncHubRooms, 3000);
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') syncHubRooms();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [screenMode]);
 
   // ─── Real-time subscription ───────────────────────────────────────────────
   useEffect(() => {
@@ -743,7 +797,7 @@ export const App: React.FC = () => {
               setMessages([]);
               enterRoom(room);
             }}
-            onDeleteRoom={deleteRoom}
+            onDeleteRoom={(rId) => deleteRoom(rId, true)}
             onPlayGame={() => setScreenMode('game')}
             onOpenQuickDrop={() => {
               setQuickDropTab('upload');
