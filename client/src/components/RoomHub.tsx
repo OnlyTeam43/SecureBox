@@ -127,7 +127,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
                   fontWeight: 600,
                   cursor: 'pointer',
                 }}
-                title="QuickDrop - Anonymous Cross-Device Media and Document Transfer"
+                title="QuickDrop - Anonymous Cross-Device Media, Links, and Text Transfer"
               >
                 <UploadCloud size={16} />
                 <span>QuickDrop</span>

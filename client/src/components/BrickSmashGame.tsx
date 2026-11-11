@@ -1443,7 +1443,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
                 fontWeight: 700,
                 transition: 'all 0.15s ease',
               }}
-              title="QuickDrop — Anonymous Cross-Device Media & Doc Transfer"
+              title="QuickDrop — Anonymous Cross-Device Media, Links & Text Transfer"
             >
               <UploadCloud size={13} />
               <span>QuickDrop</span>

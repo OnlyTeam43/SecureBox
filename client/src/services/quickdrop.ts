@@ -1,6 +1,6 @@
 // client/src/services/quickdrop.ts
-// 100% Client-Side AES-256 Encrypted Ephemeral Media & Doc Shuttle
-// Supports Multiple Files · Zero Login · 7-Day Auto-Expiration · Instant Burn on Download
+// 100% Client-Side AES-256 Encrypted Ephemeral Media, Links & Text Shuttle
+// Supports Multiple Files + Encrypted Text/Links · Zero Login · 7-Day Auto-Expiration · Instant Burn on Download
 
 import { supabase } from './supabase';
 
@@ -16,6 +16,10 @@ export interface QuickDropBundleMeta {
   files: QuickDropFileItem[];
   totalSize: number;
   fileCount: number;
+  hasText?: boolean;
+  encryptedText?: string;
+  textLength?: number;
+  decryptedText?: string; // Client-only field hydrated upon lookup; never persisted plaintext
   burnOnDownload: boolean;
   uploadedAt: number;
   expiresAt: number;
@@ -34,6 +38,7 @@ export type QuickDropProgressCallback = (info: QuickDropProgressInfo) => void;
 
 export const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024; // 15 MB per file
 export const MAX_BUNDLE_SIZE_BYTES = 35 * 1024 * 1024; // 35 MB total per bundle
+export const MAX_TEXT_LENGTH = 100000; // 100,000 characters max note/links size
 
 /**
  * SHA-256 helper for deterministic lookup hashes
@@ -168,21 +173,20 @@ async function optimizeImageIfNeeded(file: File): Promise<{ blob: Blob; isOptimi
 }
 
 /**
- * Encrypt a file/blob in-memory using WebCrypto AES-GCM 256
+ * Shared client-side WebCrypto AES-GCM 256 encryption for arbitrary bytes.
+ * Packs [16-byte salt] + [12-byte IV] + [ciphertext] as base64.
  */
-async function encryptFileBlob(blob: Blob, numericCode: string): Promise<string> {
+async function encryptBytes(data: Uint8Array, numericCode: string): Promise<string> {
   const salt = window.crypto.getRandomValues(new Uint8Array(16));
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKeyFromNumericCode(numericCode, salt);
 
-  const fileBytes = await blob.arrayBuffer();
   const cipherBuffer = await window.crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: iv as any },
     key,
-    fileBytes
+    data as any
   );
 
-  // Pack binary: [16 bytes salt] + [12 bytes IV] + [Cipher Bytes]
   const combined = new Uint8Array(salt.byteLength + iv.byteLength + cipherBuffer.byteLength);
   combined.set(salt, 0);
   combined.set(iv, salt.byteLength);
@@ -192,13 +196,9 @@ async function encryptFileBlob(blob: Blob, numericCode: string): Promise<string>
 }
 
 /**
- * Decrypt a single file from packed base64 string
+ * Shared client-side WebCrypto AES-GCM 256 decryption for packed base64 payloads.
  */
-async function decryptFile(
-  base64Payload: string,
-  numericCode: string,
-  fileMeta: { name: string; type: string }
-): Promise<Blob> {
+async function decryptBytes(base64Payload: string, numericCode: string): Promise<ArrayBuffer> {
   const arrayBuffer = await base64ToArrayBuffer(base64Payload);
   const bytes = new Uint8Array(arrayBuffer);
   if (bytes.byteLength <= 28) {
@@ -212,16 +212,50 @@ async function decryptFile(
   const key = await deriveKeyFromNumericCode(numericCode, salt);
 
   try {
-    const decryptedBuffer = await window.crypto.subtle.decrypt(
+    return await window.crypto.subtle.decrypt(
       { name: 'AES-GCM', iv: iv as any },
       key,
       cipherBytes
     );
-
-    return new Blob([decryptedBuffer], { type: fileMeta.type || 'application/octet-stream' });
   } catch (err) {
-    throw new Error('Incorrect Code! Failed to decrypt file. Please verify your numeric code.');
+    throw new Error('Incorrect Code! Failed to decrypt. Please verify your numeric code.');
   }
+}
+
+/**
+ * Encrypt a file/blob in-memory using WebCrypto AES-GCM 256
+ */
+async function encryptFileBlob(blob: Blob, numericCode: string): Promise<string> {
+  const fileBytes = new Uint8Array(await blob.arrayBuffer());
+  return await encryptBytes(fileBytes, numericCode);
+}
+
+/**
+ * Decrypt a single file from packed base64 string
+ */
+async function decryptFile(
+  base64Payload: string,
+  numericCode: string,
+  fileMeta: { name: string; type: string }
+): Promise<Blob> {
+  const decryptedBuffer = await decryptBytes(base64Payload, numericCode);
+  return new Blob([decryptedBuffer], { type: fileMeta.type || 'application/octet-stream' });
+}
+
+/**
+ * Encrypt UTF-8 text or links using WebCrypto AES-GCM 256
+ */
+export async function encryptTextPayload(text: string, numericCode: string): Promise<string> {
+  const textBytes = new TextEncoder().encode(text);
+  return await encryptBytes(textBytes, numericCode);
+}
+
+/**
+ * Decrypt UTF-8 text or links from packed base64 payload
+ */
+export async function decryptTextPayload(base64Payload: string, numericCode: string): Promise<string> {
+  const decryptedBuffer = await decryptBytes(base64Payload, numericCode);
+  return new TextDecoder().decode(decryptedBuffer);
 }
 
 /**
@@ -250,20 +284,30 @@ async function safeInsert(payload: any, timeoutMs = 40000): Promise<void> {
 }
 
 /**
- * Upload Multiple Files to QuickDrop
+ * Upload Multiple Files and/or Text & Links to QuickDrop
  */
 export async function uploadToQuickDrop(
   files: File[],
   numericCode: string,
   burnOnDownload: boolean = true,
-  onProgress?: QuickDropProgressCallback
+  onProgress?: QuickDropProgressCallback,
+  textNote?: string
 ): Promise<{ bundleMeta: QuickDropBundleMeta }> {
-  if (!files || files.length === 0) {
-    throw new Error('No files selected for upload');
+  const cleanFiles = Array.isArray(files) ? files : [];
+  const cleanText = (textNote || '').trim();
+  const hasFiles = cleanFiles.length > 0;
+  const hasText = cleanText.length > 0;
+
+  if (!hasFiles && !hasText) {
+    throw new Error('Please paste links/text or select at least one file to drop.');
   }
 
-  // Size limit validation
-  for (const f of files) {
+  if (cleanText.length > MAX_TEXT_LENGTH) {
+    throw new Error(`Text/links note exceeds the ${MAX_TEXT_LENGTH.toLocaleString()} character limit.`);
+  }
+
+  // File size limit validation
+  for (const f of cleanFiles) {
     if (f.size > MAX_FILE_SIZE_BYTES) {
       const mb = (f.size / (1024 * 1024)).toFixed(1);
       throw new Error(`"${f.name}" (${mb} MB) exceeds the 15 MB limit per file.`);
@@ -286,24 +330,46 @@ export async function uploadToQuickDrop(
 
   const fileItems: QuickDropFileItem[] = [];
   let totalCalculatedBytes = 0;
+  const totalItems = cleanFiles.length + (hasText ? 1 : 0);
 
-  // 1. Process and upload each file
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
+  // 1. Encrypt optional Text & Links Note
+  let encryptedText: string | undefined;
+  if (hasText) {
+    const textByteSize = new TextEncoder().encode(cleanText).byteLength;
+    totalCalculatedBytes += textByteSize;
+
+    if (onProgress) {
+      onProgress({
+        phase: 'encrypting',
+        current: 1,
+        total: totalItems,
+        fileName: 'Links & Text Note',
+        fileSize: textByteSize,
+        message: 'Encrypting links & text note (AES-256)...',
+      });
+    }
+    await new Promise((r) => setTimeout(r, 40));
+
+    encryptedText = await encryptTextPayload(cleanText, cleanCode);
+  }
+
+  // 2. Process and upload each file
+  for (let i = 0; i < cleanFiles.length; i++) {
+    const f = cleanFiles[i];
+    const stepIndex = (hasText ? 1 : 0) + i + 1;
     const fileRowId = `qdf_${codeHash.slice(0, 16)}_${i}_${now}`;
 
     // Step A: Optimize image if large
     if (onProgress) {
       onProgress({
         phase: 'preparing',
-        current: i + 1,
-        total: files.length,
+        current: stepIndex,
+        total: totalItems,
         fileName: f.name,
         fileSize: f.size,
-        message: `Preparing ${i + 1} of ${files.length}: ${f.name}...`,
+        message: `Preparing ${stepIndex} of ${totalItems}: ${f.name}...`,
       });
     }
-    // Yield to browser UI thread
     await new Promise((r) => setTimeout(r, 40));
 
     const { blob: processedBlob } = await optimizeImageIfNeeded(f);
@@ -313,11 +379,11 @@ export async function uploadToQuickDrop(
     if (onProgress) {
       onProgress({
         phase: 'encrypting',
-        current: i + 1,
-        total: files.length,
+        current: stepIndex,
+        total: totalItems,
         fileName: f.name,
         fileSize: processedBlob.size,
-        message: `Encrypting (AES-256) ${i + 1} of ${files.length}: ${f.name}...`,
+        message: `Encrypting (AES-256) ${stepIndex} of ${totalItems}: ${f.name}...`,
       });
     }
     await new Promise((r) => setTimeout(r, 40));
@@ -328,11 +394,11 @@ export async function uploadToQuickDrop(
     if (onProgress) {
       onProgress({
         phase: 'uploading',
-        current: i + 1,
-        total: files.length,
+        current: stepIndex,
+        total: totalItems,
         fileName: f.name,
         fileSize: processedBlob.size,
-        message: `Uploading ${i + 1} of ${files.length}: ${f.name}...`,
+        message: `Uploading ${stepIndex} of ${totalItems}: ${f.name}...`,
       });
     }
     await new Promise((r) => setTimeout(r, 40));
@@ -361,23 +427,24 @@ export async function uploadToQuickDrop(
     });
   }
 
-  // 2. Finalize Drop Bundle Metadata
+  // 3. Finalize Drop Bundle Metadata
   if (onProgress) {
     onProgress({
       phase: 'finalizing',
-      current: files.length,
-      total: files.length,
+      current: totalItems,
+      total: totalItems,
       fileName: 'Bundle Metadata',
-      message: 'Finalizing encrypted bundle & generating pickup code...',
+      message: 'Finalizing encrypted drop & generating pickup code...',
     });
   }
   await new Promise((r) => setTimeout(r, 40));
 
-  const bundleMeta: QuickDropBundleMeta = {
+  const bundleMetaToSave: QuickDropBundleMeta = {
     codeHash,
     files: fileItems,
     totalSize: totalCalculatedBytes,
-    fileCount: files.length,
+    fileCount: cleanFiles.length,
+    ...(hasText ? { hasText: true, encryptedText, textLength: cleanText.length } : {}),
     burnOnDownload,
     uploadedAt: now,
     expiresAt,
@@ -388,23 +455,24 @@ export async function uploadToQuickDrop(
     id: metaRowId,
     sender: 'quickdrop_client',
     receiver: receiverId,
-    body: JSON.stringify(bundleMeta),
+    body: JSON.stringify(bundleMetaToSave),
     type: 'quickdrop_bundle',
     created_at: now,
     expires_at: expiresAt,
   });
 
-  return { bundleMeta };
+  return { bundleMeta: bundleMetaToSave };
 }
 
 /**
- * Look up active file bundle by numeric code
+ * Look up active bundle (files and/or text/links) by numeric code
  */
 export async function lookupQuickDrop(numericCode: string): Promise<QuickDropBundleMeta | null> {
   const cleanCode = numericCode.trim().replace(/[-\s]/g, '');
   const codeHash = await sha256Hex(`sbox_qd_bundle_${cleanCode}`);
   const receiverId = `quickdrop_${codeHash.slice(0, 24)}`;
 
+  let rowData: any = null;
   try {
     const { data, error } = await supabase
       .from('messages')
@@ -418,19 +486,47 @@ export async function lookupQuickDrop(numericCode: string): Promise<QuickDropBun
       return null;
     }
 
-    const row = data[0];
-    const meta: QuickDropBundleMeta = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
-
-    // Check expiration
-    if (meta.expiresAt && Date.now() > meta.expiresAt) {
-      return null;
-    }
-
-    return meta;
+    rowData = data[0];
   } catch (err) {
     console.warn('QuickDrop lookup error:', err);
     return null;
   }
+
+  let meta: QuickDropBundleMeta;
+  try {
+    meta = typeof rowData.body === 'string' ? JSON.parse(rowData.body) : rowData.body;
+  } catch (err) {
+    console.warn('QuickDrop metadata parse error:', err);
+    return null;
+  }
+
+  // Check expiration
+  if (meta.expiresAt && Date.now() > meta.expiresAt) {
+    return null;
+  }
+
+  // Hydrate client-side decrypted text/links if present
+  if (meta.hasText && meta.encryptedText) {
+    meta.decryptedText = await decryptTextPayload(meta.encryptedText, cleanCode);
+  }
+
+  return meta;
+}
+
+/**
+ * Trigger a client-side .txt download of decrypted text/links
+ */
+export function downloadTextAsFile(text: string, numericCode: string): void {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const downloadUrl = URL.createObjectURL(blob);
+  const cleanCode = numericCode.trim().replace(/[-\s]/g, '') || 'note';
+  const a = document.createElement('a');
+  a.href = downloadUrl;
+  a.download = `quickdrop-${cleanCode}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
 }
 
 /**

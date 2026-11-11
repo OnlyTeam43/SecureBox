@@ -1,6 +1,6 @@
 // client/src/components/QuickDropModal.tsx
-// Zero-Login Ephemeral Media & Document Shuttle
-// Upload multiple images, videos, and docs on any PC -> Download securely anywhere with a custom numeric code
+// Zero-Login Ephemeral Media, Links & Text Shuttle
+// Upload multiple images, videos, docs, links, or text notes -> Retrieve anywhere with a custom numeric code
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Colors } from '../theme/tokens';
@@ -24,18 +24,23 @@ import {
   Plus,
   FolderArchive,
   Download,
+  Link2,
+  ExternalLink,
+  AlignLeft,
 } from 'lucide-react';
 import {
   uploadToQuickDrop,
   lookupQuickDrop,
   downloadSingleFile,
   downloadAllAndBurn,
+  downloadTextAsFile,
   burnQuickDrop,
   QuickDropBundleMeta,
   QuickDropFileItem,
   QuickDropProgressInfo,
   MAX_FILE_SIZE_BYTES,
   MAX_BUNDLE_SIZE_BYTES,
+  MAX_TEXT_LENGTH,
 } from '../services/quickdrop';
 
 interface QuickDropModalProps {
@@ -68,6 +73,47 @@ function getFileIcon(type: string, name: string) {
   return <GenericFile size={22} color={Colors.text.secondary} />;
 }
 
+/**
+ * Safely extract http/https URLs from text so users can open retrieved links in 1 tap.
+ */
+function extractSafeUrls(text: string): string[] {
+  if (!text) return [];
+  const regex = /https?:\/\/[^\s<>"'`]+/gi;
+  const matches = text.match(regex) || [];
+  const cleaned = matches
+    .map((raw) => {
+      let url = raw.replace(/[.,;!?"'>\]]+$/, '');
+      if (url.endsWith(')') && !url.includes('(')) {
+        url = url.slice(0, -1);
+      }
+      return url;
+    })
+    .filter((url) => /^https?:\/\/.+/i.test(url));
+  return Array.from(new Set(cleaned));
+}
+
+async function copyTextSafe(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export const QuickDropModal: React.FC<QuickDropModalProps> = ({
   isOpen,
   onClose,
@@ -76,8 +122,9 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'retrieve'>(initialTab);
 
-  // Upload State (Multiple Files)
+  // Upload State (Multiple Files + Text/Links)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [noteText, setNoteText] = useState<string>('');
   const [customCode, setCustomCode] = useState<string>('');
   const [burnOnDownload, setBurnOnDownload] = useState<boolean>(true);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -97,6 +144,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [foundBundle, setFoundBundle] = useState<QuickDropBundleMeta | null>(null);
+  const [burnedNoteSnapshot, setBurnedNoteSnapshot] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [downloadProgressMsg, setDownloadProgressMsg] = useState<string>('');
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
@@ -104,6 +152,8 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
   // Copy Feedback
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
+  const [copiedNote, setCopiedNote] = useState<boolean>(false);
+  const [copiedUrlIndex, setCopiedUrlIndex] = useState<number | null>(null);
 
   // Generate random 6-digit code
   const generateRandomCode = () => {
@@ -111,13 +161,17 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
     setCustomCode(num.toString());
   };
 
-  // If initialCode changes, set search state
+  // Sync tab & initialCode when modal opens
   useEffect(() => {
-    if (initialCode) {
-      setSearchCode(initialCode);
-      setActiveTab('retrieve');
+    if (isOpen) {
+      if (initialCode) {
+        setSearchCode(initialCode);
+        setActiveTab('retrieve');
+      } else {
+        setActiveTab(initialTab);
+      }
     }
-  }, [initialCode]);
+  }, [isOpen, initialCode, initialTab]);
 
   // Set default random code when switching to upload tab if empty
   useEffect(() => {
@@ -132,7 +186,6 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
   const appendFiles = (newFiles: FileList | File[]) => {
     const list = Array.from(newFiles);
 
-    // Validate per-file limit
     for (const f of list) {
       if (f.size > MAX_FILE_SIZE_BYTES) {
         setUploadError(
@@ -184,12 +237,23 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
     }
   };
 
+  const cleanNoteText = noteText.trim();
+  const hasFiles = selectedFiles.length > 0;
+  const hasText = cleanNoteText.length > 0;
+  const hasAnyUploadContent = hasFiles || hasText;
+  const detectedUploadUrls = extractSafeUrls(noteText);
+
   // Handle Upload Submission
   const handleUpload = async () => {
-    if (selectedFiles.length === 0) {
-      setUploadError('Please select at least one image, video, or document to upload.');
+    if (!hasAnyUploadContent) {
+      setUploadError('Please paste links/text or select at least one file to drop.');
       return;
     }
+    if (cleanNoteText.length > MAX_TEXT_LENGTH) {
+      setUploadError(`Text note is too long (max ${MAX_TEXT_LENGTH.toLocaleString()} characters).`);
+      return;
+    }
+
     const cleanCode = customCode.trim().replace(/[-\s]/g, '');
     if (!cleanCode || cleanCode.length < 3) {
       setUploadError('Please enter a numeric code with at least 3 digits.');
@@ -209,7 +273,8 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
         (info) => {
           setUploadProgress(info);
           setUploadProgressMsg(info.message);
-        }
+        },
+        cleanNoteText
       );
 
       const baseUrl = window.location.origin;
@@ -242,12 +307,13 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
       setIsSearching(true);
       setSearchError(null);
       setFoundBundle(null);
+      setBurnedNoteSnapshot(null);
       setDownloadSuccess(null);
 
       const meta = await lookupQuickDrop(cleanCode);
       if (!meta) {
         setSearchError(
-          'No active files found for this code. They may have expired (7 days), already been burned, or the code was entered incorrectly.'
+          'No active items found for this code. They may have expired (7 days), already been burned, or the code was entered incorrectly.'
         );
       } else {
         setFoundBundle(meta);
@@ -270,7 +336,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
     }
   };
 
-  // Handle Download All & Burn
+  // Handle Download All Files & Burn
   const handleDownloadAll = async () => {
     if (!foundBundle) return;
     const cleanCode = searchCode.trim().replace(/[-\s]/g, '');
@@ -278,6 +344,8 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
     try {
       setIsDownloading(true);
       setSearchError(null);
+
+      const noteSnapshot = foundBundle.decryptedText || null;
 
       const { burned } = await downloadAllAndBurn(
         cleanCode,
@@ -288,7 +356,12 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
       );
 
       if (burned) {
-        setDownloadSuccess('All files successfully decrypted, downloaded, and permanently BURNED from the cloud!');
+        if (noteSnapshot) {
+          setBurnedNoteSnapshot(noteSnapshot);
+        }
+        setDownloadSuccess(
+          'All items successfully decrypted, downloaded, and permanently BURNED from the cloud!'
+        );
         setFoundBundle(null);
       } else {
         setDownloadSuccess('All files successfully decrypted and downloaded!');
@@ -302,25 +375,74 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
     }
   };
 
+  // Handle Copy Text & Burn (for text/links-only or explicit note copy+burn)
+  const handleCopyNoteAndMaybeBurn = async (shouldBurn: boolean) => {
+    const text = foundBundle?.decryptedText ?? burnedNoteSnapshot;
+    if (!text) return;
+
+    await copyTextSafe(text);
+    setCopiedNote(true);
+    setTimeout(() => setCopiedNote(false), 2000);
+
+    if (shouldBurn && foundBundle) {
+      const cleanCode = searchCode.trim().replace(/[-\s]/g, '');
+      const ok = await burnQuickDrop(cleanCode);
+      if (ok) {
+        setBurnedNoteSnapshot(text);
+        setFoundBundle(null);
+        setDownloadSuccess(
+          'Links/text copied to clipboard & permanently BURNED from the cloud! (Local view kept below until closed.)'
+        );
+      }
+    }
+  };
+
+  // Handle Save Note as .txt & optional Burn
+  const handleSaveTextAndMaybeBurn = async (shouldBurn: boolean) => {
+    const text = foundBundle?.decryptedText ?? burnedNoteSnapshot;
+    if (!text) return;
+    const cleanCode = searchCode.trim().replace(/[-\s]/g, '');
+
+    downloadTextAsFile(text, cleanCode);
+
+    if (shouldBurn && foundBundle) {
+      const ok = await burnQuickDrop(cleanCode);
+      if (ok) {
+        setBurnedNoteSnapshot(text);
+        setFoundBundle(null);
+        setDownloadSuccess(
+          'Saved as .txt file & permanently BURNED from the cloud!'
+        );
+      }
+    }
+  };
+
   // Handle Manual Delete / Burn
   const handleManualBurn = async () => {
     if (!foundBundle) return;
     const cleanCode = searchCode.trim().replace(/[-\s]/g, '');
-    if (!confirm('Are you sure you want to permanently delete all files in this drop? They cannot be recovered.')) {
+    if (
+      !confirm(
+        'Are you sure you want to permanently delete everything in this drop? It cannot be recovered.'
+      )
+    ) {
       return;
     }
 
     const ok = await burnQuickDrop(cleanCode);
     if (ok) {
       setFoundBundle(null);
-      setDownloadSuccess('All files in this drop have been permanently burned and deleted from the cloud.');
+      setBurnedNoteSnapshot(null);
+      setDownloadSuccess(
+        'Everything in this drop has been permanently burned and deleted from the cloud.'
+      );
     } else {
-      setSearchError('Could not delete files.');
+      setSearchError('Could not delete drop.');
     }
   };
 
   const copyToClipboard = (text: string, type: 'code' | 'link') => {
-    navigator.clipboard.writeText(text);
+    copyTextSafe(text);
     if (type === 'code') {
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
@@ -334,8 +456,8 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
 
   // Calculate live progress percentage
   let progressPercent = 0;
-  if (uploadProgress && selectedFiles.length > 0) {
-    const perFileWeight = 100 / selectedFiles.length;
+  if (uploadProgress && uploadProgress.total > 0) {
+    const perItemWeight = 100 / uploadProgress.total;
     let stepRatio = 0.1;
     if (uploadProgress.phase === 'encrypting') stepRatio = 0.4;
     if (uploadProgress.phase === 'uploading') stepRatio = 0.8;
@@ -343,9 +465,225 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
 
     progressPercent = Math.min(
       98,
-      Math.round((uploadProgress.current - 1) * perFileWeight + perFileWeight * stepRatio)
+      Math.round((uploadProgress.current - 1) * perItemWeight + perItemWeight * stepRatio)
     );
   }
+
+  // Dynamic Submit Button Text
+  let submitButtonLabel = 'Encrypt & Drop';
+  if (hasFiles && hasText) {
+    submitButtonLabel = `Encrypt & Drop Note + ${selectedFiles.length} File${
+      selectedFiles.length > 1 ? 's' : ''
+    }`;
+  } else if (!hasFiles && hasText) {
+    submitButtonLabel =
+      detectedUploadUrls.length > 0 ? 'Encrypt & Drop Links / Text' : 'Encrypt & Drop Text Note';
+  } else if (hasFiles) {
+    submitButtonLabel =
+      selectedFiles.length > 1
+        ? `Encrypt & Drop ${selectedFiles.length} Files`
+        : 'Encrypt & Drop File';
+  }
+
+  const displayedNoteText = foundBundle?.decryptedText ?? burnedNoteSnapshot;
+  const displayedUrls = displayedNoteText ? extractSafeUrls(displayedNoteText) : [];
+
+  const renderRetrievedNoteCard = (isLocalBurnedView: boolean, marginBottom: number) => {
+    if (!displayedNoteText) return null;
+    return (
+      <div
+        style={{
+          padding: isLocalBurnedView ? '14px' : '12px',
+          borderRadius: 12,
+          backgroundColor: isLocalBurnedView ? Colors.bg.secondary : Colors.bg.elevated,
+          border: `1px solid ${Colors.border}`,
+          marginBottom,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 8,
+            gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlignLeft size={14} color={Colors.accent.primary} />
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: isLocalBurnedView ? Colors.text.secondary : Colors.text.primary,
+                textTransform: 'uppercase',
+                letterSpacing: '0.03em',
+              }}
+            >
+              {isLocalBurnedView ? 'Local View Only · Wiped from Cloud' : 'Links & Text Note'}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => handleCopyNoteAndMaybeBurn(false)}
+              style={{
+                padding: '4px 9px',
+                borderRadius: 6,
+                border: `1px solid ${Colors.border}`,
+                backgroundColor: isLocalBurnedView ? Colors.bg.elevated : Colors.bg.primary,
+                color: copiedNote ? '#5E9473' : Colors.text.primary,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              {copiedNote ? <Check size={12} /> : <Copy size={12} />}
+              <span>{copiedNote ? 'Copied' : 'Copy'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSaveTextAndMaybeBurn(false)}
+              style={{
+                padding: '4px 9px',
+                borderRadius: 6,
+                border: `1px solid ${Colors.border}`,
+                backgroundColor: isLocalBurnedView ? Colors.bg.elevated : Colors.bg.primary,
+                color: Colors.accent.primary,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+              title="Save note as .txt file"
+            >
+              <Download size={12} />
+              <span>.txt</span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            padding: '10px 12px',
+            borderRadius: 8,
+            backgroundColor: isLocalBurnedView ? Colors.bg.elevated : Colors.bg.primary,
+            border: `1px solid ${Colors.border}`,
+            fontSize: 13,
+            color: Colors.text.primary,
+            lineHeight: 1.5,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            maxHeight: 165,
+            overflowY: 'auto',
+            userSelect: 'text',
+          }}
+        >
+          {displayedNoteText}
+        </div>
+
+        {displayedUrls.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <span
+              style={{
+                display: 'block',
+                fontSize: 10,
+                fontWeight: 700,
+                color: Colors.text.secondary,
+                textTransform: 'uppercase',
+                marginBottom: 6,
+              }}
+            >
+              Detected Links ({displayedUrls.length})
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {displayedUrls.map((url, idx) => (
+                <div
+                  key={url}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    padding: '7px 10px',
+                    borderRadius: 8,
+                    backgroundColor: isLocalBurnedView ? Colors.bg.elevated : Colors.bg.secondary,
+                    border: `1px solid ${Colors.border}`,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: Colors.accent.primary,
+                      fontFamily: 'monospace',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      flex: 1,
+                    }}
+                  >
+                    {url}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      copyTextSafe(url);
+                      setCopiedUrlIndex(idx);
+                      setTimeout(() => setCopiedUrlIndex(null), 1800);
+                    }}
+                    style={{
+                      padding: '4px 7px',
+                      borderRadius: 6,
+                      border: `1px solid ${Colors.border}`,
+                      backgroundColor: isLocalBurnedView ? Colors.bg.primary : Colors.bg.elevated,
+                      color: copiedUrlIndex === idx ? '#5E9473' : Colors.text.secondary,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexShrink: 0,
+                    }}
+                    title="Copy URL"
+                  >
+                    {copiedUrlIndex === idx ? <Check size={12} /> : <Copy size={12} />}
+                  </button>
+
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      padding: '4px 9px',
+                      borderRadius: 6,
+                      backgroundColor: Colors.accent.primary,
+                      color: '#FFFFFF',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span>Open</span>
+                    <ExternalLink size={11} />
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div
@@ -435,7 +773,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                 </span>
               </div>
               <p style={{ margin: 0, fontSize: 12, color: Colors.text.secondary }}>
-                Anonymous Cross-Device Media & Doc Shuttle
+                Anonymous Cross-Device Media, Links & Text Shuttle
               </p>
             </div>
           </div>
@@ -477,7 +815,10 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
               padding: '12px 16px',
               border: 'none',
               backgroundColor: activeTab === 'upload' ? Colors.bg.elevated : 'transparent',
-              borderBottom: activeTab === 'upload' ? `2px solid ${Colors.accent.primary}` : '2px solid transparent',
+              borderBottom:
+                activeTab === 'upload'
+                  ? `2px solid ${Colors.accent.primary}`
+                  : '2px solid transparent',
               color: activeTab === 'upload' ? Colors.text.primary : Colors.text.secondary,
               fontWeight: activeTab === 'upload' ? 700 : 500,
               fontSize: 14,
@@ -500,7 +841,10 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
               padding: '12px 16px',
               border: 'none',
               backgroundColor: activeTab === 'retrieve' ? Colors.bg.elevated : 'transparent',
-              borderBottom: activeTab === 'retrieve' ? `2px solid ${Colors.accent.primary}` : '2px solid transparent',
+              borderBottom:
+                activeTab === 'retrieve'
+                  ? `2px solid ${Colors.accent.primary}`
+                  : '2px solid transparent',
               color: activeTab === 'retrieve' ? Colors.text.primary : Colors.text.secondary,
               fontWeight: activeTab === 'retrieve' ? 700 : 500,
               fontSize: 14,
@@ -519,7 +863,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
 
         {/* Modal Body */}
         <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-          {/* TAB 1: UPLOAD (Multiple Files) */}
+          {/* TAB 1: UPLOAD (Files + Links & Text) */}
           {activeTab === 'upload' && (
             <div>
               {!uploadSuccess ? (
@@ -539,7 +883,109 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     }}
                   />
 
-                  {/* Drag & Drop Zone */}
+                  {/* Links & Text Note Input */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 6,
+                      }}
+                    >
+                      <label
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: Colors.text.primary,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <Link2 size={14} color={Colors.accent.primary} />
+                        <span>Links or Text Note</span>
+                        <span style={{ fontSize: 11, fontWeight: 400, color: Colors.text.secondary }}>
+                          (optional)
+                        </span>
+                      </label>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {detectedUploadUrls.length > 0 && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: '2px 7px',
+                              borderRadius: 999,
+                              backgroundColor: 'rgba(94, 148, 115, 0.15)',
+                              color: '#2E694E',
+                            }}
+                          >
+                            {detectedUploadUrls.length} link{detectedUploadUrls.length > 1 ? 's' : ''}{' '}
+                            detected
+                          </span>
+                        )}
+                        {noteText.length > 0 && !isUploading && (
+                          <button
+                            type="button"
+                            onClick={() => setNoteText('')}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: Colors.text.secondary,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <textarea
+                      rows={3}
+                      disabled={isUploading}
+                      value={noteText}
+                      onChange={(e) => {
+                        setNoteText(e.target.value);
+                        if (uploadError) setUploadError(null);
+                      }}
+                      placeholder="Paste URLs (https://...), meeting links, notes, or text snippets..."
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        border: `1px solid ${Colors.border}`,
+                        backgroundColor: Colors.bg.primary,
+                        fontSize: 13,
+                        color: Colors.text.primary,
+                        fontFamily: 'inherit',
+                        resize: 'vertical',
+                        boxSizing: 'border-box',
+                        lineHeight: 1.45,
+                        opacity: isUploading ? 0.6 : 1,
+                      }}
+                    />
+                    {noteText.length > 500 && (
+                      <div
+                        style={{
+                          textAlign: 'right',
+                          fontSize: 10,
+                          color:
+                            noteText.length > MAX_TEXT_LENGTH ? '#B91C1C' : Colors.text.secondary,
+                          marginTop: 2,
+                        }}
+                      >
+                        {noteText.length.toLocaleString()} / {MAX_TEXT_LENGTH.toLocaleString()} chars
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Drag & Drop File Zone */}
                   <div
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
@@ -548,7 +994,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     style={{
                       border: `2px dashed ${isDragOver ? Colors.accent.primary : Colors.border}`,
                       borderRadius: 14,
-                      padding: selectedFiles.length > 0 ? '16px 14px' : '26px 16px',
+                      padding: selectedFiles.length > 0 ? '14px 12px' : '18px 14px',
                       textAlign: 'center',
                       backgroundColor: isDragOver ? Colors.accent.soft : Colors.bg.secondary,
                       cursor: isUploading ? 'not-allowed' : 'pointer',
@@ -559,33 +1005,33 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                   >
                     <div
                       style={{
-                        width: 44,
-                        height: 44,
+                        width: 38,
+                        height: 38,
                         borderRadius: '50%',
                         backgroundColor: Colors.bg.elevated,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        margin: '0 auto 8px auto',
+                        margin: '0 auto 6px auto',
                         color: Colors.accent.primary,
                       }}
                     >
-                      <UploadCloud size={22} />
+                      <UploadCloud size={20} />
                     </div>
                     <p
                       style={{
-                        margin: '0 0 4px 0',
-                        fontSize: 14,
+                        margin: '0 0 2px 0',
+                        fontSize: 13,
                         fontWeight: 600,
                         color: Colors.text.primary,
                       }}
                     >
                       {selectedFiles.length > 0
                         ? 'Click or drag more files to add'
-                        : 'Click to select or drag & drop multiple files'}
+                        : 'Click or drag & drop files (optional)'}
                     </p>
-                    <p style={{ margin: 0, fontSize: 12, color: Colors.text.secondary }}>
-                      Select multiple Images, Videos, PDFs, or Documents (max 15 MB/file)
+                    <p style={{ margin: 0, fontSize: 11, color: Colors.text.secondary }}>
+                      Images, Videos, PDFs, or Documents (multiple select · max 15 MB/file)
                     </p>
                   </div>
 
@@ -632,7 +1078,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                           display: 'flex',
                           flexDirection: 'column',
                           gap: 6,
-                          maxHeight: 160,
+                          maxHeight: 150,
                           overflowY: 'auto',
                           paddingRight: 4,
                         }}
@@ -650,7 +1096,15 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                               border: `1px solid ${Colors.border}`,
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 10,
+                                minWidth: 0,
+                                flex: 1,
+                              }}
+                            >
                               {getFileIcon(f.type, f.name)}
                               <div style={{ minWidth: 0, flex: 1 }}>
                                 <p
@@ -701,7 +1155,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                   )}
 
                   {/* Custom Numeric Code Input */}
-                  <div style={{ marginBottom: 18 }}>
+                  <div style={{ marginBottom: 16 }}>
                     <div
                       style={{
                         display: 'flex',
@@ -743,7 +1197,9 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                         pattern="[0-9]*"
                         disabled={isUploading}
                         value={customCode}
-                        onChange={(e) => setCustomCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
+                        onChange={(e) =>
+                          setCustomCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))
+                        }
                         placeholder="e.g. 748201 or your PIN"
                         style={{
                           width: '100%',
@@ -762,7 +1218,8 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                       />
                     </div>
                     <p style={{ margin: '6px 0 0 0', fontSize: 11, color: Colors.text.secondary }}>
-                      Pick any 4 to 8-digit number you can easily remember when you get to your other device.
+                      Pick any 4 to 8-digit number you can easily remember when you get to your other
+                      device.
                     </p>
                   </div>
 
@@ -780,7 +1237,14 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     }}
                   >
                     {/* Burn Toggle */}
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: isUploading ? 'not-allowed' : 'pointer' }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        cursor: isUploading ? 'not-allowed' : 'pointer',
+                      }}
+                    >
                       <input
                         type="checkbox"
                         disabled={isUploading}
@@ -792,11 +1256,12 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <Flame size={14} color="#EF4444" />
                           <span style={{ fontSize: 13, fontWeight: 600, color: Colors.text.primary }}>
-                            Burn after download
+                            Burn after retrieval
                           </span>
                         </div>
                         <p style={{ margin: 0, fontSize: 11, color: Colors.text.secondary }}>
-                          Files permanently wipe from the cloud the moment they are downloaded at home.
+                          Files & notes permanently wipe from the cloud the moment they are retrieved at
+                          home.
                         </p>
                       </div>
                     </label>
@@ -813,7 +1278,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     >
                       <Clock size={13} color={Colors.text.secondary} />
                       <span style={{ fontSize: 11, color: Colors.text.secondary }}>
-                        Hard auto-delete: Any unretrieved files are wiped automatically in 7 days.
+                        Hard auto-delete: Any unretrieved drops are wiped automatically in 7 days.
                       </span>
                     </div>
 
@@ -863,7 +1328,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                               ? 'Uploading to Cloud'
                               : uploadProgress?.phase === 'preparing'
                               ? 'Optimizing Image'
-                              : 'Finalizing Bundle'}
+                              : 'Finalizing Drop'}
                           </span>
                         </div>
                         <span style={{ fontSize: 12, fontWeight: 700, color: Colors.text.primary }}>
@@ -871,7 +1336,6 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                         </span>
                       </div>
 
-                      {/* Progress Bar */}
                       <div
                         style={{
                           width: '100%',
@@ -904,7 +1368,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                           textOverflow: 'ellipsis',
                         }}
                       >
-                        {uploadProgressMsg || 'Encrypting and transferring files...'}
+                        {uploadProgressMsg || 'Encrypting and transferring...'}
                       </p>
                     </div>
                   )}
@@ -931,20 +1395,21 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                   {/* Upload Button */}
                   <button
                     onClick={handleUpload}
-                    disabled={isUploading || selectedFiles.length === 0}
+                    disabled={isUploading || !hasAnyUploadContent}
                     style={{
                       width: '100%',
                       padding: '14px',
                       borderRadius: 12,
                       border: 'none',
                       backgroundColor:
-                        isUploading || selectedFiles.length === 0
+                        isUploading || !hasAnyUploadContent
                           ? Colors.bg.secondary
                           : Colors.accent.primary,
-                      color: isUploading || selectedFiles.length === 0 ? Colors.text.secondary : '#FFFFFF',
+                      color:
+                        isUploading || !hasAnyUploadContent ? Colors.text.secondary : '#FFFFFF',
                       fontSize: 15,
                       fontWeight: 700,
-                      cursor: isUploading || selectedFiles.length === 0 ? 'not-allowed' : 'pointer',
+                      cursor: isUploading || !hasAnyUploadContent ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -960,11 +1425,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     ) : (
                       <>
                         <UploadCloud size={18} />
-                        <span>
-                          {selectedFiles.length > 1
-                            ? `Encrypt & Drop ${selectedFiles.length} Files`
-                            : 'Encrypt & Drop File'}
-                        </span>
+                        <span>{submitButtonLabel}</span>
                       </>
                     )}
                   </button>
@@ -996,8 +1457,15 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                       color: Colors.text.primary,
                     }}
                   >
-                    {uploadSuccess.bundleMeta.fileCount} File
-                    {uploadSuccess.bundleMeta.fileCount > 1 ? 's' : ''} Ready for Pickup!
+                    {uploadSuccess.bundleMeta.hasText && uploadSuccess.bundleMeta.fileCount === 0
+                      ? 'Links & Text Ready for Pickup!'
+                      : uploadSuccess.bundleMeta.hasText && uploadSuccess.bundleMeta.fileCount > 0
+                      ? `Note + ${uploadSuccess.bundleMeta.fileCount} File${
+                          uploadSuccess.bundleMeta.fileCount > 1 ? 's' : ''
+                        } Ready for Pickup!`
+                      : `${uploadSuccess.bundleMeta.fileCount} File${
+                          uploadSuccess.bundleMeta.fileCount > 1 ? 's' : ''
+                        } Ready for Pickup!`}
                   </h3>
                   <p style={{ margin: '0 0 18px 0', fontSize: 13, color: Colors.text.secondary }}>
                     You can safely close this browser or walk away. Pick it up from any device.
@@ -1078,7 +1546,6 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                       </span>
                     </div>
 
-                    {/* QR Code Image */}
                     <div
                       style={{
                         padding: 8,
@@ -1139,6 +1606,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     onClick={() => {
                       setUploadSuccess(null);
                       setSelectedFiles([]);
+                      setNoteText('');
                       generateRandomCode();
                     }}
                     style={{
@@ -1151,7 +1619,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                       padding: 8,
                     }}
                   >
-                    Drop more files
+                    Drop more links, notes, or files
                   </button>
                 </div>
               )}
@@ -1162,7 +1630,8 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
           {activeTab === 'retrieve' && (
             <div>
               <p style={{ margin: '0 0 14px 0', fontSize: 13, color: Colors.text.secondary }}>
-                Enter the numeric code you created when uploading to find and decrypt your files.
+                Enter the numeric code you created when uploading to retrieve your links, notes, or
+                files.
               </p>
 
               {/* Code Search Input */}
@@ -1210,7 +1679,11 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     flexShrink: 0,
                   }}
                 >
-                  {isSearching ? <RefreshCw size={16} className="animate-spin" /> : <DownloadCloud size={16} />}
+                  {isSearching ? (
+                    <RefreshCw size={16} className="animate-spin" />
+                  ) : (
+                    <DownloadCloud size={16} />
+                  )}
                   <span>Find</span>
                 </button>
               </div>
@@ -1250,12 +1723,15 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     gap: 10,
                   }}
                 >
-                  <Check size={18} />
+                  <Check size={18} style={{ flexShrink: 0 }} />
                   <span>{downloadSuccess}</span>
                 </div>
               )}
 
-              {/* Found Files Bundle Card */}
+              {/* Decrypted Text / Links Snapshot (kept visible locally after cloud burn) */}
+              {!foundBundle && burnedNoteSnapshot && renderRetrievedNoteCard(true, 16)}
+
+              {/* Found Bundle Card */}
               {foundBundle && (
                 <div
                   style={{
@@ -1276,14 +1752,26 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                   >
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <FolderArchive size={18} color={Colors.accent.primary} />
+                        {foundBundle.fileCount > 0 ? (
+                          <FolderArchive size={18} color={Colors.accent.primary} />
+                        ) : (
+                          <Link2 size={18} color={Colors.accent.primary} />
+                        )}
                         <span style={{ fontSize: 14, fontWeight: 700, color: Colors.text.primary }}>
-                          {foundBundle.fileCount} File{foundBundle.fileCount > 1 ? 's' : ''} Ready (
-                          {formatBytes(foundBundle.totalSize)})
+                          {foundBundle.hasText && foundBundle.fileCount === 0
+                            ? `Encrypted Links / Text Ready (${formatBytes(foundBundle.totalSize)})`
+                            : foundBundle.hasText && foundBundle.fileCount > 0
+                            ? `Note + ${foundBundle.fileCount} File${
+                                foundBundle.fileCount > 1 ? 's' : ''
+                              } Ready (${formatBytes(foundBundle.totalSize)})`
+                            : `${foundBundle.fileCount} File${
+                                foundBundle.fileCount > 1 ? 's' : ''
+                              } Ready (${formatBytes(foundBundle.totalSize)})`}
                         </span>
                       </div>
                       <span style={{ fontSize: 11, color: Colors.text.secondary }}>
-                        Uploaded {new Date(foundBundle.uploadedAt).toLocaleDateString()} · Expires in 7 days
+                        Uploaded {new Date(foundBundle.uploadedAt).toLocaleDateString()} · Expires in
+                        7 days
                       </span>
                     </div>
 
@@ -1303,76 +1791,98 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                         fontSize: 12,
                         fontWeight: 600,
                       }}
-                      title="Permanently Burn All Files"
+                      title="Permanently Burn All"
                     >
                       <Trash2 size={14} />
                       <span>Burn</span>
                     </button>
                   </div>
 
-                  {/* List of files with individual download buttons */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-                    {foundBundle.files.map((fileItem) => (
-                      <div
-                        key={fileItem.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '10px 12px',
-                          borderRadius: 10,
-                          backgroundColor: Colors.bg.elevated,
-                          border: `1px solid ${Colors.border}`,
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-                          {getFileIcon(fileItem.type, fileItem.name)}
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <p
-                              style={{
-                                margin: 0,
-                                fontSize: 13,
-                                fontWeight: 600,
-                                color: Colors.text.primary,
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                              }}
-                            >
-                              {fileItem.name}
-                            </p>
-                            <span style={{ fontSize: 11, color: Colors.text.secondary }}>
-                              {formatBytes(fileItem.size)}
-                            </span>
-                          </div>
-                        </div>
+                  {/* Decrypted Links & Text Note Card */}
+                  {foundBundle.hasText &&
+                    displayedNoteText &&
+                    renderRetrievedNoteCard(false, foundBundle.fileCount > 0 ? 14 : 16)}
 
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadSingle(fileItem)}
-                          disabled={isDownloading}
+                  {/* List of files with individual download buttons */}
+                  {foundBundle.files.length > 0 && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                        marginBottom: 16,
+                      }}
+                    >
+                      {foundBundle.files.map((fileItem) => (
+                        <div
+                          key={fileItem.id}
                           style={{
-                            padding: '6px 10px',
-                            borderRadius: 8,
-                            border: `1px solid ${Colors.border}`,
-                            backgroundColor: Colors.bg.primary,
-                            color: Colors.accent.primary,
-                            fontSize: 12,
-                            fontWeight: 600,
-                            cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 4,
-                            marginLeft: 8,
-                            flexShrink: 0,
+                            justifyContent: 'space-between',
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            backgroundColor: Colors.bg.elevated,
+                            border: `1px solid ${Colors.border}`,
                           }}
                         >
-                          <Download size={13} />
-                          <span>Save</span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10,
+                              minWidth: 0,
+                              flex: 1,
+                            }}
+                          >
+                            {getFileIcon(fileItem.type, fileItem.name)}
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <p
+                                style={{
+                                  margin: 0,
+                                  fontSize: 13,
+                                  fontWeight: 600,
+                                  color: Colors.text.primary,
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {fileItem.name}
+                              </p>
+                              <span style={{ fontSize: 11, color: Colors.text.secondary }}>
+                                {formatBytes(fileItem.size)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadSingle(fileItem)}
+                            disabled={isDownloading}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: 8,
+                              border: `1px solid ${Colors.border}`,
+                              backgroundColor: Colors.bg.primary,
+                              color: Colors.accent.primary,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              marginLeft: 8,
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Download size={13} />
+                            <span>Save</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Status Badges */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
@@ -1391,7 +1901,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                         }}
                       >
                         <Flame size={12} />
-                        Burns after download
+                        Burns after retrieval
                       </span>
                     )}
 
@@ -1414,42 +1924,101 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     </span>
                   </div>
 
-                  {/* Download All Button */}
-                  <button
-                    onClick={handleDownloadAll}
-                    disabled={isDownloading}
-                    style={{
-                      width: '100%',
-                      padding: '12px 16px',
-                      borderRadius: 10,
-                      border: 'none',
-                      backgroundColor: Colors.accent.primary,
-                      color: '#FFFFFF',
-                      fontSize: 14,
-                      fontWeight: 700,
-                      cursor: isDownloading ? 'wait' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    {isDownloading ? (
-                      <>
-                        <RefreshCw size={16} className="animate-spin" />
-                        <span>{downloadProgressMsg || 'Decrypting & Downloading...'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <DownloadCloud size={16} />
+                  {/* Primary Action Footer */}
+                  {foundBundle.fileCount > 0 ? (
+                    <button
+                      onClick={handleDownloadAll}
+                      disabled={isDownloading}
+                      style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        borderRadius: 10,
+                        border: 'none',
+                        backgroundColor: Colors.accent.primary,
+                        color: '#FFFFFF',
+                        fontSize: 14,
+                        fontWeight: 700,
+                        cursor: isDownloading ? 'wait' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      {isDownloading ? (
+                        <>
+                          <RefreshCw size={16} className="animate-spin" />
+                          <span>{downloadProgressMsg || 'Decrypting & Downloading...'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <DownloadCloud size={16} />
+                          <span>
+                            {foundBundle.fileCount > 1
+                              ? `Decrypt & Download All (${foundBundle.fileCount} Files)`
+                              : 'Decrypt & Download File'}
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyNoteAndMaybeBurn(foundBundle.burnOnDownload)}
+                        style={{
+                          flex: 1,
+                          padding: '12px 14px',
+                          borderRadius: 10,
+                          border: 'none',
+                          backgroundColor: Colors.accent.primary,
+                          color: '#FFFFFF',
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <Copy size={15} />
                         <span>
-                          {foundBundle.fileCount > 1
-                            ? `Decrypt & Download All (${foundBundle.fileCount} Files)`
-                            : 'Decrypt & Download File'}
+                          {foundBundle.burnOnDownload
+                            ? 'Copy All & Burn from Cloud'
+                            : 'Copy All Links / Text'}
                         </span>
-                      </>
-                    )}
-                  </button>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSaveTextAndMaybeBurn(foundBundle.burnOnDownload)}
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: 10,
+                          border: `1px solid ${Colors.border}`,
+                          backgroundColor: Colors.bg.elevated,
+                          color: Colors.text.primary,
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          flexShrink: 0,
+                        }}
+                        title={
+                          foundBundle.burnOnDownload
+                            ? 'Download .txt & Burn from cloud'
+                            : 'Save as .txt'
+                        }
+                      >
+                        <Download size={15} />
+                        <span>.txt</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
