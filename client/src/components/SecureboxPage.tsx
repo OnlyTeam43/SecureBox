@@ -264,7 +264,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                 }}
               >
                 <UploadCloud size={13} />
-                <span>Dropbox · QuickDrop</span>
+                <span>QuickDrop</span>
               </button>
             )}
 
@@ -1371,7 +1371,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
               Need to Send Files, Links &amp; Text Without Logging In?
             </h2>
             <p style={{ fontSize: '14px', color: '#57534E', margin: 0 }}>
-              Open SecureBox Dropbox on a separate <strong>/dropbox</strong> page to transfer
+              Open SecureBox QuickDrop on a separate <strong>/dropbox</strong> page to transfer
               photos, videos, PDFs, links, and encrypted notes using a custom numeric pickup code
               — featuring AES-256-GCM encryption, burn-after-retrieval, and 7-day auto-delete.
             </p>
@@ -1396,7 +1396,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
             }}
           >
             <UploadCloud size={17} />
-            <span>Open SecureBox Dropbox</span>
+            <span>Open SecureBox QuickDrop</span>
             <ArrowRight size={15} />
           </a>
         </div>
@@ -1570,7 +1570,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
               onClick={handleOpenDropbox}
               style={{ color: '#D96B43', fontSize: '12px', fontWeight: 600, textDecoration: 'none' }}
             >
-              SecureBox Dropbox (/dropbox)
+              SecureBox QuickDrop (/dropbox)
             </a>
             <a
               href="/Securebox"

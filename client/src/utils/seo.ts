@@ -30,13 +30,13 @@ export const SECUREBOX_FAQS: SeoFaqItem[] = [
   {
     question: 'Can I send files, videos, or links between devices without logging in?',
     answer:
-      'Yes. SecureBox includes a dedicated browser-based encrypted Dropbox (QuickDrop) page at /dropbox. You can upload photos, videos, PDFs, documents, links, and text notes behind a custom numeric pickup code and retrieve them on any phone or computer without signing into WhatsApp, email, or cloud drives.',
+      'Yes. SecureBox includes a dedicated browser-based encrypted QuickDrop page at /dropbox. You can upload photos, videos, PDFs, documents, links, and text notes behind a custom numeric pickup code and retrieve them on any phone or computer without signing into WhatsApp, email, or cloud drives.',
   },
 ];
 
 export const DROPBOX_FAQS: SeoFaqItem[] = [
   {
-    question: 'Do I need an account or login to use SecureBox Dropbox?',
+    question: 'Do I need an account or login to use SecureBox QuickDrop?',
     answer:
       'No login, email, phone number, or account creation is required. You choose a numeric pickup code, drop your files, links, or text notes directly in your browser, and enter that same code on any other phone, laptop, or public computer to decrypt and retrieve them.',
   },
@@ -48,7 +48,7 @@ export const DROPBOX_FAQS: SeoFaqItem[] = [
   {
     question: 'How long do files and links stay before automatic deletion?',
     answer:
-      'Every SecureBox Dropbox bundle enforces a strict 7-day automatic deletion timer so nothing stays online permanently. You can also keep Burn After Retrieval enabled so the cloud copy is permanently erased immediately after the recipient downloads all files or copies the note.',
+      'Every SecureBox QuickDrop bundle enforces a strict 7-day automatic deletion timer so nothing stays online permanently. You can also keep Burn After Retrieval enabled so the cloud copy is permanently erased immediately after the recipient downloads all files or copies the note.',
   },
   {
     question: 'What file types, sizes, and link formats are supported?',
@@ -56,9 +56,9 @@ export const DROPBOX_FAQS: SeoFaqItem[] = [
       'You can batch-upload multiple images, videos, PDFs, Word documents, spreadsheets, ZIP archives, and text files (up to 15 MB per file and 35 MB total per bundle), plus paste up to 100,000 characters of links and text notes. Retrieved http and https URLs are automatically detected into one-tap Open and Copy buttons.',
   },
   {
-    question: 'Why use SecureBox Dropbox instead of logging into WhatsApp Web or Gmail on a shared PC?',
+    question: 'Why use SecureBox QuickDrop instead of logging into WhatsApp Web or Gmail on a shared PC?',
     answer:
-      'Signing into personal WhatsApp Web, Google Drive, or email on a print shop, library, school, or friend’s computer risks leaving active sessions behind. SecureBox Dropbox lets you grab a single document, photo, or link using only a temporary numeric code—zero account exposure and instant burn cleanup.',
+      'Signing into personal WhatsApp Web, Google Drive, or email on a print shop, library, school, or friend’s computer risks leaving active sessions behind. SecureBox QuickDrop lets you grab a single document, photo, or link using only a temporary numeric code—zero account exposure and instant burn cleanup.',
   },
 ];
 
@@ -75,11 +75,11 @@ interface RouteSeoConfig {
 
 export const ROUTE_SEO_CONFIG: Record<SeoRouteKey, RouteSeoConfig> = {
   home: {
-    title: 'Brick Smash Arcade — SecureBox Disguised Encrypted Chat & Dropbox',
+    title: 'Brick Smash Arcade — SecureBox Disguised Encrypted Chat & QuickDrop',
     description:
-      'Play Brick Smash retro arcade disguise to access SecureBox zero-knowledge AES-256-GCM encrypted rooms, or open SecureBox Dropbox at /dropbox to send files, links, and text without login.',
+      'Play Brick Smash retro arcade disguise to access SecureBox zero-knowledge AES-256-GCM encrypted rooms, or open SecureBox QuickDrop at /dropbox to send files, links, and text without login.',
     keywords:
-      'SecureBox, Brick Smash disguise, encrypted chat app, anonymous file transfer, zero login dropbox, AES-256-GCM private chat',
+      'SecureBox, Brick Smash disguise, encrypted chat app, anonymous file transfer, zero login quickdrop, SecureBox QuickDrop, AES-256-GCM private chat',
     canonicalUrl: `${SITE_ORIGIN}/`,
     ogType: 'website',
     ogImage: `${SITE_ORIGIN}/mockups/mockup-game.jpg`,
@@ -92,7 +92,7 @@ export const ROUTE_SEO_CONFIG: Record<SeoRouteKey, RouteSeoConfig> = {
           name: 'SecureBox',
           url: `${SITE_ORIGIN}/`,
           description:
-            'Disguised zero-knowledge encrypted chat application and anonymous browser-based Dropbox (QuickDrop).',
+            'Disguised zero-knowledge encrypted chat application and anonymous browser-based QuickDrop.',
         },
         {
           '@type': 'Organization',
@@ -106,7 +106,7 @@ export const ROUTE_SEO_CONFIG: Record<SeoRouteKey, RouteSeoConfig> = {
   securebox: {
     title: 'SecureBox — Disguised Encrypted Chat App & Private Vault APK',
     description:
-      'Download SecureBox Android APK & web vault. Zero-knowledge AES-256-GCM encrypted private chat disguised as a Brick Smash arcade game with 24-hour auto-destruct and anonymous Dropbox.',
+      'Download SecureBox Android APK & web vault. Zero-knowledge AES-256-GCM encrypted private chat disguised as a Brick Smash arcade game with 24-hour auto-destruct and anonymous QuickDrop.',
     keywords:
       'SecureBox, SecureBox APK, SecureBox app, disguised secret chat app, encrypted messenger without phone number, zero knowledge chat, self destructing chat rooms, stealth brick smash vault, AES-256-GCM encrypted messaging',
     canonicalUrl: `${SITE_ORIGIN}/Securebox`,
@@ -174,21 +174,21 @@ export const ROUTE_SEO_CONFIG: Record<SeoRouteKey, RouteSeoConfig> = {
     },
   },
   dropbox: {
-    title: 'SecureBox Dropbox (QuickDrop) — Anonymous File, Link & Text Transfer',
+    title: 'SecureBox QuickDrop — Anonymous File, Link, Text & Chrome Extension Transfer',
     description:
       'Send photos, videos, PDFs, links, and text between phone and laptop without logging in. Client-side AES-256 encrypted pickup code, burn-after-retrieval, and 7-day auto-delete.',
     keywords:
-      'SecureBox Dropbox, QuickDrop, send files without login, anonymous file transfer, temporary file sharing 7 day auto delete, share links between phone and laptop without login, numeric code file pickup, encrypted file drop, burn after download file sharing',
+      'SecureBox QuickDrop, QuickDrop Chrome extension, send files without login, anonymous file transfer, temporary file sharing 7 day auto delete, share links between phone and laptop without login, numeric code file pickup, encrypted file drop, burn after download file sharing',
     canonicalUrl: `${SITE_ORIGIN}/dropbox`,
     ogType: 'website',
     ogImage: `${SITE_ORIGIN}/mockups/mockup-hub.jpg`,
-    ogImageAlt: 'SecureBox Dropbox zero-login encrypted file, link, and text transfer',
+    ogImageAlt: 'SecureBox QuickDrop zero-login encrypted file, link, and text transfer',
     structuredData: {
       '@context': 'https://schema.org',
       '@graph': [
         {
           '@type': 'WebApplication',
-          name: 'SecureBox Dropbox (QuickDrop)',
+          name: 'SecureBox QuickDrop',
           alternateName: 'QuickDrop Anonymous Media, Links & Text Shuttle',
           url: `${SITE_ORIGIN}/dropbox`,
           applicationCategory: 'UtilitiesApplication',
@@ -219,7 +219,7 @@ export const ROUTE_SEO_CONFIG: Record<SeoRouteKey, RouteSeoConfig> = {
               '@type': 'HowToStep',
               position: 1,
               name: 'Add files, links, or text',
-              text: 'Select multiple images, videos, or documents, or paste URLs and text notes into SecureBox Dropbox.',
+              text: 'Select multiple images, videos, or documents, or paste URLs and text notes into SecureBox QuickDrop.',
             },
             {
               '@type': 'HowToStep',
@@ -264,7 +264,7 @@ export const ROUTE_SEO_CONFIG: Record<SeoRouteKey, RouteSeoConfig> = {
             {
               '@type': 'ListItem',
               position: 3,
-              name: 'Dropbox',
+              name: 'QuickDrop',
               item: `${SITE_ORIGIN}/dropbox`,
             },
           ],

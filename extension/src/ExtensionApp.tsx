@@ -144,7 +144,7 @@ export const ExtensionApp: React.FC = () => {
           <BrickWallPeeker width={24} height={20} />
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#141518', lineHeight: 1.15 }}>
-              SecureBox <span style={{ color: '#D96B43' }}>Dropbox</span>
+              SecureBox <span style={{ color: '#D96B43' }}>QuickDrop</span>
             </div>
             <div style={{ fontSize: 10, color: '#78716C', fontWeight: 500 }}>
               Chrome Extension · AES-256-GCM
@@ -169,7 +169,7 @@ export const ExtensionApp: React.FC = () => {
               fontWeight: 700,
               cursor: 'pointer',
             }}
-            title="Grab active tab URL into Dropbox"
+            title="Grab active tab URL into QuickDrop"
           >
             <Link2 size={12} />
             <span>+ Tab URL</span>
@@ -213,7 +213,7 @@ export const ExtensionApp: React.FC = () => {
                   color: '#57534E',
                   cursor: 'pointer',
                 }}
-                title="Open Dropbox in Full Extension Tab"
+                title="Open QuickDrop in Full Extension Tab"
               >
                 <Maximize2 size={12} />
               </button>
@@ -237,7 +237,7 @@ export const ExtensionApp: React.FC = () => {
               fontWeight: 600,
               textDecoration: 'none',
             }}
-            title="Open SecureBox Dropbox on Web"
+            title="Open SecureBox QuickDrop on Web"
           >
             <span>Web</span>
             <ExternalLink size={11} />

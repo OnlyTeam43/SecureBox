@@ -17,6 +17,8 @@ import {
   ChevronDown,
   FileText,
   Sparkles,
+  PanelRight,
+  CheckCircle2,
 } from 'lucide-react';
 import { QuickDropPanel } from './QuickDropModal';
 import { BrickWallPeeker } from './BrickWallPeeker';
@@ -123,12 +125,32 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
                 SECURE<span style={{ color: '#D96B43' }}>BOX</span>
               </div>
               <div style={{ fontSize: '10px', color: '#78716C', fontWeight: 500 }}>
-                Dropbox · Zero-Login Shuttle
+                QuickDrop · Zero-Login Shuttle
               </div>
             </div>
           </a>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <a
+              href="#install-extension"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 11px',
+                borderRadius: '8px',
+                backgroundColor: '#F5EBE6',
+                color: '#D96B43',
+                border: '1px solid #F0CFC2',
+                fontSize: '11px',
+                fontWeight: 700,
+                textDecoration: 'none',
+              }}
+            >
+              <PanelRight size={13} />
+              <span>Chrome Extension</span>
+            </a>
+
             <a
               href="/Securebox"
               onClick={handleNavigateSecurebox}
@@ -220,7 +242,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
               }}
             >
               <UploadCloud size={14} />
-              <span>Browser Encrypted Dropbox · Zero Sign-In Required</span>
+              <span>Browser Encrypted QuickDrop · Zero Sign-In Required</span>
             </div>
 
             <h1
@@ -329,6 +351,180 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
                 <p style={{ fontSize: '13px', color: '#57534E', margin: 0 }}>{item.desc}</p>
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* ─── Install Chrome Extension Section ─────────────────────────────── */}
+        <section
+          id="install-extension"
+          aria-labelledby="quickdrop-extension-heading"
+          style={{
+            padding: '12px 20px 52px',
+            maxWidth: '1080px',
+            margin: '0 auto',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              border: '1px solid #E7E5E4',
+              borderRadius: '20px',
+              padding: 'clamp(22px, 3.6vw, 34px)',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.04)',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))',
+              gap: '24px',
+              alignItems: 'center',
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '5px 11px',
+                  borderRadius: '999px',
+                  backgroundColor: '#F5EBE6',
+                  color: '#D96B43',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  letterSpacing: '0.5px',
+                  textTransform: 'uppercase',
+                  marginBottom: '12px',
+                }}
+              >
+                <PanelRight size={13} />
+                <span>Chrome Extension · Manifest V3</span>
+              </div>
+
+              <h2
+                id="quickdrop-extension-heading"
+                style={{
+                  fontSize: 'clamp(22px, 3vw, 30px)',
+                  fontWeight: 800,
+                  letterSpacing: '-0.6px',
+                  color: '#141518',
+                  marginBottom: '10px',
+                  lineHeight: 1.2,
+                }}
+              >
+                Install QuickDrop Chrome Extension
+              </h2>
+
+              <p style={{ fontSize: '14px', color: '#57534E', marginBottom: '16px' }}>
+                Send active tab links, right-click URLs, highlighted text, pasted screenshots
+                (<code>Ctrl+V</code>), or batch files straight from your browser toolbar or Side
+                Panel — 100% synced with <strong>/dropbox</strong>.
+              </p>
+
+              <ul
+                style={{
+                  listStyle: 'none',
+                  padding: 0,
+                  margin: '0 0 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  fontSize: '13px',
+                  color: '#44403C',
+                }}
+              >
+                {[
+                  'Toolbar Popup & Chrome Side Panel (keeps file picker open)',
+                  'Right-click context menu: Send Link, Selected Text, or Page URL',
+                  '1-click "+ Tab URL" button & zero-knowledge AES-256-GCM encryption',
+                ].map((point) => (
+                  <li
+                    key={point}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}
+                  >
+                    <CheckCircle2
+                      size={16}
+                      color="#D96B43"
+                      style={{ flexShrink: 0, marginTop: '2px' }}
+                    />
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <a
+                  href="/downloads/securebox-quickdrop-extension.zip"
+                  download="securebox-quickdrop-extension.zip"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '12px 20px',
+                    borderRadius: '12px',
+                    backgroundColor: '#D96B43',
+                    color: '#FFFFFF',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    textDecoration: 'none',
+                    boxShadow: '0 6px 16px rgba(217, 107, 67, 0.25)',
+                  }}
+                >
+                  <Download size={17} />
+                  <span>Download Extension (.zip)</span>
+                </a>
+                <span style={{ fontSize: '12px', color: '#78716C', fontWeight: 600 }}>
+                  v1.0.0 · Chrome, Edge, Brave &amp; Arc
+                </span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: '#FAF9F6',
+                border: '1px solid #E7E5E4',
+                borderRadius: '14px',
+                padding: '20px',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: '#141518',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  marginBottom: '12px',
+                }}
+              >
+                Quick Install Guide (60 Seconds)
+              </div>
+              <ol
+                style={{
+                  margin: 0,
+                  paddingLeft: '18px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  fontSize: '13px',
+                  color: '#57534E',
+                }}
+              >
+                <li>
+                  Click <strong>Download Extension (.zip)</strong> and extract it into a folder on
+                  your computer.
+                </li>
+                <li>
+                  Open <code>chrome://extensions</code> in Chrome (or{' '}
+                  <code>brave://extensions</code> / <code>edge://extensions</code>).
+                </li>
+                <li>
+                  Toggle on <strong>Developer mode</strong> in the top-right corner.
+                </li>
+                <li>
+                  Click <strong>Load unpacked</strong> and select the extracted folder containing{' '}
+                  <code>manifest.json</code>, then pin <strong>SecureBox QuickDrop</strong> to your
+                  toolbar.
+                </li>
+              </ol>
+            </div>
           </div>
         </section>
 
@@ -494,7 +690,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
               </div>
               <p style={{ fontSize: '13.5px', color: '#57534E', margin: 0 }}>
                 Send long URLs, code snippets, or travel checklists alongside media or by themselves.
-                SecureBox Dropbox automatically extracts <code>http://</code> and{' '}
+                SecureBox QuickDrop automatically extracts <code>http://</code> and{' '}
                 <code>https://</code> links into 1-tap Open &amp; Copy cards plus optional{' '}
                 <code>.txt</code> export.
               </p>
@@ -556,7 +752,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
                   color: '#141518',
                 }}
               >
-                Frequently Asked Questions About SecureBox Dropbox
+                Frequently Asked Questions About SecureBox QuickDrop
               </h2>
             </div>
 
@@ -752,7 +948,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
                 color: '#141518',
               }}
             >
-              SECURE<span style={{ color: '#D96B43' }}>BOX</span> DROPBOX
+              SECURE<span style={{ color: '#D96B43' }}>BOX</span> QUICKDROP
             </span>
           </div>
 
@@ -777,7 +973,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
               href="/dropbox"
               style={{ color: '#D96B43', textDecoration: 'none', fontWeight: 600 }}
             >
-              Dropbox / QuickDrop
+              QuickDrop (/dropbox)
             </a>
             <a
               href="/"
@@ -796,7 +992,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
           </nav>
 
           <div style={{ fontSize: '11px', color: '#A8A29E' }}>
-            &copy; 2026 SecureBox Dropbox (QuickDrop). Client-side AES-256-GCM encryption · 7-day auto-delete.
+            &copy; 2026 SecureBox QuickDrop. Client-side AES-256-GCM encryption · 7-day auto-delete.
           </div>
         </div>
       </footer>

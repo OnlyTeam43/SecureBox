@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "SecureBox Dropbox (QuickDrop)",
-  "short_name": "SecureBox Drop",
+  "name": "SecureBox QuickDrop",
+  "short_name": "QuickDrop",
   "version": "1.0.0",
-  "description": "Zero-login AES-256-GCM encrypted cross-device dropbox for files, media, links, and text notes with 7-day auto-delete.",
+  "description": "Zero-login AES-256-GCM encrypted cross-device QuickDrop for files, media, links, and text notes with 7-day auto-delete.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -11,7 +11,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "SecureBox Dropbox — Send or Pick Up Encrypted Files & Links",
+    "default_title": "SecureBox QuickDrop — Send or Pick Up Encrypted Files & Links",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

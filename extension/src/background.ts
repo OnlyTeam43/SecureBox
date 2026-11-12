@@ -1,5 +1,5 @@
 // extension/src/background.ts
-// Manifest V3 service worker for SecureBox Dropbox Chrome Extension
+// Manifest V3 service worker for SecureBox QuickDrop Chrome Extension
 // Registers right-click context menus to send links, highlighted text, or active tab URLs into QuickDrop.
 
 import './chrome-api.d';
@@ -9,18 +9,18 @@ const DRAFT_STORAGE_KEY = 'sbox_pending_draft';
 const MENU_ITEMS = [
   {
     id: 'sbox_send_selection',
-    title: 'Send Selected Text to SecureBox Dropbox',
-    contexts: ['selection'] as Array<'selection'>,
+    title: 'Send Selected Text to SecureBox QuickDrop',
+    contexts: ['selection'] as 'selection'[],
   },
   {
     id: 'sbox_send_link',
-    title: 'Send Link to SecureBox Dropbox',
-    contexts: ['link'] as Array<'link'>,
+    title: 'Send Link to SecureBox QuickDrop',
+    contexts: ['link'] as 'link'[],
   },
   {
     id: 'sbox_send_page',
-    title: 'Send Current Page URL to SecureBox Dropbox',
-    contexts: ['page'] as Array<'page'>,
+    title: 'Send Current Page URL to SecureBox QuickDrop',
+    contexts: ['page'] as 'page'[],
   },
 ];
 

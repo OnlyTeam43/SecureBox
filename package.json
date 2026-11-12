@@ -13,7 +13,7 @@
     "build:dev": "eas build -p android --profile development",
     "whatsapp-service": "node scripts/whatsapp_service.js --serve",
     "build:web": "vite build",
-    "build:extension": "vite build --config vite.extension.config.ts",
+    "build:extension": "vite build --config vite.extension.config.ts && node scripts/zip-extension.mjs",
     "dev:web": "vite",
     "serve:web": "node server.js"
   },

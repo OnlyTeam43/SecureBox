@@ -132,10 +132,10 @@ export const RoomHub: React.FC<RoomHubProps> = ({
                   textDecoration: 'none',
                   cursor: 'pointer',
                 }}
-                title="SecureBox Dropbox (/dropbox) - Anonymous Media, Links, and Text Transfer"
+                title="SecureBox QuickDrop (/dropbox) - Anonymous Media, Links, and Text Transfer"
               >
                 <UploadCloud size={16} />
-                <span>Dropbox</span>
+                <span>QuickDrop</span>
               </a>
             )}
             <button

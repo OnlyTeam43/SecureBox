@@ -804,7 +804,7 @@ export const QuickDropPanel: React.FC<QuickDropPanelProps> = ({
                     letterSpacing: '-0.3px',
                   }}
                 >
-                  {embedded ? 'SecureBox Dropbox' : 'QuickDrop'}
+                  {embedded ? 'SecureBox QuickDrop' : 'QuickDrop'}
                 </span>
                 <span
                   style={{

@@ -44,5 +44,6 @@ yarn-error.*
 !client/public/*.apk
 *.aab
 *.zip
+!client/public/downloads/*.zip
 **/.cxx/
 **/build/

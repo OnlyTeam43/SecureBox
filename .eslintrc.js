@@ -6,5 +6,5 @@ module.exports = {
     node: true,
     es6: true,
   },
-  ignorePatterns: ['/dist/*'],
+  ignorePatterns: ['/dist/*', '/dist-extension/*'],
 };

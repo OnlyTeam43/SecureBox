@@ -1451,10 +1451,10 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
                 textDecoration: 'none',
                 transition: 'all 0.15s ease',
               }}
-              title="SecureBox Dropbox (/dropbox) — Anonymous Media, Links & Text Transfer"
+              title="SecureBox QuickDrop (/dropbox) — Anonymous Media, Links & Text Transfer"
             >
               <UploadCloud size={13} />
-              <span>Dropbox</span>
+              <span>QuickDrop</span>
             </a>
           )}
 
