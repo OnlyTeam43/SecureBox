@@ -49,6 +49,10 @@ export interface QuickDropPanelProps {
   initialCode?: string;
   initialTab?: 'upload' | 'retrieve';
   embedded?: boolean;
+  externalNote?: string;
+  onExternalNoteConsumed?: () => void;
+  isExtensionPopup?: boolean;
+  onOpenFullPanel?: () => void;
 }
 
 interface QuickDropModalProps {
@@ -128,6 +132,10 @@ export const QuickDropPanel: React.FC<QuickDropPanelProps> = ({
   initialCode = '',
   initialTab = 'upload',
   embedded = false,
+  externalNote = '',
+  onExternalNoteConsumed,
+  isExtensionPopup = false,
+  onOpenFullPanel,
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'retrieve'>(initialTab);
 
@@ -188,6 +196,30 @@ export const QuickDropPanel: React.FC<QuickDropPanelProps> = ({
       generateRandomCode();
     }
   }, [activeTab]);
+
+  // Append injected links/text from Chrome Extension (context menu / active tab capture)
+  useEffect(() => {
+    const incoming = externalNote.trim();
+    if (!incoming || isUploading) return;
+    setUploadSuccess(null);
+    setActiveTab('upload');
+    setNoteText((prev) => {
+      const existing = prev.trim();
+      if (!existing) return incoming;
+      if (existing.includes(incoming)) return prev;
+      return `${existing}\n${incoming}`;
+    });
+    if (onExternalNoteConsumed) onExternalNoteConsumed();
+  }, [externalNote, isUploading, onExternalNoteConsumed]);
+
+  const handlePickFilesClick = () => {
+    if (isUploading) return;
+    if (isExtensionPopup && onOpenFullPanel) {
+      onOpenFullPanel();
+      return;
+    }
+    fileInputRef.current?.click();
+  };
 
   if (!embedded && !isOpen) return null;
 
@@ -286,7 +318,10 @@ export const QuickDropPanel: React.FC<QuickDropPanelProps> = ({
         cleanNoteText
       );
 
-      const baseUrl = window.location.origin;
+      const baseUrl =
+        window.location.protocol === 'chrome-extension:'
+          ? 'https://thesecurebox.vercel.app'
+          : window.location.origin;
       const shareUrl = `${baseUrl}/dropbox#code=${cleanCode}`;
 
       setUploadSuccess({
@@ -881,7 +916,24 @@ export const QuickDropPanel: React.FC<QuickDropPanelProps> = ({
         <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
           {/* TAB 1: UPLOAD (Files + Links & Text) */}
           {activeTab === 'upload' && (
-            <div>
+            <div
+              onPaste={(e) => {
+                if (isUploading) return;
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                const pastedFiles: File[] = [];
+                for (let i = 0; i < items.length; i++) {
+                  const item = items[i];
+                  if (item.kind === 'file') {
+                    const f = item.getAsFile();
+                    if (f) pastedFiles.push(f);
+                  }
+                }
+                if (pastedFiles.length > 0) {
+                  appendFiles(pastedFiles);
+                }
+              }}
+            >
               {!uploadSuccess ? (
                 <div>
                   {/* Hidden multiple file input */}
@@ -1006,7 +1058,7 @@ export const QuickDropPanel: React.FC<QuickDropPanelProps> = ({
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
-                    onClick={() => !isUploading && fileInputRef.current?.click()}
+                    onClick={handlePickFilesClick}
                     style={{
                       border: `2px dashed ${isDragOver ? Colors.accent.primary : Colors.border}`,
                       borderRadius: 14,
@@ -1042,9 +1094,11 @@ export const QuickDropPanel: React.FC<QuickDropPanelProps> = ({
                         color: Colors.text.primary,
                       }}
                     >
-                      {selectedFiles.length > 0
-                        ? 'Click or drag more files to add'
-                        : 'Click or drag & drop files (optional)'}
+                      {isExtensionPopup && onOpenFullPanel
+                        ? 'Open Side Panel to pick files (or Ctrl+V image / drag here)'
+                        : selectedFiles.length > 0
+                          ? 'Click or drag more files to add'
+                          : 'Click or drag & drop files (optional)'}
                     </p>
                     <p style={{ margin: 0, fontSize: 11, color: Colors.text.secondary }}>
                       Images, Videos, PDFs, or Documents (multiple select · max 15 MB/file)
@@ -1069,7 +1123,7 @@ export const QuickDropPanel: React.FC<QuickDropPanelProps> = ({
                         {!isUploading && (
                           <button
                             type="button"
-                            onClick={() => fileInputRef.current?.click()}
+                            onClick={handlePickFilesClick}
                             style={{
                               background: 'none',
                               border: 'none',

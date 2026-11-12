@@ -3,5 +3,5 @@
     "ignoreDeprecations": "5.0"
   },
   "extends": "expo/tsconfig.base",
-  "exclude": ["client", "vite.config.ts", "dist"]
+  "exclude": ["client", "extension", "vite.config.ts", "vite.extension.config.ts", "dist", "dist-extension"]
 }

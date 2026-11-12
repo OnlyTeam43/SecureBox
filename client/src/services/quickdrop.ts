@@ -69,11 +69,16 @@ function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
 }
 
 /**
- * Native non-blocking Base64 to ArrayBuffer using browser fetch
+ * Native in-memory Base64 to ArrayBuffer decoder (CSP-safe for web & Chrome Extension MV3)
  */
 async function base64ToArrayBuffer(base64: string): Promise<ArrayBuffer> {
-  const res = await fetch(`data:application/octet-stream;base64,${base64}`);
-  return await res.arrayBuffer();
+  const binary = atob(base64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
 }
 
 /**
