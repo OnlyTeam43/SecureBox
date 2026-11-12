@@ -1,1 +1,9 @@
-/*    /index.html   200
+/dropbox      /dropbox.html     200
+/dropbox/     /dropbox.html     200
+/drop         /dropbox.html     200
+/quickdrop    /dropbox.html     200
+/Securebox    /securebox.html   200
+/Securebox/   /securebox.html   200
+/securebox    /securebox.html   200
+/securebox/   /securebox.html   200
+/*            /index.html       200

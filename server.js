@@ -1,4 +1,4 @@
-// server.js - Lightweight zero-dependency static server with SPA fallback
+// server.js - Lightweight zero-dependency static server with multi-route SEO HTML & SPA fallback
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -15,6 +15,7 @@ const MIME_TYPES = {
   '.js': 'application/javascript; charset=UTF-8',
   '.css': 'text/css; charset=UTF-8',
   '.json': 'application/json; charset=UTF-8',
+  '.xml': 'application/xml; charset=UTF-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -23,11 +24,24 @@ const MIME_TYPES = {
   '.txt': 'text/plain; charset=UTF-8',
 };
 
-const server = http.createServer((req, res) => {
-  let cleanUrl = req.url.split('?')[0].split('#')[0];
-  if (cleanUrl.endsWith('/')) cleanUrl += 'index.html';
+const ROUTE_HTML_MAP = {
+  '/dropbox': 'dropbox.html',
+  '/drop': 'dropbox.html',
+  '/quickdrop': 'dropbox.html',
+  '/securebox': 'securebox.html',
+};
 
-  let filePath = path.join(ROOT, cleanUrl);
+const server = http.createServer((req, res) => {
+  const cleanUrl = (req.url || '/').split('?')[0].split('#')[0];
+  const normalizedRoute = cleanUrl.toLowerCase().replace(/\/+$/, '') || '/';
+
+  let filePath;
+  if (ROUTE_HTML_MAP[normalizedRoute]) {
+    filePath = path.join(ROOT, ROUTE_HTML_MAP[normalizedRoute]);
+  } else {
+    const candidate = cleanUrl.endsWith('/') ? `${cleanUrl}index.html` : cleanUrl;
+    filePath = path.join(ROOT, candidate);
+  }
 
   // SPA fallback to index.html
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {

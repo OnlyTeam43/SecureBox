@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>SecureBox Dropbox (QuickDrop) — Anonymous File, Link &amp; Text Transfer</title>
+  <meta name="description" content="Send photos, videos, PDFs, links, and text between phone and laptop without logging in. Client-side AES-256 encrypted pickup code, burn-after-retrieval, and 7-day auto-delete.">
+  <meta name="keywords" content="SecureBox Dropbox, QuickDrop, send files without login, anonymous file transfer, temporary file sharing 7 day auto delete, share links between phone and laptop without login, numeric code file pickup, encrypted file drop, burn after download file sharing">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="theme-color" content="#FAF9F6">
+  <link rel="canonical" href="https://thesecurebox.vercel.app/dropbox">
+
+  <!-- Open Graph / Social -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SecureBox">
+  <meta property="og:title" content="SecureBox Dropbox (QuickDrop) — Anonymous File, Link &amp; Text Transfer">
+  <meta property="og:description" content="Transfer images, videos, PDFs, URLs, and notes across devices with zero login. Encrypted locally with your custom numeric pickup code + 7-day auto-delete.">
+  <meta property="og:url" content="https://thesecurebox.vercel.app/dropbox">
+  <meta property="og:image" content="https://thesecurebox.vercel.app/mockups/mockup-hub.jpg">
+  <meta property="og:image:alt" content="SecureBox Dropbox zero-login encrypted file, link, and text transfer">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SecureBox Dropbox (QuickDrop) — Anonymous File, Link &amp; Text Transfer">
+  <meta name="twitter:description" content="Send files, links &amp; text without logging into WhatsApp or email. Client-side AES-256-GCM encryption, burn-after-retrieval, and 7-day auto-delete.">
+  <meta name="twitter:image" content="https://thesecurebox.vercel.app/mockups/mockup-hub.jpg">
+
+  <!-- Disguised Arcade Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23FAF9F5'/><rect x='4' y='6' width='10' height='5' rx='1' fill='%23D97757'/><rect x='18' y='6' width='10' height='5' rx='1' fill='%23E28743'/><rect x='4' y='14' width='10' height='5' rx='1' fill='%235E9473'/><rect x='18' y='14' width='10' height='5' rx='1' fill='%234A8B88'/><circle cx='16' cy='25' r='3' fill='%23141413'/></svg>">
+
+  <!-- Google Fonts: Silkscreen & Space Grotesk -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Silkscreen:wght@400;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Structured Data: WebApplication + HowTo + FAQPage + BreadcrumbList -->
+  <script id="route-structured-data" type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "name": "SecureBox Dropbox (QuickDrop)",
+        "alternateName": "QuickDrop Anonymous Media, Links & Text Shuttle",
+        "url": "https://thesecurebox.vercel.app/dropbox",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Any (Web Browser — Windows, macOS, Android, iOS, Linux)",
+        "browserRequirements": "Modern web browser with WebCrypto API",
+        "description": "Browser-based zero-login encrypted transfer shuttle for sending multiple images, videos, documents, URLs, and text notes across devices using a numeric pickup code with 7-day auto-delete and burn-on-retrieval.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "Zero login, zero signup, zero WhatsApp or email exposure",
+          "Multiple file batch upload (images, videos, PDFs, docs, archives)",
+          "Encrypted URL links and text note transfer up to 100,000 characters",
+          "Custom or generated numeric pickup code with AES-256-GCM encryption",
+          "Strict 7-day automatic expiry plus optional Burn After Retrieval"
+        ]
+      },
+      {
+        "@type": "HowTo",
+        "name": "How to Send Files, Links, and Text Without Logging In",
+        "description": "Transfer media, documents, URLs, and notes across devices securely using a numeric pickup code.",
+        "step": [
+          {
+            "@type": "HowToStep",
+            "position": 1,
+            "name": "Add files, links, or text",
+            "text": "Select multiple images, videos, or documents, or paste URLs and text notes into SecureBox Dropbox."
+          },
+          {
+            "@type": "HowToStep",
+            "position": 2,
+            "name": "Set your numeric pickup code",
+            "text": "Keep the generated 6-digit code or enter your own custom numeric code. Your browser encrypts everything locally with AES-256-GCM."
+          },
+          {
+            "@type": "HowToStep",
+            "position": 3,
+            "name": "Retrieve and auto-burn on any device",
+            "text": "Open /dropbox on the target device, enter the numeric code to decrypt locally, copy links or download files, and optionally burn the cloud copy immediately."
+          }
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Do I need an account or login to use SecureBox Dropbox?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No login, email, phone number, or account creation is required. You choose a numeric pickup code, drop your files, links, or text notes directly in your browser, and enter that same code on any other phone, laptop, or public computer to decrypt and retrieve them."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How are uploaded files, links, and text notes encrypted?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Everything is encrypted inside your browser before leaving your device using WebCrypto AES-256-GCM authenticated encryption and a key derived from your numeric pickup code via PBKDF2-SHA256 (100,000 iterations). Only someone holding your exact numeric code can decrypt the files or links."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How long do files and links stay before automatic deletion?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Every SecureBox Dropbox bundle enforces a strict 7-day automatic deletion timer so nothing stays online permanently. You can also keep Burn After Retrieval enabled so the cloud copy is permanently erased immediately after the recipient downloads all files or copies the note."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What file types, sizes, and link formats are supported?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "You can batch-upload multiple images, videos, PDFs, Word documents, spreadsheets, ZIP archives, and text files (up to 15 MB per file and 35 MB total per bundle), plus paste up to 100,000 characters of links and text notes. Retrieved http and https URLs are automatically detected into one-tap Open and Copy buttons."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Why use SecureBox Dropbox instead of logging into WhatsApp Web or Gmail on a shared PC?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Signing into personal WhatsApp Web, Google Drive, or email on a print shop, library, school, or friend’s computer risks leaving active sessions behind. SecureBox Dropbox lets you grab a single document, photo, or link using only a temporary numeric code—zero account exposure and instant burn cleanup."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://thesecurebox.vercel.app/" },
+          { "@type": "ListItem", "position": 2, "name": "SecureBox", "item": "https://thesecurebox.vercel.app/Securebox" },
+          { "@type": "ListItem", "position": 3, "name": "Dropbox", "item": "https://thesecurebox.vercel.app/dropbox" }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <div id="root">
+    <main style="font-family: sans-serif; max-width: 880px; margin: 40px auto; padding: 20px; color: #141518;">
+      <h1>Send Files, Links &amp; Text Between Devices Without Logging In.</h1>
+      <p>Upload photos, videos, PDFs, links, or notes in your browser and protect them with your own numeric pickup code. Client-side AES-256-GCM encryption, optional instant burn-after-retrieval, and strict 7-day automatic deletion.</p>
+      <p>
+        <a href="/Securebox">SecureBox Disguised Vault &amp; APK</a> ·
+        <a href="/securebox.apk">Download Android APK</a> ·
+        <a href="/">Brick Smash Disguise App</a>
+      </p>
+      <h2>Cross-Device File &amp; Link Handoff in 3 Steps</h2>
+      <ol>
+        <li>Drop Media, Docs, Links or Text (up to 15 MB per file / 35 MB bundle and 100,000 text characters).</li>
+        <li>Lock With Your Numeric Pickup Code via local WebCrypto AES-256-GCM encryption.</li>
+        <li>Search, Open &amp; Burn on Any Device at /dropbox.</li>
+      </ol>
+      <h2>Frequently Asked Questions About SecureBox Dropbox</h2>
+      <h3>Do I need an account or login to use SecureBox Dropbox?</h3>
+      <p>No login, email, phone number, or account creation is required.</p>
+      <h3>How are uploaded files, links, and text notes encrypted?</h3>
+      <p>Everything is encrypted client-side in your browser using AES-256-GCM and PBKDF2-SHA256 (100,000 iterations).</p>
+      <h3>How long do files and links stay before automatic deletion?</h3>
+      <p>All bundles auto-delete after 7 days or immediately when Burn After Retrieval triggers.</p>
+    </main>
+  </div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

@@ -112,8 +112,12 @@ export const RoomHub: React.FC<RoomHubProps> = ({
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {onOpenQuickDrop && (
-              <button
-                onClick={onOpenQuickDrop}
+              <a
+                href="/dropbox"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpenQuickDrop();
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -125,13 +129,14 @@ export const RoomHub: React.FC<RoomHubProps> = ({
                   color: Colors.accent.primary,
                   fontSize: 13,
                   fontWeight: 600,
+                  textDecoration: 'none',
                   cursor: 'pointer',
                 }}
-                title="QuickDrop - Anonymous Cross-Device Media, Links, and Text Transfer"
+                title="SecureBox Dropbox (/dropbox) - Anonymous Media, Links, and Text Transfer"
               >
                 <UploadCloud size={16} />
-                <span>QuickDrop</span>
-              </button>
+                <span>Dropbox</span>
+              </a>
             )}
             <button
               onClick={onPlayGame}

@@ -43,6 +43,14 @@ import {
   MAX_TEXT_LENGTH,
 } from '../services/quickdrop';
 
+export interface QuickDropPanelProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+  initialCode?: string;
+  initialTab?: 'upload' | 'retrieve';
+  embedded?: boolean;
+}
+
 interface QuickDropModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -114,11 +122,12 @@ async function copyTextSafe(text: string): Promise<boolean> {
   }
 }
 
-export const QuickDropModal: React.FC<QuickDropModalProps> = ({
-  isOpen,
+export const QuickDropPanel: React.FC<QuickDropPanelProps> = ({
+  isOpen = true,
   onClose,
   initialCode = '',
   initialTab = 'upload',
+  embedded = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'retrieve'>(initialTab);
 
@@ -180,7 +189,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
     }
   }, [activeTab]);
 
-  if (!isOpen) return null;
+  if (!embedded && !isOpen) return null;
 
   // Append new files with size limit validations
   const appendFiles = (newFiles: FileList | File[]) => {
@@ -278,7 +287,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
       );
 
       const baseUrl = window.location.origin;
-      const shareUrl = `${baseUrl}/drop#code=${cleanCode}`;
+      const shareUrl = `${baseUrl}/dropbox#code=${cleanCode}`;
 
       setUploadSuccess({
         code: cleanCode,
@@ -688,7 +697,10 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
   return (
     <div
       style={{
-        position: 'fixed',
+        ...(embedded
+          ? { width: '100%' }
+          : {
+              position: 'fixed' as const,
         inset: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.65)',
         backdropFilter: 'blur(6px)',
@@ -697,25 +709,27 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
         justifyContent: 'center',
         zIndex: 1000,
         padding: 16,
+            }),
         boxSizing: 'border-box',
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !isUploading) onClose();
+        if (!embedded && e.target === e.currentTarget && !isUploading && onClose) onClose();
       }}
     >
       <div
         style={{
           width: '100%',
-          maxWidth: 560,
-          maxHeight: '92vh',
+          maxWidth: embedded ? 660 : 560,
+          maxHeight: embedded ? undefined : '92vh',
+          margin: embedded ? '0 auto' : undefined,
           backgroundColor: Colors.bg.elevated,
           borderRadius: 18,
           border: `1px solid ${Colors.border}`,
-          boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+          boxShadow: embedded ? '0 12px 34px rgba(20, 21, 24, 0.08)' : '0 20px 40px rgba(0,0,0,0.3)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          animation: 'fadeInScale 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+          animation: embedded ? undefined : 'fadeInScale 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         {/* Modal Header */}
@@ -755,7 +769,7 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
                     letterSpacing: '-0.3px',
                   }}
                 >
-                  QuickDrop
+                  {embedded ? 'SecureBox Dropbox' : 'QuickDrop'}
                 </span>
                 <span
                   style={{
@@ -778,26 +792,28 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            disabled={isUploading}
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              border: `1px solid ${Colors.border}`,
-              backgroundColor: Colors.bg.primary,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: Colors.text.secondary,
-              cursor: isUploading ? 'not-allowed' : 'pointer',
-              opacity: isUploading ? 0.4 : 1,
-            }}
-            title="Close"
-          >
-            <X size={16} />
-          </button>
+          {!embedded && onClose && (
+            <button
+              onClick={onClose}
+              disabled={isUploading}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                border: `1px solid ${Colors.border}`,
+                backgroundColor: Colors.bg.primary,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: Colors.text.secondary,
+                cursor: isUploading ? 'not-allowed' : 'pointer',
+                opacity: isUploading ? 0.4 : 1,
+              }}
+              title="Close"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
 
         {/* Tab Switcher */}
@@ -2026,5 +2042,23 @@ export const QuickDropModal: React.FC<QuickDropModalProps> = ({
         </div>
       </div>
     </div>
+  );
+};
+
+
+export const QuickDropModal: React.FC<QuickDropModalProps> = ({
+  isOpen,
+  onClose,
+  initialCode = '',
+  initialTab = 'upload',
+}) => {
+  return (
+    <QuickDropPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      initialCode={initialCode}
+      initialTab={initialTab}
+      embedded={false}
+    />
   );
 };

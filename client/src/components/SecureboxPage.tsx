@@ -29,8 +29,11 @@ import {
   Eye,
   FileCode,
   UploadCloud,
+  ChevronDown,
+  Flame,
 } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
+import { SECUREBOX_FAQS } from '../utils/seo';
 
 interface SecureboxPageProps {
   onLaunchApp?: () => void;
@@ -39,6 +42,17 @@ interface SecureboxPageProps {
 
 export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpenQuickDrop }) => {
   const [activeMockupIndex, setActiveMockupIndex] = useState(0);
+  const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
+
+  const handleOpenDropbox = (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    if (onOpenQuickDrop) {
+      onOpenQuickDrop();
+    } else {
+      window.history.pushState(null, '', '/dropbox');
+      window.location.href = '/dropbox';
+    }
+  };
 
   // Preload all 5 mockup screenshot images
   useEffect(() => {
@@ -250,7 +264,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                 }}
               >
                 <UploadCloud size={13} />
-                <span>QuickDrop</span>
+                <span>Dropbox · QuickDrop</span>
               </button>
             )}
 
@@ -298,6 +312,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
           </div>
         </div>
       </header>
+      <main>
 
       {/* ─── Hero Section ─────────────────────────────────────────────────── */}
       <section
@@ -589,7 +604,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                 >
                   <img
                     src={mockups[activeMockupIndex].image}
-                    alt={mockups[activeMockupIndex].title}
+                    alt={`${mockups[activeMockupIndex].title} — ${mockups[activeMockupIndex].subtitle}`}
                     style={{
                       width: '100%',
                       height: '100%',
@@ -730,7 +745,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
 
           {/* 5-Screen Horizontal Gallery */}
           <div style={{ marginTop: '48px' }}>
-            <h4
+            <h3
               style={{
                 fontSize: '16px',
                 fontWeight: 700,
@@ -740,7 +755,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
               }}
             >
               All 5 Application Screens at a Glance (Tap to View)
-            </h4>
+            </h3>
 
             <div
               style={{
@@ -781,7 +796,8 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                   >
                     <img
                       src={m.image}
-                      alt={m.title}
+                      alt={`${m.title} — SecureBox ${m.badge}`}
+                      loading="lazy"
                       style={{
                         width: '100%',
                         height: '100%',
@@ -1297,6 +1313,194 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
       </section>
 
       {/* ─── Footer ──────────────────────────────────────────────────────── */}
+      {/* ─── Companion Dropbox (/dropbox) Spotlight Section ─────────────────────── */}
+      <section
+        aria-labelledby="dropbox-companion-heading"
+        style={{
+          padding: '52px 20px',
+          backgroundColor: '#FFFFFF',
+          borderTop: '1px solid #E7E5E4',
+          borderBottom: '1px solid #E7E5E4',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: '960px',
+            margin: '0 auto',
+            backgroundColor: '#FAF9F6',
+            borderRadius: '20px',
+            border: '1px solid #E7E5E4',
+            padding: '28px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '24px',
+          }}
+        >
+          <div style={{ flex: '1 1 420px' }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                backgroundColor: '#F5EBE6',
+                color: '#D96B43',
+                fontSize: '11px',
+                fontWeight: 700,
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+                marginBottom: '10px',
+              }}
+            >
+              <Flame size={13} />
+              <span>Included Companion · /dropbox</span>
+            </div>
+            <h2
+              id="dropbox-companion-heading"
+              style={{
+                fontSize: 'clamp(20px, 3vw, 28px)',
+                fontWeight: 800,
+                letterSpacing: '-0.5px',
+                color: '#141518',
+                marginBottom: '8px',
+              }}
+            >
+              Need to Send Files, Links &amp; Text Without Logging In?
+            </h2>
+            <p style={{ fontSize: '14px', color: '#57534E', margin: 0 }}>
+              Open SecureBox Dropbox on a separate <strong>/dropbox</strong> page to transfer
+              photos, videos, PDFs, links, and encrypted notes using a custom numeric pickup code
+              — featuring AES-256-GCM encryption, burn-after-retrieval, and 7-day auto-delete.
+            </p>
+          </div>
+
+          <a
+            href="/dropbox"
+            onClick={handleOpenDropbox}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '13px 22px',
+              borderRadius: '12px',
+              backgroundColor: '#D96B43',
+              color: '#FFFFFF',
+              fontSize: '14px',
+              fontWeight: 700,
+              textDecoration: 'none',
+              boxShadow: '0 6px 18px rgba(217, 107, 67, 0.28)',
+              flexShrink: 0,
+            }}
+          >
+            <UploadCloud size={17} />
+            <span>Open SecureBox Dropbox</span>
+            <ArrowRight size={15} />
+          </a>
+        </div>
+      </section>
+
+      {/* ─── Frequently Asked Questions (Matches JSON-LD FAQPage Schema) ────────── */}
+      <section
+        aria-labelledby="securebox-faq-heading"
+        style={{
+          padding: '52px 20px',
+          backgroundColor: '#FAF9F6',
+        }}
+      >
+        <div style={{ maxWidth: '840px', margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: '#D96B43',
+                letterSpacing: '0.6px',
+                textTransform: 'uppercase',
+              }}
+            >
+              FAQ
+            </span>
+            <h2
+              id="securebox-faq-heading"
+              style={{
+                fontSize: 'clamp(22px, 3.2vw, 32px)',
+                fontWeight: 800,
+                letterSpacing: '-0.6px',
+                marginTop: '6px',
+                color: '#141518',
+              }}
+            >
+              Frequently Asked Questions About SecureBox
+            </h2>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {SECUREBOX_FAQS.map((faq, idx) => {
+              const isOpen = openFaqIdx === idx;
+              return (
+                <div
+                  key={faq.question}
+                  style={{
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid #E7E5E4',
+                    borderRadius: '12px',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenFaqIdx(isOpen ? null : idx)}
+                    aria-expanded={isOpen}
+                    style={{
+                      width: '100%',
+                      padding: '16px 18px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      color: '#141518',
+                      fontSize: '15px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span>{faq.question}</span>
+                    <ChevronDown
+                      size={18}
+                      color="#78716C"
+                      style={{
+                        flexShrink: 0,
+                        transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.15s ease',
+                      }}
+                    />
+                  </button>
+                  {isOpen && (
+                    <div
+                      style={{
+                        padding: '0 18px 16px',
+                        fontSize: '14px',
+                        color: '#57534E',
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      {faq.answer}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+      </main>
+
       <footer
         style={{
           padding: '36px 20px',
@@ -1360,6 +1564,21 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
             </span>
           </div>
 
+          <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '4px' }}>
+            <a
+              href="/dropbox"
+              onClick={handleOpenDropbox}
+              style={{ color: '#D96B43', fontSize: '12px', fontWeight: 600, textDecoration: 'none' }}
+            >
+              SecureBox Dropbox (/dropbox)
+            </a>
+            <a
+              href="/Securebox"
+              style={{ color: '#57534E', fontSize: '12px', fontWeight: 600, textDecoration: 'none' }}
+            >
+              SecureBox Vault Overview
+            </a>
+          </div>
           <div style={{ fontSize: '11px', color: '#A8A29E', marginTop: '6px' }}>
             &copy; 2026 SecureBox. All rights reserved. Zero server logs, zero message retention.
           </div>

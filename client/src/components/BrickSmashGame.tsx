@@ -1374,8 +1374,10 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
         }}
       >
         {/* Clickable Title: Brick Wall Peeker + "Brick Smash × SecureBox" Font */}
-        <div
-          onClick={() => {
+        <a
+          href="/Securebox"
+          onClick={(e) => {
+            e.preventDefault();
             if (onOpenSecureboxPage) {
               onOpenSecureboxPage();
             } else {
@@ -1390,6 +1392,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
             cursor: 'pointer',
             padding: '4px 6px',
             borderRadius: 8,
+            textDecoration: 'none',
             transition: 'background-color 0.15s ease',
           }}
           title="SecureBox — Click to explore features and download APK"
@@ -1421,14 +1424,18 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
               SecureBox
             </span>
           </div>
-        </div>
+        </a>
 
         {/* Right Controls: QuickDrop, PIN, and Hamburger Menu */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-          {/* QuickDrop Media Shuttle Button (Kept out on header) */}
+          {/* Dropbox / QuickDrop Media & Link Shuttle Link */}
           {onOpenQuickDrop && (
-            <button
-              onClick={onOpenQuickDrop}
+            <a
+              href="/dropbox"
+              onClick={(e) => {
+                e.preventDefault();
+                onOpenQuickDrop();
+              }}
               style={{
                 padding: '5px 9px',
                 borderRadius: 8,
@@ -1441,13 +1448,14 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
                 color: Colors.accent.primary,
                 fontSize: 11,
                 fontWeight: 700,
+                textDecoration: 'none',
                 transition: 'all 0.15s ease',
               }}
-              title="QuickDrop — Anonymous Cross-Device Media, Links & Text Transfer"
+              title="SecureBox Dropbox (/dropbox) — Anonymous Media, Links & Text Transfer"
             >
               <UploadCloud size={13} />
-              <span>QuickDrop</span>
-            </button>
+              <span>Dropbox</span>
+            </a>
           )}
 
           {/* PIN Trigger Button (Kept out on header) */}
@@ -1727,8 +1735,10 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
             <div style={{ height: 1, backgroundColor: Colors.border, margin: '3px 0' }} />
 
             {/* Item 4: About SecureBox & APK */}
-            <div
-              onClick={() => {
+            <a
+              href="/Securebox"
+              onClick={(e) => {
+                e.preventDefault();
                 setIsMenuOpen(false);
                 if (onOpenSecureboxPage) {
                   onOpenSecureboxPage();
@@ -1744,6 +1754,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
                 padding: '9px 9px',
                 borderRadius: 8,
                 cursor: 'pointer',
+                textDecoration: 'none',
                 backgroundColor: 'rgba(217, 107, 67, 0.05)',
                 transition: 'background-color 0.15s',
               }}
@@ -1755,7 +1766,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
                 </span>
               </div>
               <ChevronRight size={14} color={Colors.accent.primary} />
-            </div>
+            </a>
           </div>
         </>
       )}

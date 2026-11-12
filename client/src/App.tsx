@@ -31,7 +31,8 @@ import { ChatHeader } from './components/ChatHeader';
 import { ChatMessages } from './components/ChatMessages';
 import { Composer } from './components/Composer';
 import { SecureboxPage } from './components/SecureboxPage';
-import { QuickDropModal } from './components/QuickDropModal';
+import { DropboxPage } from './components/DropboxPage';
+import { applyRouteSeo } from './utils/seo';
 
 // ─── Storage Key Constants ──────────────────────────────────────────────────
 const HUB_KEY = 'securebox_hub_hash';
@@ -42,6 +43,8 @@ const isDropRoute = (path: string, hash: string = ''): boolean => {
   const clean = path.toLowerCase().replace(/\/+$/, '');
   const cleanHash = hash.toLowerCase();
   return (
+    clean === '/dropbox' ||
+    clean.endsWith('/dropbox') ||
     clean === '/drop' ||
     clean.endsWith('/drop') ||
     clean === '/quickdrop' ||
@@ -74,7 +77,7 @@ const getTotalUnreadCount = (): number => {
 };
 
 export const App: React.FC = () => {
-  const [isQuickDropOpen, setIsQuickDropOpen] = useState<boolean>(() =>
+  const [isDropboxPage, setIsDropboxPage] = useState<boolean>(() =>
     typeof window !== 'undefined' ? isDropRoute(window.location.pathname, window.location.hash) : false
   );
   const [quickDropCode, setQuickDropCode] = useState<string>(() => {
@@ -90,23 +93,72 @@ export const App: React.FC = () => {
     return p.get('code') ? 'retrieve' : 'upload';
   });
 
-  const [isDedicatedPage, setIsDedicatedPage] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? isSecureboxRoute(window.location.pathname) : false
+  const [isDedicatedPage, setIsDedicatedPage] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const path = window.location.pathname;
+    return !isDropRoute(path, window.location.hash) && isSecureboxRoute(path);
+  });
+
+  const [screenMode, setScreenMode] = useState<ScreenMode>('hub');
+  const screenModeRef = useRef<ScreenMode>(screenMode);
+  screenModeRef.current = screenMode;
+
+  const openDropboxPage = useCallback(
+    (tab: 'upload' | 'retrieve' = 'upload', code: string = '') => {
+      if (code) setQuickDropCode(code);
+      setQuickDropTab(tab);
+      setIsDedicatedPage(false);
+      setIsDropboxPage(true);
+      if (typeof window !== 'undefined') {
+        window.history.pushState(null, '', '/dropbox');
+      }
+    },
+    []
   );
+
+  const openSecureboxPage = useCallback(() => {
+    setIsDropboxPage(false);
+    setIsDedicatedPage(true);
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/Securebox');
+    }
+  }, []);
+
+  const launchMainApp = useCallback(() => {
+    setIsDropboxPage(false);
+    setIsDedicatedPage(false);
+    setScreenMode('hub');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isDropboxPage) {
+      applyRouteSeo('dropbox');
+    } else if (isDedicatedPage) {
+      applyRouteSeo('securebox');
+    } else if (screenMode !== 'chat') {
+      applyRouteSeo('home');
+    }
+  }, [isDropboxPage, isDedicatedPage, screenMode]);
 
   useEffect(() => {
     const handlePop = () => {
-      setIsDedicatedPage(isSecureboxRoute(window.location.pathname));
-      if (isDropRoute(window.location.pathname, window.location.hash)) {
-        const hash = window.location.hash.slice(1);
-        const p = new URLSearchParams(hash.includes('=') ? hash : '');
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      const dropMatched = isDropRoute(path, hash);
+      if (dropMatched) {
+        const cleanHash = hash.slice(1);
+        const p = new URLSearchParams(cleanHash.includes('=') ? cleanHash : '');
         const c = p.get('code');
         if (c) {
           setQuickDropCode(c);
           setQuickDropTab('retrieve');
         }
-        setIsQuickDropOpen(true);
       }
+      setIsDropboxPage(dropMatched);
+      setIsDedicatedPage(!dropMatched && isSecureboxRoute(path));
     };
     window.addEventListener('popstate', handlePop);
     return () => window.removeEventListener('popstate', handlePop);
@@ -117,9 +169,6 @@ export const App: React.FC = () => {
     const hasHubPin = !!localStorage.getItem(HUB_KEY);
     return !hasHandle || !hasHubPin;
   });
-  const [screenMode, setScreenMode] = useState<ScreenMode>('hub');
-  const screenModeRef = useRef<ScreenMode>(screenMode);
-  screenModeRef.current = screenMode;
 
   const [activeRoom, setActiveRoom] = useState<RoomMetadata | null>(null);
   const activeRoomRef = useRef<RoomMetadata | null>(activeRoom);
@@ -186,8 +235,14 @@ export const App: React.FC = () => {
     const parseUrl = async () => {
       const rawHash = window.location.hash.slice(1).trim();
 
-      // QuickDrop direct link (#code=... or #drop)
-      if (rawHash.includes('code=') || rawHash === 'drop') {
+      // QuickDrop / Dropbox direct link (#code=... or #drop or legacy /drop /quickdrop)
+      const lowerPath = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+      if (
+        rawHash.includes('code=') ||
+        rawHash === 'drop' ||
+        lowerPath === '/drop' ||
+        lowerPath === '/quickdrop'
+      ) {
         const p = new URLSearchParams(rawHash.includes('=') ? rawHash : '');
         const c = p.get('code');
         if (c) {
@@ -196,8 +251,9 @@ export const App: React.FC = () => {
         } else {
           setQuickDropTab('upload');
         }
-        setIsQuickDropOpen(true);
-        window.history.replaceState(null, '', window.location.pathname);
+        setIsDedicatedPage(false);
+        setIsDropboxPage(true);
+        window.history.replaceState(null, '', '/dropbox');
         return;
       }
 
@@ -706,32 +762,23 @@ export const App: React.FC = () => {
     }
   };
 
+  if (isDropboxPage) {
+    return (
+      <DropboxPage
+        initialCode={quickDropCode}
+        initialTab={quickDropTab}
+        onLaunchApp={launchMainApp}
+        onOpenSecureboxPage={openSecureboxPage}
+      />
+    );
+  }
+
   if (isDedicatedPage) {
     return (
-      <>
-        <SecureboxPage
-          onLaunchApp={() => {
-            window.history.pushState(null, '', '/');
-            setIsDedicatedPage(false);
-            setScreenMode('hub');
-          }}
-          onOpenQuickDrop={() => {
-            setQuickDropTab('upload');
-            setIsQuickDropOpen(true);
-          }}
-        />
-        <QuickDropModal
-          isOpen={isQuickDropOpen}
-          onClose={() => {
-            setIsQuickDropOpen(false);
-            if (window.location.pathname.toLowerCase().includes('drop')) {
-              window.history.replaceState(null, '', '/');
-            }
-          }}
-          initialCode={quickDropCode}
-          initialTab={quickDropTab}
-        />
-      </>
+      <SecureboxPage
+        onLaunchApp={launchMainApp}
+        onOpenQuickDrop={() => openDropboxPage('upload')}
+      />
     );
   }
 
@@ -764,14 +811,8 @@ export const App: React.FC = () => {
         {screenMode === 'game' && (
           <BrickSmashGame
             unreadCount={unreadCount}
-            onOpenSecureboxPage={() => {
-              window.history.pushState(null, '', '/Securebox');
-              setIsDedicatedPage(true);
-            }}
-            onOpenQuickDrop={() => {
-              setQuickDropTab('upload');
-              setIsQuickDropOpen(true);
-            }}
+            onOpenSecureboxPage={openSecureboxPage}
+            onOpenQuickDrop={() => openDropboxPage('upload')}
             onUnlockClick={() => {
               // Action when unlocked via Hub Password -> ALWAYS GO TO THE SECUREBOX HUB!
               pendingUnlockAction.current = () => {
@@ -799,10 +840,7 @@ export const App: React.FC = () => {
             }}
             onDeleteRoom={(rId) => deleteRoom(rId, true)}
             onPlayGame={() => setScreenMode('game')}
-            onOpenQuickDrop={() => {
-              setQuickDropTab('upload');
-              setIsQuickDropOpen(true);
-            }}
+            onOpenQuickDrop={() => openDropboxPage('upload')}
           />
         )}
 
@@ -829,7 +867,7 @@ export const App: React.FC = () => {
               }}
               onGameClick={() => {
                 setScreenMode('game');
-                document.title = 'Brick Smash | Arcade Retro Game';
+                applyRouteSeo('home');
               }}
               onLockClick={() => {
                 setScreenMode('game');
@@ -910,19 +948,6 @@ export const App: React.FC = () => {
               setScreenMode('hub');
             }
           }}
-        />
-
-        {/* QuickDrop Modal */}
-        <QuickDropModal
-          isOpen={isQuickDropOpen}
-          onClose={() => {
-            setIsQuickDropOpen(false);
-            if (window.location.pathname.toLowerCase().includes('drop')) {
-              window.history.replaceState(null, '', '/');
-            }
-          }}
-          initialCode={quickDropCode}
-          initialTab={quickDropTab}
         />
 
         {/* Share Modal */}

@@ -1,6 +1,25 @@
 {
   "buildCommand": "npm run build:web",
   "outputDirectory": "dist",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ],
   "redirects": [
     {
       "source": "/securebox.apk",
@@ -14,6 +33,46 @@
     }
   ],
   "rewrites": [
+    {
+      "source": "/dropbox",
+      "destination": "/dropbox.html"
+    },
+    {
+      "source": "/dropbox/",
+      "destination": "/dropbox.html"
+    },
+    {
+      "source": "/drop",
+      "destination": "/dropbox.html"
+    },
+    {
+      "source": "/drop/",
+      "destination": "/dropbox.html"
+    },
+    {
+      "source": "/quickdrop",
+      "destination": "/dropbox.html"
+    },
+    {
+      "source": "/quickdrop/",
+      "destination": "/dropbox.html"
+    },
+    {
+      "source": "/Securebox",
+      "destination": "/securebox.html"
+    },
+    {
+      "source": "/Securebox/",
+      "destination": "/securebox.html"
+    },
+    {
+      "source": "/securebox",
+      "destination": "/securebox.html"
+    },
+    {
+      "source": "/securebox/",
+      "destination": "/securebox.html"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
