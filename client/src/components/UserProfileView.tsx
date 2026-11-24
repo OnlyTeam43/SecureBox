@@ -64,18 +64,18 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        padding: '16px 14px 76px',
+        padding: 'calc(6px + env(safe-area-inset-top, 0px)) 12px 76px',
         boxSizing: 'border-box',
       }}
     >
-      <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 12 }}>
         {/* Header Bar */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            padding: '4px 0',
+            padding: '2px 0',
           }}
         >
           <div>

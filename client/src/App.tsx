@@ -824,7 +824,6 @@ export const App: React.FC = () => {
           <BrickSmashGame
             unreadCount={unreadCount}
             onOpenSecureboxPage={openSecureboxPage}
-            onOpenQuickDrop={() => openDropboxPage('upload')}
             onUnlockClick={() => {
               // Action when unlocked via Hub Password -> ALWAYS GO TO THE SECUREBOX HUB!
               pendingUnlockAction.current = () => {

@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
-import { Lock, Volume2, VolumeX, Zap, Trophy, RotateCcw, ArrowRight, UploadCloud, Menu, X, ChevronRight, ShieldCheck, Smartphone, Download } from 'lucide-react';
+import { Lock, Volume2, VolumeX, Zap, Trophy, RotateCcw, ArrowRight, Menu, X, ChevronRight, ShieldCheck, Smartphone, Download } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
 import { usePWAInstall } from '../utils/usePWAInstall';
 
@@ -730,7 +730,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
       const cols = Math.floor(Math.min(10, (w - 20) / 42));
       const brickWidth = Math.floor((w - 20 - (cols - 1) * 4) / cols);
       const brickHeight = 12;
-      const startY = 60;
+      const startY = 36;
       const numRows = Math.min(8, 5 + Math.min(level - 1, 3));
       bricks = [];
 
@@ -1163,31 +1163,31 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
 
         // Top HUD Bar
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, w, 44);
+        ctx.fillRect(0, 0, w, 28);
         ctx.strokeStyle = 'rgba(20, 20, 19, 0.08)';
         ctx.beginPath();
-        ctx.moveTo(0, 44);
-        ctx.lineTo(w, 44);
+        ctx.moveTo(0, 28);
+        ctx.lineTo(w, 28);
         ctx.stroke();
 
         ctx.fillStyle = '#E05A38';
-        ctx.font = '700 12px monospace';
+        ctx.font = '700 11px monospace';
         ctx.textAlign = 'left';
-        ctx.fillText(`LVL ${level}`, 14, 26);
+        ctx.fillText(`LVL ${level}`, 12, 18);
 
         ctx.fillStyle = '#141413';
-        ctx.font = '600 13px -apple-system, sans-serif';
-        ctx.fillText(`SCORE: ${score}`, 68, 26);
+        ctx.font = '600 12px -apple-system, sans-serif';
+        ctx.fillText(`SCORE: ${score}`, 62, 18);
 
         ctx.fillStyle = '#87867F';
         ctx.textAlign = 'center';
-        ctx.fillText(`BEST: ${highScore}`, w / 2, 26);
+        ctx.fillText(`BEST: ${highScore}`, w / 2, 18);
 
         // Render 3 Crisp Vector Hearts for Lives (NO text emojis)
         for (let i = 0; i < 3; i++) {
-          const heartX = w - 16 - (2 - i) * 19;
-          const heartY = 24;
-          drawVectorHeart(heartX, heartY, 14, i < lives);
+          const heartX = w - 14 - (2 - i) * 16;
+          const heartY = 17;
+          drawVectorHeart(heartX, heartY, 12, i < lives);
         }
 
         // Render Bricks
@@ -1365,11 +1365,11 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
         style={{
           width: '100%',
           maxWidth: 560,
-          height: 48,
+          height: 38,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          padding: '0 12px',
+          padding: '0 8px',
           borderBottom: `1px solid ${Colors.border}`,
           backgroundColor: Colors.bg.elevated,
           zIndex: 15,
@@ -1392,20 +1392,20 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
             alignItems: 'center',
             gap: 8,
             cursor: 'pointer',
-            padding: '4px 6px',
+            padding: '3px 6px',
             borderRadius: 8,
             textDecoration: 'none',
             transition: 'background-color 0.15s ease',
           }}
           title="SecureBox — Click to explore features and download APK"
         >
-          <BrickWallPeeker width={34} height={28} />
+          <BrickWallPeeker width={32} height={26} />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: 1 }}>
             <span
               style={{
                 fontFamily: "'Silkscreen', 'Press Start 2P', monospace",
-                fontSize: 12,
+                fontSize: 11.5,
                 fontWeight: 700,
                 color: Colors.accent.primary,
                 letterSpacing: '0.04em',
@@ -1413,11 +1413,11 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
             >
               BRICK SMASH
             </span>
-            <span style={{ fontSize: 11, color: Colors.text.placeholder, fontWeight: 300 }}>×</span>
+            <span style={{ fontSize: 10, color: Colors.text.placeholder, fontWeight: 300 }}>×</span>
             <span
               style={{
                 fontFamily: "'Space Grotesk', -apple-system, sans-serif",
-                fontSize: 13,
+                fontSize: 12.5,
                 fontWeight: 700,
                 color: Colors.text.primary,
                 letterSpacing: '-0.2px',
@@ -1428,38 +1428,8 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
           </div>
         </a>
 
-        {/* Right Controls: QuickDrop, PIN, and Hamburger Menu */}
+        {/* Right Controls: PIN and Hamburger Menu (QuickDrop removed from Game screen) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-          {/* Dropbox / QuickDrop Media & Link Shuttle Link */}
-          {onOpenQuickDrop && (
-            <a
-              href="/dropbox"
-              onClick={(e) => {
-                e.preventDefault();
-                onOpenQuickDrop();
-              }}
-              style={{
-                padding: '5px 9px',
-                borderRadius: 8,
-                border: `1px solid ${Colors.border}`,
-                backgroundColor: 'rgba(217, 119, 87, 0.1)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                cursor: 'pointer',
-                color: Colors.accent.primary,
-                fontSize: 11,
-                fontWeight: 700,
-                textDecoration: 'none',
-                transition: 'all 0.15s ease',
-              }}
-              title="SecureBox QuickDrop (/dropbox) — Anonymous Media, Links & Text Transfer"
-            >
-              <UploadCloud size={13} />
-              <span>QuickDrop</span>
-            </a>
-          )}
-
           {/* PIN Trigger Button (Kept out on header) */}
           <button
             onClick={onUnlockClick}
@@ -1467,12 +1437,12 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
               display: 'flex',
               alignItems: 'center',
               gap: 4,
-              padding: '5px 9px',
+              padding: '4px 8px',
               borderRadius: 8,
               border: `1px solid ${Colors.border}`,
               backgroundColor: unreadCount > 0 ? Colors.accent.soft : 'transparent',
               color: unreadCount > 0 ? Colors.accent.primary : Colors.text.secondary,
-              fontSize: 12,
+              fontSize: 11.5,
               fontWeight: 600,
               cursor: 'pointer',
               position: 'relative',
@@ -1480,7 +1450,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
             }}
             title="Unlock Secret Vault / Enter PIN"
           >
-            <Lock size={13} />
+            <Lock size={12} />
             <span>PIN</span>
             {unreadCount > 0 && (
               <span
@@ -1625,8 +1595,11 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
                   cursor: 'pointer',
                 }}
               >
-                <span>✉ {unreadCount} New Message{unreadCount > 1 ? 's' : ''}</span>
-                <span style={{ fontSize: 10, textDecoration: 'underline' }}>Unlock →</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <Lock size={12} color="#DC2626" />
+                  <span>{unreadCount} New Message{unreadCount > 1 ? 's' : ''}</span>
+                </div>
+                <span style={{ fontSize: 10, textDecoration: 'underline' }}>Unlock &rarr;</span>
               </div>
             )}
 
