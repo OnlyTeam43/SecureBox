@@ -9,25 +9,13 @@ import {
   Gamepad2,
   KeyRound,
   Layers,
-  Timer,
-  Bomb,
-  Camera,
-  Radio,
-  EyeOff,
   ChevronRight,
+  ChevronLeft,
   Download,
   Lock,
   Smartphone,
   CheckCircle2,
   ArrowRight,
-  Volume2,
-  Gauge,
-  Sparkles,
-  Share2,
-  Trash2,
-  Clock,
-  Eye,
-  FileCode,
   UploadCloud,
   ChevronDown,
   Flame,
@@ -46,6 +34,48 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
   const [activeMockupIndex, setActiveMockupIndex] = useState(0);
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  const [touchDeltaX, setTouchDeltaX] = useState<number>(0);
+  const [mouseStartX, setMouseStartX] = useState<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartX(e.touches[0].clientX);
+    setTouchDeltaX(0);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartX !== null) {
+      setTouchDeltaX(e.touches[0].clientX - touchStartX);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchStartX !== null) {
+      if (touchDeltaX < -40) {
+        setActiveMockupIndex((prev) => (prev < mockups.length - 1 ? prev + 1 : 0));
+      } else if (touchDeltaX > 40) {
+        setActiveMockupIndex((prev) => (prev > 0 ? prev - 1 : mockups.length - 1));
+      }
+    }
+    setTouchStartX(null);
+    setTouchDeltaX(0);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setMouseStartX(e.clientX);
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (mouseStartX !== null) {
+      const diff = e.clientX - mouseStartX;
+      if (diff < -40) {
+        setActiveMockupIndex((prev) => (prev < mockups.length - 1 ? prev + 1 : 0));
+      } else if (diff > 40) {
+        setActiveMockupIndex((prev) => (prev > 0 ? prev - 1 : mockups.length - 1));
+      }
+    }
+    setMouseStartX(null);
+  };
 
   const handleOpenDropbox = (e?: React.MouseEvent) => {
     if (e) e.preventDefault();
@@ -164,13 +194,6 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
     }
   };
 
-  const scrollToMockups = () => {
-    const el = document.getElementById('mockups-section');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
   return (
     <div
       id="securebox-scroll-container"
@@ -189,6 +212,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
     >
       {/* ─── Top Navigation Bar ────────────────────────────────────────────── */}
       <header
+        className="dropbox-header"
         style={{
           position: 'sticky',
           top: 0,
@@ -461,41 +485,21 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
       {/* ─── Hero Section ─────────────────────────────────────────────────── */}
       <section
         style={{
-          padding: '48px 20px 36px',
-          maxWidth: '1200px',
+          padding: '16px 14px 24px',
+          maxWidth: '1100px',
           margin: '0 auto',
           textAlign: 'center',
         }}
       >
-        <div
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '5px 12px',
-            borderRadius: '999px',
-            backgroundColor: '#F5EBE6',
-            color: '#D96B43',
-            fontSize: '11px',
-            fontWeight: 700,
-            letterSpacing: '0.5px',
-            marginBottom: '16px',
-            textTransform: 'uppercase',
-          }}
-        >
-          <ShieldCheck size={14} />
-          <span>Zero-Knowledge End-to-End Encrypted Messenger</span>
-        </div>
-
         <h1
           style={{
-            fontSize: 'clamp(28px, 5vw, 50px)',
+            fontSize: 'clamp(24px, 4.4vw, 44px)',
             fontWeight: 800,
-            letterSpacing: '-1.2px',
+            letterSpacing: '-1px',
             lineHeight: 1.15,
             color: '#141518',
-            maxWidth: '860px',
-            margin: '0 auto 16px',
+            maxWidth: '820px',
+            margin: '0 auto 12px',
           }}
         >
           Looks like an arcade game.{' '}
@@ -504,11 +508,12 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
 
         <p
           style={{
-            fontSize: 'clamp(15px, 2vw, 18px)',
+            fontSize: 'clamp(14px, 1.8vw, 16px)',
             color: '#57534E',
-            maxWidth: '680px',
-            margin: '0 auto 28px',
+            maxWidth: '660px',
+            margin: '0 auto 20px',
             fontWeight: 400,
+            lineHeight: 1.5,
           }}
         >
           Disguised behind an authentic Brick Smash game. Ephemeral 24-hour private chat
@@ -522,7 +527,6 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
             flexWrap: 'wrap',
             justifyContent: 'center',
             gap: '12px',
-            marginBottom: '32px',
           }}
         >
           <a
@@ -532,21 +536,21 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
               display: 'inline-flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '12px 24px',
+              padding: '11px 22px',
               borderRadius: '12px',
               backgroundColor: '#141518',
               color: '#FFFFFF',
-              fontSize: '14px',
+              fontSize: '13.5px',
               fontWeight: 700,
               textDecoration: 'none',
-              boxShadow: '0 6px 18px rgba(20, 21, 24, 0.22)',
+              boxShadow: '0 4px 14px rgba(20, 21, 24, 0.18)',
             }}
           >
-            <Download size={18} />
+            <Download size={17} />
             <span>Download Android APK</span>
             <span
               style={{
-                fontSize: '11px',
+                fontSize: '10.5px',
                 padding: '2px 7px',
                 borderRadius: '999px',
                 backgroundColor: 'rgba(255,255,255,0.18)',
@@ -563,56 +567,36 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
               display: 'inline-flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '12px 24px',
+              padding: '11px 22px',
               borderRadius: '12px',
               backgroundColor: '#D96B43',
               color: '#FFFFFF',
               border: 'none',
-              fontSize: '14px',
+              fontSize: '13.5px',
               fontWeight: 700,
               cursor: 'pointer',
-              boxShadow: '0 6px 20px rgba(217, 107, 67, 0.3)',
+              boxShadow: '0 4px 16px rgba(217, 107, 67, 0.28)',
             }}
           >
-            <Gamepad2 size={18} />
+            <Gamepad2 size={17} />
             <span>Launch Web Game Disguise</span>
-            <ArrowRight size={16} />
-          </button>
-
-          <button
-            onClick={scrollToMockups}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '12px 18px',
-              borderRadius: '12px',
-              backgroundColor: '#FFFFFF',
-              color: '#44403C',
-              border: '1px solid #D6D3D1',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            <Smartphone size={16} color="#D96B43" />
-            <span>View 5 App Mockups</span>
+            <ArrowRight size={15} />
           </button>
         </div>
       </section>
 
-      {/* ─── Interactive Phone Mockup Showcase ────────────────────────────── */}
+      {/* ─── Interactive Phone Mockup Showcase: Swipeable 5 Application Layers ─── */}
       <section
         id="mockups-section"
         style={{
-          padding: '48px 20px 64px',
+          padding: '36px 16px 44px',
           backgroundColor: '#FFFFFF',
           borderTop: '1px solid #E7E5E4',
           borderBottom: '1px solid #E7E5E4',
         }}
       >
         <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
             <div
               style={{
                 fontSize: '11px',
@@ -620,24 +604,24 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                 letterSpacing: '1px',
                 color: '#D96B43',
                 textTransform: 'uppercase',
-                marginBottom: '6px',
+                marginBottom: '4px',
               }}
             >
               Live App Screenshots &amp; Mockups
             </div>
             <h2
               style={{
-                fontSize: 'clamp(24px, 3.5vw, 36px)',
+                fontSize: 'clamp(22px, 3.5vw, 34px)',
                 fontWeight: 800,
                 letterSpacing: '-0.8px',
                 color: '#141518',
-                marginBottom: '8px',
+                marginBottom: '6px',
               }}
             >
               Explore the 5 Application Layers
             </h2>
-            <p style={{ fontSize: '15px', color: '#78716C', maxWidth: '600px', margin: '0 auto' }}>
-              Tap any layer below to inspect the actual interface and capabilities.
+            <p style={{ fontSize: '13.5px', color: '#78716C', maxWidth: '580px', margin: '0 auto' }}>
+              Swipe left or right to browse all 5 security layers.
             </p>
           </div>
 
@@ -645,10 +629,13 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
           <div
             style={{
               display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'center',
               gap: '8px',
-              marginBottom: '36px',
+              overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              justifyContent: 'center',
+              paddingBottom: '8px',
+              marginBottom: '20px',
+              scrollbarWidth: 'none',
             }}
           >
             {mockups.map((mockup, index) => {
@@ -658,17 +645,19 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                   key={mockup.id}
                   onClick={() => setActiveMockupIndex(index)}
                   style={{
-                    display: 'flex',
+                    display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '8px 14px',
+                    padding: '7px 13px',
                     borderRadius: '999px',
                     backgroundColor: isSelected ? '#141518' : '#F5F5F4',
                     color: isSelected ? '#FFFFFF' : '#44403C',
                     border: 'none',
-                    fontSize: '13px',
+                    fontSize: '12px',
                     fontWeight: 600,
                     cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
                     transition: 'all 0.2s ease',
                     boxShadow: isSelected ? '0 3px 10px rgba(20, 21, 24, 0.2)' : 'none',
                   }}
@@ -687,17 +676,26 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
             })}
           </div>
 
-          {/* Mockup Showcase Dual View (Realistic Smartphone Frame + Deep Dive Card) */}
+          {/* Swipeable Mockup Dual View Card */}
           <div
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-              gap: '36px',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: '28px',
               alignItems: 'center',
               backgroundColor: '#FAF9F6',
               borderRadius: '24px',
-              padding: 'clamp(20px, 3vw, 40px)',
+              padding: 'clamp(18px, 3vw, 36px)',
               border: '1px solid #E7E5E4',
+              touchAction: 'pan-y',
+              userSelect: 'none',
+              position: 'relative',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.04)',
             }}
           >
             {/* Phone Mockup Frame */}
@@ -710,13 +708,13 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
             >
               <div
                 style={{
-                  width: '300px',
+                  width: '280px',
                   maxWidth: '100%',
-                  borderRadius: '40px',
+                  borderRadius: '38px',
                   backgroundColor: '#1E2024',
-                  padding: '10px',
+                  padding: '9px',
                   boxShadow:
-                    '0 20px 50px -10px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12)',
+                    '0 18px 44px -8px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.12)',
                   position: 'relative',
                 }}
               >
@@ -724,10 +722,10 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                 <div
                   style={{
                     position: 'absolute',
-                    top: '18px',
+                    top: '16px',
                     left: '50%',
                     transform: 'translateX(-50%)',
-                    width: '50px',
+                    width: '46px',
                     height: '4px',
                     backgroundColor: '#374151',
                     borderRadius: '999px',
@@ -738,7 +736,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                 {/* Inner Bezel & Screen */}
                 <div
                   style={{
-                    borderRadius: '32px',
+                    borderRadius: '30px',
                     overflow: 'hidden',
                     backgroundColor: '#FAF9F5',
                     aspectRatio: '503 / 1024',
@@ -756,6 +754,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                       objectPosition: 'top center',
                       display: 'block',
                       backgroundColor: '#FAF9F5',
+                      pointerEvents: 'none',
                     }}
                   />
                 </div>
@@ -776,7 +775,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                   fontSize: '11px',
                   fontWeight: 700,
                   letterSpacing: '0.5px',
-                  marginBottom: '12px',
+                  marginBottom: '10px',
                 }}
               >
                 {mockups[activeMockupIndex].tag}
@@ -784,11 +783,11 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
 
               <h3
                 style={{
-                  fontSize: 'clamp(22px, 2.5vw, 28px)',
+                  fontSize: 'clamp(20px, 2.4vw, 26px)',
                   fontWeight: 800,
                   color: '#141518',
                   lineHeight: 1.25,
-                  marginBottom: '10px',
+                  marginBottom: '8px',
                 }}
               >
                 {mockups[activeMockupIndex].title}
@@ -796,9 +795,9 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
 
               <p
                 style={{
-                  fontSize: '15px',
+                  fontSize: '14.5px',
                   color: '#57534E',
-                  marginBottom: '20px',
+                  marginBottom: '18px',
                   lineHeight: 1.5,
                 }}
               >
@@ -809,8 +808,8 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '10px',
-                  marginBottom: '28px',
+                  gap: '9px',
+                  marginBottom: '22px',
                 }}
               >
                 {mockups[activeMockupIndex].features.map((feat, i) => (
@@ -819,7 +818,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                     style={{
                       display: 'flex',
                       alignItems: 'flex-start',
-                      gap: '10px',
+                      gap: '9px',
                     }}
                   >
                     <div
@@ -829,25 +828,27 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                         flexShrink: 0,
                       }}
                     >
-                      <CheckCircle2 size={16} />
+                      <CheckCircle2 size={15} />
                     </div>
-                    <span style={{ fontSize: '13.5px', color: '#292524', fontWeight: 500 }}>
+                    <span style={{ fontSize: '13px', color: '#292524', fontWeight: 500 }}>
                       {feat}
                     </span>
                   </div>
                 ))}
               </div>
 
-              {/* Navigation within Mockups */}
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              {/* Swipe Navigation Controls */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
-                  onClick={() =>
-                    setActiveMockupIndex((prev) =>
-                      prev > 0 ? prev - 1 : mockups.length - 1
-                    )
-                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveMockupIndex((prev) => (prev > 0 ? prev - 1 : mockups.length - 1));
+                  }}
                   style={{
-                    padding: '7px 14px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '7px 13px',
                     borderRadius: '8px',
                     backgroundColor: '#FFFFFF',
                     border: '1px solid #D6D3D1',
@@ -857,17 +858,20 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                     color: '#44403C',
                   }}
                 >
-                  Previous Screen
+                  <ChevronLeft size={14} />
+                  <span>Previous</span>
                 </button>
 
                 <button
-                  onClick={() =>
-                    setActiveMockupIndex((prev) =>
-                      prev < mockups.length - 1 ? prev + 1 : 0
-                    )
-                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveMockupIndex((prev) => (prev < mockups.length - 1 ? prev + 1 : 0));
+                  }}
                   style={{
-                    padding: '7px 14px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '7px 13px',
                     borderRadius: '8px',
                     backgroundColor: '#141518',
                     color: '#FFFFFF',
@@ -877,182 +881,39 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                     cursor: 'pointer',
                   }}
                 >
-                  Next Screen
+                  <span>Next</span>
+                  <ChevronRight size={14} />
                 </button>
 
-                <span style={{ fontSize: '12px', color: '#A8A29E', marginLeft: '6px' }}>
-                  {activeMockupIndex + 1} of {mockups.length}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* 5-Screen Horizontal Gallery */}
-          <div style={{ marginTop: '48px' }}>
-            <h3
-              style={{
-                fontSize: '16px',
-                fontWeight: 700,
-                color: '#141518',
-                marginBottom: '16px',
-                textAlign: 'center',
-              }}
-            >
-              All 5 Application Screens at a Glance (Tap to View)
-            </h3>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                gap: '14px',
-              }}
-            >
-              {mockups.map((m, idx) => (
-                <div
-                  key={m.id}
-                  onClick={() => setActiveMockupIndex(idx)}
-                  style={{
-                    backgroundColor: '#FAF9F6',
-                    borderRadius: '14px',
-                    border:
-                      activeMockupIndex === idx
-                        ? '2px solid #D96B43'
-                        : '1px solid #E7E5E4',
-                    overflow: 'hidden',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    boxShadow:
-                      activeMockupIndex === idx
-                        ? '0 4px 14px rgba(217, 107, 67, 0.2)'
-                        : 'none',
-                  }}
-                >
-                  <div
-                    style={{
-                      height: '220px',
-                      overflow: 'hidden',
-                      backgroundColor: '#FAF9F5',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <img
-                      src={m.image}
-                      alt={`${m.title} — SecureBox ${m.badge}`}
-                      loading="lazy"
+                {/* Dot Indicators */}
+                <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto', alignItems: 'center' }}>
+                  {mockups.map((_, i) => (
+                    <span
+                      key={i}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMockupIndex(i);
+                      }}
                       style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        objectPosition: 'top center',
-                        display: 'block',
+                        width: activeMockupIndex === i ? '18px' : '7px',
+                        height: '7px',
+                        borderRadius: '999px',
+                        backgroundColor: activeMockupIndex === i ? '#D96B43' : '#D6D3D1',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
                       }}
                     />
-                  </div>
-                  <div style={{ padding: '10px' }}>
-                    <div
-                      style={{
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        color: '#D96B43',
-                        marginBottom: '2px',
-                      }}
-                    >
-                      {m.badge}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        color: '#141518',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {m.title}
-                    </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ─── Architecture Highlights Row ─────────────────────────────────── */}
-      <section style={{ padding: '36px 20px 20px', maxWidth: '1100px', margin: '0 auto' }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: '14px',
-            textAlign: 'left',
-          }}
-        >
-          {[
-            {
-              icon: Lock,
-              title: 'AES-GCM-256',
-              desc: 'Client-side WebCrypto encryption. Server never sees plaintext or keys.',
-            },
-            {
-              icon: Gamepad2,
-              title: 'Complete Camouflage',
-              desc: 'Full Brick Smash game with retro sound, bombs, and speed controls.',
-            },
-            {
-              icon: Timer,
-              title: '24-Hour Ephemeral',
-              desc: 'Automatic timer destruction. Zero trace, zero logs, zero history.',
-            },
-            {
-              icon: EyeOff,
-              title: 'Auto-Lock Disguise',
-              desc: 'Tab change or 60s idle instantly reverts back to the arcade game.',
-            },
-          ].map((item, idx) => (
-            <div
-              key={idx}
-              style={{
-                backgroundColor: '#FFFFFF',
-                borderRadius: '14px',
-                padding: '18px',
-                border: '1px solid #E7E5E4',
-                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.03)',
-              }}
-            >
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  backgroundColor: '#F5EBE6',
-                  color: '#D96B43',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: '10px',
-                }}
-              >
-                <item.icon size={18} />
-              </div>
-              <div style={{ fontWeight: 700, fontSize: '14px', marginBottom: '3px' }}>
-                {item.title}
-              </div>
-              <div style={{ fontSize: '12px', color: '#78716C', lineHeight: 1.4 }}>
-                {item.desc}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ─── Security Architecture Deep-Dive ───────────────────────────────── */}
-      <section style={{ padding: '64px 20px', maxWidth: '1100px', margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: '44px' }}>
+      {/* ─── Zero-Knowledge Specification: Heading & Description Kept Clean ─── */}
+      <section style={{ padding: '44px 20px', maxWidth: '1100px', margin: '0 auto' }}>
+        <div style={{ textAlign: 'center' }}>
           <div
             style={{
               fontSize: '11px',
@@ -1067,177 +928,20 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
           </div>
           <h2
             style={{
-              fontSize: 'clamp(24px, 3.5vw, 36px)',
+              fontSize: 'clamp(22px, 3.5vw, 32px)',
               fontWeight: 800,
               letterSpacing: '-0.8px',
               color: '#141518',
-              marginBottom: '12px',
+              marginBottom: '10px',
             }}
           >
             Engineered for Total Secrecy
           </h2>
-          <p style={{ fontSize: '15px', color: '#78716C', maxWidth: '600px', margin: '0 auto' }}>
+          <p style={{ fontSize: '15px', color: '#57534E', maxWidth: '640px', margin: '0 auto', lineHeight: 1.55 }}>
             SecureBox was designed from the ground up to guarantee that even the servers
-            routing your messages cannot decrypt your communications.
+            routing your messages cannot decrypt your communications. Client-side key derivation,
+            zero server logs, and ephemeral 24-hour self-destruct.
           </p>
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: '20px',
-          }}
-        >
-          {/* Card 1: Two-Tier Decoupled Keys */}
-          <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '16px',
-              padding: '24px',
-              border: '1px solid #E7E5E4',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
-            }}
-          >
-            <div
-              style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '10px',
-                backgroundColor: '#F5EBE6',
-                color: '#D96B43',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '16px',
-              }}
-            >
-              <KeyRound size={20} />
-            </div>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>
-              Two-Tier Decoupled Authentication
-            </h3>
-            <p style={{ fontSize: '13.5px', color: '#57534E', lineHeight: 1.55, marginBottom: '14px' }}>
-              Your personal <strong>Hub Entrance Password</strong> protects local device access
-              from the game disguise. The shared <strong>4-Digit Room Secret PIN</strong> is
-              strictly used for AES key derivation with your partner. The two never overlap or clash.
-            </p>
-            <div
-              style={{
-                fontSize: '11px',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                backgroundColor: '#FAF9F6',
-                border: '1px solid #E7E5E4',
-                color: '#44403C',
-                fontFamily: 'monospace',
-              }}
-            >
-              Key 1: SHA-256(HubPassword) ➔ Local Device
-              <br />
-              Key 2: PBKDF2(RoomPIN + RoomId) ➔ AES-GCM-256
-            </div>
-          </div>
-
-          {/* Card 2: Zero Server Footprint */}
-          <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '16px',
-              padding: '24px',
-              border: '1px solid #E7E5E4',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
-            }}
-          >
-            <div
-              style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '10px',
-                backgroundColor: '#ECFDF5',
-                color: '#059669',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '16px',
-              }}
-            >
-              <ShieldCheck size={20} />
-            </div>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>
-              Zero-Knowledge Server Architecture
-            </h3>
-            <p style={{ fontSize: '13.5px', color: '#57534E', lineHeight: 1.55, marginBottom: '14px' }}>
-              Relay servers only route encrypted ciphertext blobs. No chat logs, no contact
-              lists, and no user profiles are ever recorded. Encryption and decryption occur
-              solely inside your device browser using native WebCrypto.
-            </p>
-            <div
-              style={{
-                fontSize: '11px',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                backgroundColor: '#FAF9F6',
-                border: '1px solid #E7E5E4',
-                color: '#44403C',
-                fontFamily: 'monospace',
-              }}
-            >
-              IV: 12-byte cryptographic random salt
-              <br />
-              Payload: AES-GCM ciphertext + auth tag
-            </div>
-          </div>
-
-          {/* Card 3: Strict Sandboxed Chat Isolation */}
-          <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '16px',
-              padding: '24px',
-              border: '1px solid #E7E5E4',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
-            }}
-          >
-            <div
-              style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '10px',
-                backgroundColor: '#EFF6FF',
-                color: '#2563EB',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '16px',
-              }}
-            >
-              <Layers size={20} />
-            </div>
-            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>
-              Strict Sandboxed Room Isolation
-            </h3>
-            <p style={{ fontSize: '13.5px', color: '#57534E', lineHeight: 1.55, marginBottom: '14px' }}>
-              Each conversation room operates within an isolated cryptographic boundary.
-              Active message buffers are instantly flushed upon room transitions, and local
-              storage keys are segregated by room ID.
-            </p>
-            <div
-              style={{
-                fontSize: '11px',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                backgroundColor: '#FAF9F6',
-                border: '1px solid #E7E5E4',
-                color: '#44403C',
-                fontFamily: 'monospace',
-              }}
-            >
-              Storage: room_chat_&#123;roomId&#125; (isolated)
-              <br />
-              State: Flushed on room switch (setMessages([]))
-            </div>
-          </div>
         </div>
       </section>
 
