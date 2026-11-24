@@ -38,15 +38,16 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   return (
     <header style={{
       flexShrink: 0,
-      height: 58,
-      minHeight: 58,
+      height: 46,
+      minHeight: 46,
       width: '100%',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingLeft: 8,
       paddingRight: 8,
-      paddingTop: 'env(safe-area-inset-top, 0px)',
+      paddingTop: 'calc(2px + env(safe-area-inset-top, 0px))',
+      paddingBottom: 2,
       backgroundColor: Colors.bg.elevated,
       borderBottom: `1px solid ${Colors.border}`,
       boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
@@ -63,12 +64,12 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             display: 'flex',
             alignItems: 'center',
             gap: 4,
-            padding: '6px 9px',
+            padding: '4px 7px',
             borderRadius: 8,
             backgroundColor: Colors.bg.secondary,
             border: `1px solid ${Colors.borderStrong}`,
             color: Colors.text.primary,
-            fontSize: 12,
+            fontSize: 11.5,
             fontWeight: 600,
             cursor: 'pointer',
             flexShrink: 0,
@@ -77,14 +78,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           }}
           title="Return to SecureBox Hub"
         >
-          <ArrowLeft size={14} />
+          <ArrowLeft size={13} />
           <span>Hub</span>
         </button>
 
         {/* Animal Character Avatar from Assets */}
         <div style={{
-          width: 34,
-          height: 34,
+          width: 30,
+          height: 30,
           borderRadius: '50%',
           backgroundColor: '#FFFFFF',
           border: `1.5px solid ${Colors.border}`,
@@ -99,8 +100,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             src="/characters/panda-idle.png"
             alt="Animal Avatar"
             style={{
-              width: 28,
-              height: 28,
+              width: 24,
+              height: 24,
               borderRadius: '50%',
               objectFit: 'contain',
             }}
@@ -110,17 +111,17 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         {/* Partner Name & Real-time Connection Status */}
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flexShrink: 1, overflow: 'hidden' }}>
           <span style={{
-            fontSize: 13.5,
+            fontSize: 13,
             fontWeight: 600,
             color: Colors.text.primary,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
-            lineHeight: 1.2,
+            lineHeight: 1.15,
           }}>
             {partnerName || 'Waiting for partner...'}
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
             <span style={{
               width: 6,
               height: 6,
@@ -129,7 +130,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
               flexShrink: 0,
             }} />
             <span style={{
-              fontSize: 10.5,
+              fontSize: 10,
               fontWeight: isOnline ? 600 : 500,
               color: typingUser ? Colors.accent.primary : isOnline ? Colors.status.online : '#B07E15',
               whiteSpace: 'nowrap',
@@ -141,7 +142,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
       </div>
 
       {/* Right Actions: Game Camouflage, Lock, 3-Dots Options */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, position: 'relative' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, position: 'relative' }}>
         {/* Conceal / Camouflage Game Button */}
         <button
           onClick={onGameClick}
@@ -149,12 +150,12 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             display: 'flex',
             alignItems: 'center',
             gap: 4,
-            padding: '6px 9px',
+            padding: '4px 7px',
             borderRadius: 8,
             backgroundColor: Colors.accent.soft,
             border: `1px solid ${Colors.accent.light}`,
             color: Colors.accent.primary,
-            fontSize: 12,
+            fontSize: 11.5,
             fontWeight: 600,
             cursor: 'pointer',
             flexShrink: 0,
@@ -163,7 +164,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           }}
           title="Conceal chat & jump directly to Brick Smash Game"
         >
-          <Gamepad2 size={14} />
+          <Gamepad2 size={13} />
           <span>Game</span>
         </button>
 
@@ -172,8 +173,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           onClick={onLockClick}
           title="Lock to Disguise with PIN"
           style={{
-            width: 32,
-            height: 32,
+            width: 28,
+            height: 28,
             borderRadius: 8,
             backgroundColor: Colors.accent.soft,
             border: `1px solid ${Colors.border}`,
@@ -184,7 +185,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             cursor: 'pointer',
           }}
         >
-          <Lock size={14} />
+          <Lock size={13} />
         </button>
 
         {/* 3-Dots Menu Trigger */}
@@ -192,8 +193,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           onClick={() => setIsMenuOpen((prev) => !prev)}
           title="Room Options"
           style={{
-            width: 32,
-            height: 32,
+            width: 28,
+            height: 28,
             borderRadius: 8,
             backgroundColor: isMenuOpen ? Colors.bg.secondary : 'transparent',
             border: isMenuOpen ? `1px solid ${Colors.borderStrong}` : 'none',
@@ -205,7 +206,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             transition: 'all 0.15s ease',
           }}
         >
-          <MoreVertical size={16} />
+          <MoreVertical size={15} />
         </button>
 
         {/* 3-Dots Options Dropdown Popup Menu */}

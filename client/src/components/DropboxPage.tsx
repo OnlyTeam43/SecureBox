@@ -13,6 +13,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  ChevronDown,
 } from 'lucide-react';
 import { QuickDropPanel } from './QuickDropModal';
 import { BrickWallPeeker } from './BrickWallPeeker';
@@ -34,6 +35,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
   onOpenUserProfile,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isUsesOpen, setIsUsesOpen] = useState(false);
 
   const handleNavigateApp = (e?: React.MouseEvent) => {
     if (e) e.preventDefault();
@@ -406,99 +408,172 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
           />
         </section>
 
-        {/* ─── Use Cases & Supported Payloads: QuickDrop System Built for Public & Private Use ─── */}
+        {/* ─── Uses Dropdown: QuickDrop System Built for Public & Private Use ─── */}
         <section
-          aria-labelledby="dropbox-use-cases"
-          style={{ padding: '52px 20px', maxWidth: '1080px', margin: '0 auto' }}
+          aria-label="Uses"
+          style={{ padding: '8px 16px 28px', maxWidth: '1080px', margin: '0 auto' }}
         >
-          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-            <h2
-              id="dropbox-use-cases"
-              style={{
-                fontSize: 'clamp(22px, 3.2vw, 32px)',
-                fontWeight: 800,
-                letterSpacing: '-0.6px',
-                color: '#141518',
-                marginBottom: '8px',
-              }}
-            >
-              Built for Public Computers, Phones &amp; Private Links
-            </h2>
-            <p style={{ fontSize: '15px', color: '#57534E', maxWidth: '660px', margin: '0 auto' }}>
-              Everything works inside the browser with zero installs or sign-ups.
-            </p>
-          </div>
-
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: '16px',
+              backgroundColor: '#FFFFFF',
+              border: '1px solid #E7E5E4',
+              borderRadius: '16px',
+              overflow: 'hidden',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
+              transition: 'all 0.2s ease',
             }}
           >
-            <article
+            {/* Dropdown Toggle Button */}
+            <button
+              onClick={() => setIsUsesOpen((prev) => !prev)}
+              aria-expanded={isUsesOpen}
               style={{
-                backgroundColor: '#FFFFFF',
-                border: '1px solid #E7E5E4',
-                borderRadius: '16px',
-                padding: '22px',
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 18px',
+                backgroundColor: isUsesOpen ? '#FAF9F6' : '#FFFFFF',
+                border: 'none',
+                cursor: 'pointer',
+                textAlign: 'left',
+                borderBottom: isUsesOpen ? '1px solid #E7E5E4' : 'none',
+                transition: 'background-color 0.15s ease',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                <Laptop size={20} color="#D96B43" />
-                <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
-                  Print Shops &amp; Shared Computers
-                </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    fontFamily: "'Space Grotesk', -apple-system, sans-serif",
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    color: '#141518',
+                    letterSpacing: '-0.3px',
+                  }}
+                >
+                  Uses
+                </span>
+                <span style={{ fontSize: '12px', color: '#78716C', fontWeight: 500 }}>
+                  · Built for Public Computers, Phones &amp; Private Links
+                </span>
               </div>
-              <p style={{ fontSize: '13.5px', color: '#57534E', margin: 0 }}>
-                Need to print a PDF, ID card photo, or assignment on an unfamiliar Windows/Mac PC?
-                Upload from your phone to <strong>/dropbox</strong>, type your numeric pickup code on
-                the shop computer, download once, and auto-burn immediately.
-              </p>
-            </article>
 
-            <article
-              style={{
-                backgroundColor: '#FFFFFF',
-                border: '1px solid #E7E5E4',
-                borderRadius: '16px',
-                padding: '22px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                <Link2 size={20} color="#D96B43" />
-                <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
-                  Clickable URLs &amp; Encrypted Notes
-                </h3>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: isUsesOpen ? '#D96B43' : '#78716C',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  flexShrink: 0,
+                }}
+              >
+                <span>{isUsesOpen ? 'Hide' : 'Show'}</span>
+                <ChevronDown
+                  size={16}
+                  style={{
+                    transform: isUsesOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.2s ease',
+                  }}
+                />
               </div>
-              <p style={{ fontSize: '13.5px', color: '#57534E', margin: 0 }}>
-                Send long URLs, code snippets, or travel checklists alongside media or by themselves.
-                SecureBox QuickDrop automatically extracts <code>http://</code> and{' '}
-                <code>https://</code> links into 1-tap Open &amp; Copy cards plus optional{' '}
-                <code>.txt</code> export.
-              </p>
-            </article>
+            </button>
 
-            <article
-              style={{
-                backgroundColor: '#FFFFFF',
-                border: '1px solid #E7E5E4',
-                borderRadius: '16px',
-                padding: '22px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                <FileText size={20} color="#D96B43" />
-                <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
-                  Multi-File Batch Encryption
-                </h3>
+            {/* Dropdown Content */}
+            {isUsesOpen && (
+              <div style={{ padding: '20px 18px 24px', backgroundColor: '#FFFFFF' }}>
+                <div style={{ marginBottom: '20px' }}>
+                  <h3
+                    style={{
+                      fontSize: '17px',
+                      fontWeight: 700,
+                      color: '#141518',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    Built for Public Computers, Phones &amp; Private Links
+                  </h3>
+                  <p style={{ fontSize: '13.5px', color: '#57534E', margin: 0, lineHeight: 1.5 }}>
+                    Everything works inside the browser with zero installs or sign-ups. Transfer photos,
+                    videos, documents, or secret notes between public terminals, work laptops, and mobile devices
+                    without exposing your personal accounts.
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
+                  <article
+                    style={{
+                      backgroundColor: '#FAF9F6',
+                      border: '1px solid #E7E5E4',
+                      borderRadius: '12px',
+                      padding: '18px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                      <Laptop size={18} color="#D96B43" />
+                      <h4 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                        Print Shops &amp; Shared Computers
+                      </h4>
+                    </div>
+                    <p style={{ fontSize: '13px', color: '#57534E', margin: 0, lineHeight: 1.5 }}>
+                      Need to print a PDF, ID card photo, or assignment on an unfamiliar Windows/Mac PC?
+                      Upload from your phone to <strong>/dropbox</strong>, type your numeric pickup code on
+                      the shop computer, download once, and auto-burn immediately.
+                    </p>
+                  </article>
+
+                  <article
+                    style={{
+                      backgroundColor: '#FAF9F6',
+                      border: '1px solid #E7E5E4',
+                      borderRadius: '12px',
+                      padding: '18px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                      <Link2 size={18} color="#D96B43" />
+                      <h4 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                        Clickable URLs &amp; Encrypted Notes
+                      </h4>
+                    </div>
+                    <p style={{ fontSize: '13px', color: '#57534E', margin: 0, lineHeight: 1.5 }}>
+                      Send long URLs, code snippets, or travel checklists alongside media or by themselves.
+                      SecureBox QuickDrop automatically extracts <code>http://</code> and{' '}
+                      <code>https://</code> links into 1-tap Open &amp; Copy cards plus optional{' '}
+                      <code>.txt</code> export.
+                    </p>
+                  </article>
+
+                  <article
+                    style={{
+                      backgroundColor: '#FAF9F6',
+                      border: '1px solid #E7E5E4',
+                      borderRadius: '12px',
+                      padding: '18px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                      <FileText size={18} color="#D96B43" />
+                      <h4 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                        Multi-File Batch Encryption
+                      </h4>
+                    </div>
+                    <p style={{ fontSize: '13px', color: '#57534E', margin: 0, lineHeight: 1.5 }}>
+                      Select multiple images, videos, PDFs, Word documents, spreadsheets, or ZIP archives
+                      together. Each file blob and metadata bundle is sealed with randomized IVs inside
+                      your browser using WebCrypto.
+                    </p>
+                  </article>
+                </div>
               </div>
-              <p style={{ fontSize: '13.5px', color: '#57534E', margin: 0 }}>
-                Select multiple images, videos, PDFs, Word documents, spreadsheets, or ZIP archives
-                together. Each file blob and metadata bundle is sealed with randomized IVs inside
-                your browser using WebCrypto.
-              </p>
-            </article>
+            )}
           </div>
         </section>
       </main>

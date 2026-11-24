@@ -730,7 +730,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
       const cols = Math.floor(Math.min(10, (w - 20) / 42));
       const brickWidth = Math.floor((w - 20 - (cols - 1) * 4) / cols);
       const brickHeight = 12;
-      const startY = 36;
+      const startY = 16;
       const numRows = Math.min(8, 5 + Math.min(level - 1, 3));
       bricks = [];
 
@@ -1350,31 +1350,49 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
       style={{
         width: '100%',
         height: '100%',
+        padding: 4,
+        boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'center',
         backgroundColor: Colors.bg.primary,
-        userSelect: 'none',
-        position: 'relative',
         overflow: 'hidden',
       }}
     >
-      {/* ─── Arcade Top Bar ─────────────────────────────────────────────────── */}
+      {/* ─── Curved Arcade Box (4px from corners, compact padding) ─── */}
       <div
         style={{
           width: '100%',
-          maxWidth: 560,
-          height: 38,
+          maxWidth: 520,
+          height: '100%',
           display: 'flex',
-          justifyContent: 'space-between',
+          flexDirection: 'column',
           alignItems: 'center',
-          padding: '0 8px',
-          borderBottom: `1px solid ${Colors.border}`,
+          justifyContent: 'space-between',
           backgroundColor: Colors.bg.elevated,
-          zIndex: 15,
+          borderRadius: 14,
+          border: `1px solid ${Colors.border}`,
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
+          userSelect: 'none',
+          position: 'relative',
+          overflow: 'hidden',
         }}
       >
+        {/* ─── Arcade Top Bar ─────────────────────────────────────────────────── */}
+        <div
+          style={{
+            width: '100%',
+            height: 34,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '0 8px',
+            borderBottom: `1px solid ${Colors.border}`,
+            backgroundColor: Colors.bg.elevated,
+            zIndex: 15,
+          }}
+        >
         {/* Clickable Title: Brick Wall Peeker + "Brick Smash × SecureBox" Font */}
         <a
           href="/Securebox"
@@ -2035,19 +2053,19 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
       <div
         style={{
           width: '100%',
-          maxWidth: 560,
-          padding: '9px 16px',
+          padding: '6px 12px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          fontSize: 12,
+          fontSize: 11.5,
           color: Colors.text.placeholder,
           borderTop: `1px solid ${Colors.border}`,
           backgroundColor: Colors.bg.elevated,
         }}
       >
         <span>Drag to move paddle</span>
-        <span style={{ fontSize: 11, opacity: 0.85 }}>Bombs Detonate 25% • Vector Powerups Active</span>
+        <span style={{ fontSize: 10.5, opacity: 0.85 }}>Bombs Detonate 25% • Vector Powerups Active</span>
+      </div>
       </div>
     </div>
   );

@@ -64,7 +64,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        padding: 'calc(6px + env(safe-area-inset-top, 0px)) 12px 76px',
+        padding: 'calc(2px + env(safe-area-inset-top, 0px)) 12px 76px',
         boxSizing: 'border-box',
       }}
     >

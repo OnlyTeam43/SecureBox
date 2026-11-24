@@ -87,9 +87,9 @@ export const RoomHub: React.FC<RoomHubProps> = ({
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      padding: 'calc(6px + env(safe-area-inset-top, 0px)) 12px 76px',
+      padding: 'calc(2px + env(safe-area-inset-top, 0px)) 12px 76px',
     }}>
-      <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* Header with Main Logo and Play Game Button (No Hamburger Menu in Chat Tab) */}
         <div style={{
           display: 'flex',

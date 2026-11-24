@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Colors } from '../theme/tokens';
 import { ChatMessage } from '../types';
-import { Check, CheckCheck, ShieldCheck, Reply } from 'lucide-react';
+import { Check, CheckCheck, ShieldCheck, Reply, Camera } from 'lucide-react';
 import { ImageViewerModal } from './ImageViewerModal';
 
 interface ChatMessagesProps {
@@ -75,7 +75,10 @@ const ReplyPreview: React.FC<{
         {replyTo.sender}
       </div>
       {replyTo.media && !replyTo.text && (
-        <div style={{ fontSize: 11, color: Colors.text.secondary }}>📷 Photo</div>
+        <div style={{ fontSize: 11, color: Colors.text.secondary, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Camera size={12} color={Colors.text.secondary} />
+          <span>Photo</span>
+        </div>
       )}
       {replyTo.text && (
         <div style={{
@@ -154,20 +157,20 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
       minHeight: 0,
       overflowY: 'auto',
       WebkitOverflowScrolling: 'touch',
-      padding: '16px',
+      padding: '6px 12px 14px',
       display: 'flex',
       flexDirection: 'column',
-      gap: 10,
+      gap: 8,
       backgroundColor: Colors.bg.chatBg,
     }}>
       {/* Encryption Badge */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        gap: 6, padding: '6px 14px', borderRadius: 20,
+        gap: 5, padding: '4px 10px', borderRadius: 20,
         backgroundColor: Colors.accent.soft, border: `1px solid ${Colors.accent.light}`,
-        color: Colors.accent.secondary, fontSize: 11, fontWeight: 500, margin: '0 auto 8px',
+        color: Colors.accent.secondary, fontSize: 10.5, fontWeight: 500, margin: '0 auto 4px',
       }}>
-        <ShieldCheck size={14} />
+        <ShieldCheck size={13} />
         <span>End-to-End Encrypted (AES-GCM-256) · Zero Server Storage</span>
       </div>
 
