@@ -841,6 +841,7 @@ export const App: React.FC = () => {
             onDeleteRoom={(rId) => deleteRoom(rId, true)}
             onPlayGame={() => setScreenMode('game')}
             onOpenQuickDrop={() => openDropboxPage('upload')}
+            onOpenSecureboxPage={openSecureboxPage}
           />
         )}
 

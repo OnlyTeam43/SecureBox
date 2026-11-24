@@ -19,6 +19,9 @@ import {
   Sparkles,
   PanelRight,
   CheckCircle2,
+  Menu,
+  X,
+  ChevronRight,
 } from 'lucide-react';
 import { QuickDropPanel } from './QuickDropModal';
 import { BrickWallPeeker } from './BrickWallPeeker';
@@ -38,6 +41,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
   onOpenSecureboxPage,
 }) => {
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleNavigateApp = (e?: React.MouseEvent) => {
     if (e) e.preventDefault();
@@ -97,7 +101,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: '12px',
-            flexWrap: 'wrap',
+            position: 'relative',
           }}
         >
           <a
@@ -108,6 +112,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
               alignItems: 'center',
               gap: '8px',
               textDecoration: 'none',
+              minWidth: 0,
             }}
             title="SecureBox Encrypted Vault & Android APK"
           >
@@ -130,7 +135,8 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
             </div>
           </a>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Desktop Navigation */}
+          <div className="dropbox-desktop-nav" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <a
               href="#install-extension"
               style={{
@@ -189,7 +195,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
               }}
             >
               <Download size={12} />
-              <span>APK</span>
+              <span>APK (2.9 MB)</span>
             </a>
 
             <a
@@ -211,6 +217,166 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
               <Gamepad2 size={13} />
               <span>Open App</span>
             </a>
+          </div>
+
+          {/* Mobile Navigation */}
+          <div className="dropbox-mobile-nav" style={{ display: 'none', alignItems: 'center', gap: '6px' }}>
+            <a
+              href="/"
+              onClick={handleNavigateApp}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '6px 10px',
+                borderRadius: '8px',
+                backgroundColor: '#D96B43',
+                color: '#FFFFFF',
+                fontSize: '11px',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              <Gamepad2 size={13} />
+              <span>App</span>
+            </a>
+
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 34,
+                height: 34,
+                borderRadius: 8,
+                backgroundColor: isMobileMenuOpen ? '#EFECE6' : '#FFFFFF',
+                border: '1px solid #E7E5E4',
+                color: '#141518',
+                cursor: 'pointer',
+              }}
+              aria-label="Toggle Menu"
+            >
+              {isMobileMenuOpen ? <X size={16} /> : <Menu size={16} />}
+            </button>
+
+            {isMobileMenuOpen && (
+              <>
+                <div
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    zIndex: 998,
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    right: 0,
+                    width: 250,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: 14,
+                    border: '1px solid #E7E5E4',
+                    boxShadow: '0 10px 28px rgba(0,0,0,0.12)',
+                    padding: 8,
+                    zIndex: 999,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  <a
+                    href="/securebox.apk"
+                    download="SecureBox.apk"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      textDecoration: 'none',
+                      backgroundColor: 'rgba(217, 107, 67, 0.08)',
+                      border: '1px solid rgba(217, 107, 67, 0.25)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Download size={15} color="#D96B43" />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#D96B43' }}>Download APK</span>
+                    </div>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: '#D96B43' }}>2.9 MB</span>
+                  </a>
+
+                  <a
+                    href="#install-extension"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      textDecoration: 'none',
+                      color: '#141518',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <PanelRight size={15} color="#D96B43" />
+                    <span>Chrome Extension</span>
+                  </a>
+
+                  <a
+                    href="/Securebox"
+                    onClick={(e) => {
+                      setIsMobileMenuOpen(false);
+                      handleNavigateSecurebox(e);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      textDecoration: 'none',
+                      color: '#141518',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <ShieldCheck size={15} color="#D96B43" />
+                    <span>SecureBox Vault</span>
+                  </a>
+
+                  <a
+                    href="/"
+                    onClick={(e) => {
+                      setIsMobileMenuOpen(false);
+                      handleNavigateApp(e);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      textDecoration: 'none',
+                      color: '#141518',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Gamepad2 size={15} color="#D96B43" />
+                    <span>Play Brick Smash</span>
+                  </a>
+                </div>
+              </>
+            )}
           </div>
         </nav>
       </header>

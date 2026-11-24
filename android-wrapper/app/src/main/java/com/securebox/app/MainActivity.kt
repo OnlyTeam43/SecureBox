@@ -165,6 +165,7 @@ class MainActivity : AppCompatActivity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
+        settings.textZoom = 100
         settings.cacheMode = WebSettings.LOAD_DEFAULT
 
         // Append identifier to user agent while maintaining full Chrome/WebRTC compatibility

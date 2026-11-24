@@ -31,6 +31,8 @@ import {
   UploadCloud,
   ChevronDown,
   Flame,
+  Menu,
+  X,
 } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
 import { SECUREBOX_FAQS } from '../utils/seo';
@@ -43,6 +45,7 @@ interface SecureboxPageProps {
 export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpenQuickDrop }) => {
   const [activeMockupIndex, setActiveMockupIndex] = useState(0);
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleOpenDropbox = (e?: React.MouseEvent) => {
     if (e) e.preventDefault();
@@ -243,8 +246,8 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
             </div>
           </div>
 
-          {/* Compact Small Action CTAs */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Desktop Navigation */}
+          <div className="dropbox-desktop-nav" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {onOpenQuickDrop && (
               <button
                 onClick={onOpenQuickDrop}
@@ -286,7 +289,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
               }}
             >
               <Download size={12} />
-              <span>Download APK</span>
+              <span>Download APK (2.9 MB)</span>
             </a>
 
             <button
@@ -309,6 +312,147 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
               <Gamepad2 size={13} />
               <span>Play Game</span>
             </button>
+          </div>
+
+          {/* Mobile Navigation */}
+          <div className="dropbox-mobile-nav" style={{ display: 'none', alignItems: 'center', gap: '6px', position: 'relative' }}>
+            <button
+              onClick={handleLaunch}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '6px 10px',
+                borderRadius: '8px',
+                backgroundColor: '#D96B43',
+                color: '#FFFFFF',
+                border: 'none',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Gamepad2 size={13} />
+              <span>Game</span>
+            </button>
+
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                backgroundColor: isMobileMenuOpen ? '#EFECE6' : '#FFFFFF',
+                border: '1px solid #E7E5E4',
+                color: '#141518',
+                cursor: 'pointer',
+              }}
+              aria-label="Toggle Menu"
+            >
+              {isMobileMenuOpen ? <X size={16} /> : <Menu size={16} />}
+            </button>
+
+            {isMobileMenuOpen && (
+              <>
+                <div
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    zIndex: 998,
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    right: 0,
+                    width: 250,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: 14,
+                    border: '1px solid #E7E5E4',
+                    boxShadow: '0 10px 28px rgba(0,0,0,0.12)',
+                    padding: 8,
+                    zIndex: 999,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  <a
+                    href="/securebox.apk"
+                    download="SecureBox.apk"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      textDecoration: 'none',
+                      backgroundColor: 'rgba(217, 107, 67, 0.08)',
+                      border: '1px solid rgba(217, 107, 67, 0.25)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Download size={15} color="#D96B43" />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#D96B43' }}>Download APK</span>
+                    </div>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: '#D96B43' }}>2.9 MB</span>
+                  </a>
+
+                  {onOpenQuickDrop && (
+                    <div
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        onOpenQuickDrop();
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        color: '#141518',
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      <UploadCloud size={15} color="#D96B43" />
+                      <span>QuickDrop Shuttle</span>
+                    </div>
+                  )}
+
+                  <div
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      handleLaunch();
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      color: '#141518',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Gamepad2 size={15} color="#D96B43" />
+                    <span>Play Brick Smash</span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </header>

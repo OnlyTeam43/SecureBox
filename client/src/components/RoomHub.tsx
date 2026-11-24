@@ -12,7 +12,12 @@ import {
   UploadCloud,
   Smartphone,
   Download,
+  Menu,
+  X,
+  ShieldCheck,
+  ChevronRight,
 } from 'lucide-react';
+import { BrickWallPeeker } from './BrickWallPeeker';
 import { usePWAInstall } from '../utils/usePWAInstall';
 
 interface RoomHubProps {
@@ -22,6 +27,7 @@ interface RoomHubProps {
   onDeleteRoom: (roomId: string) => void;
   onPlayGame: () => void;
   onOpenQuickDrop?: () => void;
+  onOpenSecureboxPage?: () => void;
 }
 
 export const RoomHub: React.FC<RoomHubProps> = ({
@@ -31,11 +37,13 @@ export const RoomHub: React.FC<RoomHubProps> = ({
   onDeleteRoom,
   onPlayGame,
   onOpenQuickDrop,
+  onOpenSecureboxPage,
 }) => {
   const [handle, setHandle] = useState(() => {
     return localStorage.getItem('securebox_user_handle') || '';
   });
   const { canInstall, installApp } = usePWAInstall();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [handleError, setHandleError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -89,122 +97,303 @@ export const RoomHub: React.FC<RoomHubProps> = ({
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      padding: '24px 16px 40px',
+      padding: '16px 14px 36px',
     }}>
-      <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Header */}
+      <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {/* Header with Main Logo, Play Game Button, and Hamburger Menu */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          padding: '8px 0',
+          padding: '4px 0',
+          position: 'relative',
         }}>
-          <div>
-            <h1 style={{
-              fontSize: 22,
-              fontWeight: 600,
-              color: Colors.text.primary,
-              letterSpacing: '-0.3px',
-              margin: 0,
-            }}>
-              SecureBox Hub
-            </h1>
-            <span style={{ fontSize: 13, color: Colors.text.secondary }}>
-              Encrypted rooms &amp; local inventory
-            </span>
-          </div>
+          {/* Logo & Play Game Button on Left */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={onPlayGame} title="SecureBox">
+              <BrickWallPeeker width={34} height={28} />
+              <div>
+                <div
+                  style={{
+                    fontFamily: '"Press Start 2P", monospace',
+                    fontSize: '13px',
+                    letterSpacing: '0.5px',
+                    color: '#141518',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  SECURE<span style={{ color: '#D97757' }}>BOX</span>
+                </div>
+                <div style={{ fontSize: '10px', color: '#78716C', fontWeight: 500, marginTop: 2 }}>
+                  Private Vault · Encrypted Rooms
+                </div>
+              </div>
+            </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {canInstall && (
-              <button
-                onClick={installApp}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '8px 14px',
-                  borderRadius: 9999,
-                  backgroundColor: '#E8F5E9',
-                  border: '1px solid #81C784',
-                  color: '#2E7D32',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-                title="Install SecureBox App to Home Screen"
-              >
-                <Smartphone size={15} />
-                <span>Install</span>
-              </button>
-            )}
-            <a
-              href="/securebox.apk"
-              download="SecureBox.apk"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '8px 14px',
-                borderRadius: 9999,
-                backgroundColor: 'rgba(217, 107, 67, 0.08)',
-                border: '1px solid rgba(217, 107, 67, 0.3)',
-                color: Colors.accent.primary,
-                fontSize: 13,
-                fontWeight: 600,
-                textDecoration: 'none',
-                cursor: 'pointer',
-              }}
-              title="Download SecureBox Android APK (2.9 MB)"
-            >
-              <Download size={15} />
-              <span>APK</span>
-            </a>
-            {onOpenQuickDrop && (
-              <a
-                href="/dropbox"
-                onClick={(e) => {
-                  e.preventDefault();
-                  onOpenQuickDrop();
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '8px 14px',
-                  borderRadius: 9999,
-                  backgroundColor: 'rgba(217, 119, 87, 0.12)',
-                  border: '1px solid ' + Colors.accent.primary,
-                  color: Colors.accent.primary,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  textDecoration: 'none',
-                  cursor: 'pointer',
-                }}
-                title="SecureBox QuickDrop (/dropbox) - Anonymous Media, Links, and Text Transfer"
-              >
-                <UploadCloud size={16} />
-                <span>QuickDrop</span>
-              </a>
-            )}
+            {/* Play Game Button placed right next to the logo */}
             <button
               onClick={onPlayGame}
               style={{
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
-                padding: '8px 14px',
+                gap: 5,
+                padding: '6px 11px',
                 borderRadius: 9999,
-                backgroundColor: Colors.bg.secondary,
-                border: '1px solid ' + Colors.borderStrong,
-                color: Colors.text.primary,
-                fontSize: 13,
-                fontWeight: 500,
+                backgroundColor: '#F5EBE6',
+                border: '1px solid #F0CFC2',
+                color: Colors.accent.primary,
+                fontSize: 11.5,
+                fontWeight: 600,
                 cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                transition: 'background-color 0.15s',
               }}
+              title="Switch to Brick Smash Arcade Game Disguise"
             >
-              <Gamepad2 size={16} color={Colors.accent.primary} />
+              <Gamepad2 size={13} color={Colors.accent.primary} />
               <span>Play Game</span>
             </button>
+          </div>
+
+          {/* Hamburger Menu Toggle on Right */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                backgroundColor: isMenuOpen ? '#EFECE6' : Colors.bg.secondary,
+                border: `1px solid ${Colors.borderStrong}`,
+                color: Colors.text.primary,
+                cursor: 'pointer',
+                flexShrink: 0,
+                transition: 'all 0.15s',
+              }}
+              aria-label="Navigation Menu"
+            >
+              {isMenuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+
+            {/* Hamburger Dropdown Menu */}
+            {isMenuOpen && (
+              <>
+                <div
+                  onClick={() => setIsMenuOpen(false)}
+                  style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    zIndex: 998,
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    right: 0,
+                    width: 260,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: 14,
+                    border: '1px solid #E7E5E4',
+                    boxShadow: '0 10px 28px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)',
+                    padding: 8,
+                    zIndex: 999,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  {/* Item 1: Download Android APK (wrapped web) */}
+                  <a
+                    href="/securebox.apk"
+                    download="SecureBox.apk"
+                    onClick={() => setIsMenuOpen(false)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '9px 10px',
+                      borderRadius: 10,
+                      textDecoration: 'none',
+                      backgroundColor: 'rgba(217, 107, 67, 0.08)',
+                      border: '1px solid rgba(217, 107, 67, 0.25)',
+                      transition: 'background-color 0.15s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                      <Download size={16} color={Colors.accent.primary} />
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: Colors.accent.primary }}>
+                          Download Android APK
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#78716C' }}>
+                          Standalone WebView Wrapper
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: Colors.accent.primary,
+                      backgroundColor: '#FFFFFF',
+                      padding: '2px 6px',
+                      borderRadius: 6,
+                    }}>
+                      2.9 MB
+                    </span>
+                  </a>
+
+                  {/* Item 2: QuickDrop */}
+                  <a
+                    href="/dropbox"
+                    onClick={(e) => {
+                      if (onOpenQuickDrop) {
+                        e.preventDefault();
+                        setIsMenuOpen(false);
+                        onOpenQuickDrop();
+                      } else {
+                        setIsMenuOpen(false);
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '9px 10px',
+                      borderRadius: 10,
+                      textDecoration: 'none',
+                      backgroundColor: 'transparent',
+                      color: Colors.text.primary,
+                      transition: 'background-color 0.15s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                      <UploadCloud size={16} color={Colors.accent.primary} />
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: Colors.text.primary }}>
+                          QuickDrop
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#78716C' }}>
+                          Zero-Login File &amp; Text Shuttle
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight size={14} color="#A8A29E" />
+                  </a>
+
+                  {/* Item 3: Install App (PWA) */}
+                  {canInstall && (
+                    <div
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        installApp();
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '9px 10px',
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        backgroundColor: '#E8F5E9',
+                        border: '1px solid #A5D6A7',
+                        transition: 'background-color 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                        <Smartphone size={16} color="#2E7D32" />
+                        <div style={{ textAlign: 'left' }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 600, color: '#2E7D32' }}>
+                            Install to Home Screen
+                          </div>
+                          <div style={{ fontSize: 10.5, color: '#388E3C' }}>
+                            Progressive Web App (PWA)
+                          </div>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#2E7D32', textTransform: 'uppercase' }}>
+                        Install
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Item 4: About SecureBox */}
+                  <a
+                    href="/Securebox"
+                    onClick={(e) => {
+                      setIsMenuOpen(false);
+                      if (onOpenSecureboxPage) {
+                        e.preventDefault();
+                        onOpenSecureboxPage();
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '9px 10px',
+                      borderRadius: 10,
+                      textDecoration: 'none',
+                      backgroundColor: 'transparent',
+                      color: Colors.text.primary,
+                      transition: 'background-color 0.15s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                      <ShieldCheck size={16} color="#57534E" />
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: Colors.text.primary }}>
+                          About SecureBox
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#78716C' }}>
+                          Architecture &amp; Zero-Logs Vault
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight size={14} color="#A8A29E" />
+                  </a>
+
+                  {/* Item 5: Play Disguise Game */}
+                  <div
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onPlayGame();
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '9px 10px',
+                      borderRadius: 10,
+                      cursor: 'pointer',
+                      backgroundColor: 'transparent',
+                      color: Colors.text.primary,
+                      transition: 'background-color 0.15s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                      <Gamepad2 size={16} color={Colors.accent.primary} />
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: Colors.text.primary }}>
+                          Play Brick Smash
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#78716C' }}>
+                          Switch to Arcade Disguise
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight size={14} color="#A8A29E" />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
