@@ -1,0 +1,37 @@
+{
+  "name": "Brick Smash - SecureBox Arcade",
+  "short_name": "Brick Smash",
+  "description": "Retro arcade brick breaker disguise with private end-to-end encrypted rooms & QuickDrop.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAF9F5",
+  "theme_color": "#FAF9F5",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": [
+    "games",
+    "entertainment",
+    "social",
+    "utilities"
+  ],
+  "screenshots": []
+}

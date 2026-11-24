@@ -1,7 +1,7 @@
 // client/src/components/SecureboxPage.tsx
 // Dedicated showcase page for https://thesecurebox.vercel.app/Securebox
 // Features mobile mockup showcase, zero-knowledge security deep-dive,
-// direct local 54MB APK download (/securebox.apk), and zero external branding.
+// direct local 2.9 MB APK download (/securebox.apk), and zero external branding.
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -409,7 +409,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                 marginLeft: '4px',
               }}
             >
-              54 MB
+              2.9 MB
             </span>
           </a>
 
@@ -1097,7 +1097,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
         </div>
       </section>
 
-      {/* ─── Direct 54MB APK Download Banner ─────────────────────────────────── */}
+      {/* ─── Direct 2.9 MB APK Download Banner ─────────────────────────────────── */}
       <section
         id="download"
         style={{
@@ -1154,7 +1154,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
           >
             Get the full native mobile experience with vibration haptics, instant offline
             storage, push camouflage alerts, and zero-store tracking. Download the official
-            54 MB APK directly below.
+            2.9 MB APK directly below.
           </p>
 
           {/* Download Box Card */}
@@ -1259,7 +1259,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                   File Size
                 </div>
                 <div style={{ fontSize: '12px', fontWeight: 600, color: '#22C55E' }}>
-                  ~54 MB
+                  ~2.9 MB
                 </div>
               </div>
 
@@ -1302,7 +1302,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
               }}
             >
               <Download size={18} />
-              <span>Download SecureBox.apk (54 MB)</span>
+              <span>Download SecureBox.apk (2.9 MB)</span>
             </a>
           </div>
 
@@ -1556,7 +1556,7 @@ export const SecureboxPage: React.FC<SecureboxPageProps> = ({ onLaunchApp, onOpe
                 fontWeight: 500,
               }}
             >
-              Download APK (54 MB)
+              Download APK (2.9 MB)
             </a>
             <span style={{ color: '#A8A29E' }}>•</span>
             <span style={{ color: '#78716C', fontSize: '12px' }}>

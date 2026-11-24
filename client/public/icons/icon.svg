@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FAF9F5"/>
+      <stop offset="100%" stop-color="#F2EFE9"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="url(#bg)"/>
+
+  <!-- Arcade Bricks Layer 1 (Red / Terracotta) -->
+  <rect x="56" y="110" width="90" height="34" rx="8" fill="#D97757" filter="url(#shadow)"/>
+  <rect x="156" y="110" width="90" height="34" rx="8" fill="#D97757" filter="url(#shadow)"/>
+  <rect x="256" y="110" width="90" height="34" rx="8" fill="#D97757" filter="url(#shadow)"/>
+  <rect x="356" y="110" width="100" height="34" rx="8" fill="#D97757" filter="url(#shadow)"/>
+
+  <!-- Layer 2 (Warm Orange) -->
+  <rect x="56" y="156" width="100" height="34" rx="8" fill="#E28743" filter="url(#shadow)"/>
+  <rect x="166" y="156" width="90" height="34" rx="8" fill="#E28743" filter="url(#shadow)"/>
+  <rect x="266" y="156" width="90" height="34" rx="8" fill="#E28743" filter="url(#shadow)"/>
+  <rect x="366" y="156" width="90" height="34" rx="8" fill="#E28743" filter="url(#shadow)"/>
+
+  <!-- Layer 3 (Sage / Forest Green) -->
+  <rect x="56" y="202" width="90" height="34" rx="8" fill="#5E9473" filter="url(#shadow)"/>
+  <rect x="156" y="202" width="100" height="34" rx="8" fill="#5E9473" filter="url(#shadow)"/>
+  <rect x="266" y="202" width="90" height="34" rx="8" fill="#5E9473" filter="url(#shadow)"/>
+  <rect x="366" y="202" width="90" height="34" rx="8" fill="#5E9473" filter="url(#shadow)"/>
+
+  <!-- Layer 4 (Teal) -->
+  <rect x="56" y="248" width="90" height="34" rx="8" fill="#4A8B88" filter="url(#shadow)"/>
+  <rect x="156" y="248" width="90" height="34" rx="8" fill="#4A8B88" filter="url(#shadow)"/>
+  <rect x="256" y="248" width="100" height="34" rx="8" fill="#4A8B88" filter="url(#shadow)"/>
+  <rect x="366" y="248" width="90" height="34" rx="8" fill="#4A8B88" filter="url(#shadow)"/>
+
+  <!-- Bouncing Panda Ball -->
+  <g transform="translate(256, 335)" filter="url(#shadow)">
+    <!-- Ears -->
+    <circle cx="-28" cy="-28" r="16" fill="#141413"/>
+    <circle cx="28" cy="-28" r="16" fill="#141413"/>
+    <!-- Head -->
+    <circle cx="0" cy="0" r="42" fill="#FFFFFF" stroke="#E5E0D8" stroke-width="2"/>
+    <!-- Eye patches -->
+    <ellipse cx="-16" cy="-4" rx="12" ry="15" fill="#141413" transform="rotate(-15 -16 -4)"/>
+    <ellipse cx="16" cy="-4" rx="12" ry="15" fill="#141413" transform="rotate(15 16 -4)"/>
+    <!-- Pupils -->
+    <circle cx="-14" cy="-6" r="4" fill="#FFFFFF"/>
+    <circle cx="14" cy="-6" r="4" fill="#FFFFFF"/>
+    <!-- Nose -->
+    <ellipse cx="0" cy="12" rx="7" ry="5" fill="#141413"/>
+  </g>
+
+  <!-- Player Paddle -->
+  <rect x="186" y="420" width="140" height="26" rx="13" fill="#D97757" filter="url(#shadow)"/>
+</svg>

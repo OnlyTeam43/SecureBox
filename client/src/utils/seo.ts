@@ -25,7 +25,7 @@ export const SECUREBOX_FAQS: SeoFaqItem[] = [
   {
     question: 'How do I download and install the SecureBox Android APK?',
     answer:
-      'You can download the official standalone SecureBox.apk directly from the SecureBox page at /Securebox without creating a store account. Tap Download SecureBox.apk (approximately 54 MB), open the downloaded APK file on Android 8.0 or newer, and tap Install.',
+      'You can download the official standalone SecureBox.apk directly from the SecureBox page at /Securebox without creating a store account. Tap Download SecureBox.apk (approximately 2.9 MB), open the downloaded APK file on Android 8.0 or newer, and tap Install.',
   },
   {
     question: 'Can I send files, videos, or links between devices without logging in?',
@@ -125,7 +125,7 @@ export const ROUTE_SEO_CONFIG: Record<SeoRouteKey, RouteSeoConfig> = {
           applicationCategory: 'SecurityApplication',
           operatingSystem: 'Android, Web',
           softwareVersion: '1.0.0',
-          fileSize: '54MB',
+          fileSize: '2.9 MB',
           description:
             'Zero-knowledge AES-256-GCM encrypted chat messenger disguised inside a playable Brick Smash arcade game with 24-hour ephemeral rooms, idle auto-lock, and sandboxed isolation.',
           offers: {
@@ -139,7 +139,7 @@ export const ROUTE_SEO_CONFIG: Record<SeoRouteKey, RouteSeoConfig> = {
             'PBKDF2-SHA256 100,000-iteration key derivation',
             '24-hour ephemeral rooms with instant wipe on both devices',
             'Auto-lock disguise on tab switch or 60-second idle',
-            'Direct Android APK download (~54 MB)',
+            'Direct Android APK download (~2.9 MB)',
           ],
         },
         {

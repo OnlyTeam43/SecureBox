@@ -5,8 +5,9 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Colors, BrickRowColors } from '../theme/tokens';
-import { Lock, Volume2, VolumeX, Zap, Trophy, RotateCcw, ArrowRight, UploadCloud, Menu, X, ChevronRight, ShieldCheck } from 'lucide-react';
+import { Lock, Volume2, VolumeX, Zap, Trophy, RotateCcw, ArrowRight, UploadCloud, Menu, X, ChevronRight, ShieldCheck, Smartphone, Download } from 'lucide-react';
 import { BrickWallPeeker } from './BrickWallPeeker';
+import { usePWAInstall } from '../utils/usePWAInstall';
 
 interface BrickSmashGameProps {
   onUnlockClick: () => void;
@@ -76,6 +77,7 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
   const [gameState, setGameState] = useState<GamePlayState>('ready');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [levelDisplay, setLevelDisplay] = useState(1);
+  const { canInstall, installApp } = usePWAInstall();
   const [scoreDisplay, setScoreDisplay] = useState(0);
 
   // Speed multiplier state
@@ -1766,6 +1768,68 @@ export const BrickSmashGame: React.FC<BrickSmashGameProps> = ({
                 </span>
               </div>
               <ChevronRight size={14} color={Colors.accent.primary} />
+            </a>
+
+            {/* Item 5: PWA Install App to Home Screen */}
+            {canInstall && (
+              <div
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  installApp();
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '9px 9px',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  backgroundColor: '#E8F5E9',
+                  border: '1px solid #81C784',
+                  marginTop: 4,
+                  transition: 'background-color 0.15s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <Smartphone size={16} color="#2E7D32" />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#2E7D32' }}>
+                    Install App to Home Screen
+                  </span>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#2E7D32', textTransform: 'uppercase' }}>
+                  Install
+                </span>
+              </div>
+            )}
+
+            {/* Item 6: Download Android APK */}
+            <a
+              href="/securebox.apk"
+              download="SecureBox.apk"
+              onClick={() => setIsMenuOpen(false)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '9px 9px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                textDecoration: 'none',
+                backgroundColor: 'rgba(217, 107, 67, 0.08)',
+                border: '1px solid rgba(217, 107, 67, 0.25)',
+                marginTop: 4,
+                transition: 'background-color 0.15s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <Download size={16} color={Colors.accent.primary} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: Colors.accent.primary }}>
+                  Download Android APK
+                </span>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 700, color: Colors.accent.primary, textTransform: 'uppercase' }}>
+                2.9 MB
+              </span>
             </a>
           </div>
         </>

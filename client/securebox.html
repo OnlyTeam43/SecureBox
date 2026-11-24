@@ -10,6 +10,15 @@
   <meta name="theme-color" content="#FAF9F6">
   <link rel="canonical" href="https://thesecurebox.vercel.app/Securebox">
 
+  <!-- PWA & Mobile Web App Capabilities -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Brick Smash">
+  <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512.png">
+
   <!-- Open Graph / Social -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="SecureBox">
@@ -47,7 +56,7 @@
         "applicationCategory": "SecurityApplication",
         "operatingSystem": "Android, Web",
         "softwareVersion": "1.0.0",
-        "fileSize": "54MB",
+        "fileSize": "2.9 MB",
         "description": "Zero-knowledge AES-256-GCM encrypted chat messenger disguised inside a playable Brick Smash arcade game with 24-hour ephemeral rooms, idle auto-lock, and sandboxed isolation.",
         "offers": {
           "@type": "Offer",
@@ -60,7 +69,7 @@
           "PBKDF2-SHA256 100,000-iteration key derivation",
           "24-hour ephemeral rooms with instant wipe on both devices",
           "Auto-lock disguise on tab switch or 60-second idle",
-          "Direct Android APK download (~54 MB)"
+          "Direct Android APK download (~2.9 MB)"
         ]
       },
       {
@@ -87,7 +96,7 @@
             "name": "How do I download and install the SecureBox Android APK?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "You can download the official standalone SecureBox.apk directly from the SecureBox page at /Securebox without creating a store account. Tap Download SecureBox.apk (approximately 54 MB), open the downloaded APK file on Android 8.0 or newer, and tap Install."
+              "text": "You can download the official standalone SecureBox.apk directly from the SecureBox page at /Securebox without creating a store account. Tap Download SecureBox.apk (approximately 2.9 MB), open the downloaded APK file on Android 8.0 or newer, and tap Install."
             }
           },
           {
@@ -117,7 +126,7 @@
       <h1>Looks like an arcade game. Opens like a military vault.</h1>
       <p>Disguised behind an authentic Brick Smash game. Ephemeral 24-hour private chat rooms, zero server logs, client-side WebCrypto AES-GCM-256 encryption, and instant self-destruct.</p>
       <p>
-        <a href="/securebox.apk">Download Android APK (54 MB)</a> ·
+        <a href="/securebox.apk">Download Android APK (2.9 MB)</a> ·
         <a href="/dropbox">Open SecureBox QuickDrop (/dropbox)</a> ·
         <a href="/">Launch Web Game Disguise</a>
       </p>
@@ -135,11 +144,18 @@
       <h3>Does SecureBox store my messages or encryption keys on a server?</h3>
       <p>No. All messages and photos are encrypted client-side using WebCrypto AES-GCM 256-bit encryption with PBKDF2-SHA256 (100,000 iterations).</p>
       <h3>How do I download and install the SecureBox Android APK?</h3>
-      <p>Download the standalone SecureBox.apk (approximately 54 MB) directly from /Securebox and install on Android 8.0 or newer.</p>
+      <p>Download the standalone SecureBox.apk (approximately 2.9 MB) directly from /Securebox and install on Android 8.0 or newer.</p>
       <h3>Can I send files, videos, or links between devices without logging in?</h3>
       <p>Yes. Visit <a href="/dropbox">/dropbox</a> for zero-login encrypted file, link, and text transfer.</p>
     </main>
   </div>
   <script type="module" src="/src/main.tsx"></script>
+  <script>
+    if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

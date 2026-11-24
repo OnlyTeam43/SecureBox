@@ -10,7 +10,10 @@ import {
   Calendar,
   MessageSquare,
   UploadCloud,
+  Smartphone,
+  Download,
 } from 'lucide-react';
+import { usePWAInstall } from '../utils/usePWAInstall';
 
 interface RoomHubProps {
   savedRooms: RoomMetadata[];
@@ -32,6 +35,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
   const [handle, setHandle] = useState(() => {
     return localStorage.getItem('securebox_user_handle') || '';
   });
+  const { canInstall, installApp } = usePWAInstall();
   const [handleError, setHandleError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -111,6 +115,50 @@ export const RoomHub: React.FC<RoomHubProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {canInstall && (
+              <button
+                onClick={installApp}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 14px',
+                  borderRadius: 9999,
+                  backgroundColor: '#E8F5E9',
+                  border: '1px solid #81C784',
+                  color: '#2E7D32',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title="Install SecureBox App to Home Screen"
+              >
+                <Smartphone size={15} />
+                <span>Install</span>
+              </button>
+            )}
+            <a
+              href="/securebox.apk"
+              download="SecureBox.apk"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 14px',
+                borderRadius: 9999,
+                backgroundColor: 'rgba(217, 107, 67, 0.08)',
+                border: '1px solid rgba(217, 107, 67, 0.3)',
+                color: Colors.accent.primary,
+                fontSize: 13,
+                fontWeight: 600,
+                textDecoration: 'none',
+                cursor: 'pointer',
+              }}
+              title="Download SecureBox Android APK (2.9 MB)"
+            >
+              <Download size={15} />
+              <span>APK</span>
+            </a>
             {onOpenQuickDrop && (
               <a
                 href="/dropbox"
