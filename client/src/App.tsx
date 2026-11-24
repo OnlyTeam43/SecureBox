@@ -32,6 +32,8 @@ import { ChatMessages } from './components/ChatMessages';
 import { Composer } from './components/Composer';
 import { SecureboxPage } from './components/SecureboxPage';
 import { DropboxPage } from './components/DropboxPage';
+import { BottomNavBar, BottomNavTab } from './components/BottomNavBar';
+import { UserProfileView } from './components/UserProfileView';
 import { applyRouteSeo } from './utils/seo';
 
 // ─── Storage Key Constants ──────────────────────────────────────────────────
@@ -128,6 +130,15 @@ export const App: React.FC = () => {
     setIsDropboxPage(false);
     setIsDedicatedPage(false);
     setScreenMode('hub');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/');
+    }
+  }, []);
+
+  const openUserProfile = useCallback(() => {
+    setIsDropboxPage(false);
+    setIsDedicatedPage(false);
+    setScreenMode('user');
     if (typeof window !== 'undefined') {
       window.history.pushState(null, '', '/');
     }
@@ -769,6 +780,7 @@ export const App: React.FC = () => {
         initialTab={quickDropTab}
         onLaunchApp={launchMainApp}
         onOpenSecureboxPage={openSecureboxPage}
+        onOpenUserProfile={openUserProfile}
       />
     );
   }
@@ -845,7 +857,23 @@ export const App: React.FC = () => {
           />
         )}
 
-
+        {/* Screen 3: User Profile & Local Vault Settings */}
+        {screenMode === 'user' && (
+          <UserProfileView
+            onPlayGame={() => setScreenMode('game')}
+            onOpenPinModal={() => {
+              pendingUnlockAction.current = () => setScreenMode('user');
+              setIsPinModalOpen(true);
+            }}
+            savedRoomsCount={savedRooms.length}
+            onClearAllData={() => {
+              if (window.confirm('Reset all vault data, rooms, and local keys on this device?')) {
+                localStorage.clear();
+                window.location.reload();
+              }
+            }}
+          />
+        )}
 
         {/* Screen 4: Encrypted Chat */}
         {screenMode === 'chat' && activeRoom && (
@@ -896,6 +924,23 @@ export const App: React.FC = () => {
               onCancelReply={() => setReplyingTo(null)}
             />
           </div>
+        )}
+
+        {/* 3-Icon Bottom Navigation Bar (1st: Chat, 2nd: QuickDrop, 3rd: User - NO EMOJIS) */}
+        {(screenMode === 'hub' || screenMode === 'user') && (
+          <BottomNavBar
+            activeTab={screenMode === 'user' ? 'user' : 'chat'}
+            onTabChange={(tab: BottomNavTab) => {
+              if (tab === 'chat') {
+                setScreenMode('hub');
+              } else if (tab === 'quickdrop') {
+                openDropboxPage('upload');
+              } else if (tab === 'user') {
+                setScreenMode('user');
+              }
+            }}
+            maxWidth={520}
+          />
         )}
 
         {/* First-time Profile & Password Onboarding */}

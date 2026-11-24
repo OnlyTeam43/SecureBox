@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { QuickDropPanel } from './QuickDropModal';
 import { BrickWallPeeker } from './BrickWallPeeker';
+import { BottomNavBar } from './BottomNavBar';
 import { DROPBOX_FAQS } from '../utils/seo';
 
 interface DropboxPageProps {
@@ -32,6 +33,7 @@ interface DropboxPageProps {
   initialTab?: 'upload' | 'retrieve';
   onLaunchApp?: () => void;
   onOpenSecureboxPage?: () => void;
+  onOpenUserProfile?: () => void;
 }
 
 export const DropboxPage: React.FC<DropboxPageProps> = ({
@@ -39,6 +41,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
   initialTab = 'upload',
   onLaunchApp,
   onOpenSecureboxPage,
+  onOpenUserProfile,
 }) => {
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -81,6 +84,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
     >
       {/* ─── Sticky Header Navigation ─────────────────────────────────────── */}
       <header
+        className="dropbox-header"
         style={{
           position: 'sticky',
           top: 0,
@@ -384,14 +388,16 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
       <main>
         {/* ─── Hero + Embedded Interactive Dropbox Tool ─────────────────────── */}
         <section
+          className="dropbox-hero-section"
           style={{
             padding: '36px 16px 48px',
             maxWidth: '1080px',
             margin: '0 auto',
           }}
         >
-          <div style={{ textAlign: 'center', maxWidth: '800px', margin: '0 auto 28px' }}>
+          <div className="dropbox-hero-text" style={{ textAlign: 'center', maxWidth: '800px', margin: '0 auto 28px' }}>
             <div
+              className="dropbox-hero-badge"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -412,6 +418,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
             </div>
 
             <h1
+              className="dropbox-hero-title"
               style={{
                 fontSize: 'clamp(26px, 4.4vw, 44px)',
                 fontWeight: 800,
@@ -426,6 +433,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
             </h1>
 
             <p
+              className="dropbox-hero-desc"
               style={{
                 fontSize: 'clamp(14px, 1.9vw, 17px)',
                 color: '#57534E',
@@ -1089,7 +1097,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
       {/* ─── Footer ────────────────────────────────────────────────────────── */}
       <footer
         style={{
-          padding: '32px 20px',
+          padding: '32px 20px calc(74px + env(safe-area-inset-bottom, 0px))',
           backgroundColor: '#FAF9F6',
           borderTop: '1px solid #E7E5E4',
           textAlign: 'center',
@@ -1153,7 +1161,7 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
               download="SecureBox.apk"
               style={{ color: '#57534E', textDecoration: 'none', fontWeight: 600 }}
             >
-              Android APK (54 MB)
+              Android APK (2.9 MB)
             </a>
           </nav>
 
@@ -1162,6 +1170,26 @@ export const DropboxPage: React.FC<DropboxPageProps> = ({
           </div>
         </div>
       </footer>
+
+      {/* 3-Icon Mobile Bottom Navigation Bar (1st: Chat, 2nd: QuickDrop, 3rd: User - NO EMOJIS) */}
+      <BottomNavBar
+        activeTab="quickdrop"
+        onTabChange={(tab) => {
+          if (tab === 'chat') {
+            if (onLaunchApp) onLaunchApp();
+            else handleNavigateApp();
+          } else if (tab === 'user') {
+            if (onOpenUserProfile) {
+              onOpenUserProfile();
+            } else if (onLaunchApp) {
+              onLaunchApp();
+            } else {
+              handleNavigateApp();
+            }
+          }
+        }}
+        maxWidth="100%"
+      />
     </div>
   );
 };

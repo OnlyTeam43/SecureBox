@@ -97,7 +97,7 @@ export const RoomHub: React.FC<RoomHubProps> = ({
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      padding: '16px 14px 36px',
+      padding: '16px 14px 76px',
     }}>
       <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 18 }}>
         {/* Header with Main Logo, Play Game Button, and Hamburger Menu */}

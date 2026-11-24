@@ -1,6 +1,6 @@
 // client/src/types/index.ts
 
-export type ScreenMode = 'game' | 'hub' | 'join' | 'chat';
+export type ScreenMode = 'game' | 'hub' | 'join' | 'chat' | 'user';
 
 export interface RoomMetadata {
   roomId: string;

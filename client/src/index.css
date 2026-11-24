@@ -76,13 +76,22 @@ input, button, textarea {
   animation: spin 1s linear infinite;
 }
 
-/* Responsive Mobile Header Navigation */
+/* Responsive Mobile Header Navigation & Spacing */
 @media (max-width: 680px) {
   .dropbox-desktop-nav {
     display: none !important;
   }
   .dropbox-mobile-nav {
     display: flex !important;
+  }
+  .dropbox-header {
+    padding: calc(6px + env(safe-area-inset-top, 0px)) 12px 6px !important;
+  }
+  .dropbox-hero-section {
+    padding: 8px 10px 84px !important;
+  }
+  .dropbox-hero-text {
+    display: none !important;
   }
 }
 
